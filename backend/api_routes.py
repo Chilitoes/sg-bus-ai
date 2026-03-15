@@ -418,9 +418,10 @@ def get_data_overview(db: Session = Depends(get_db)) -> dict:
     labeled_count  = db.query(func.count(BusArrivalRecord.id)).filter(
         BusArrivalRecord.delay_seconds.isnot(None)).scalar() or 0
 
-    # Recent 20 arrival records
+    # Recent 20 arrival records with a known delay (arrived early or late)
     recent_rows = (
         db.query(BusArrivalRecord)
+        .filter(BusArrivalRecord.delay_seconds.isnot(None))
         .order_by(BusArrivalRecord.collection_time.desc())
         .limit(20)
         .all()
@@ -469,7 +470,6 @@ def get_data_overview(db: Session = Depends(get_db)) -> dict:
     return {
         "database": {
             "type":           db_type,
-            "url_prefix":     DATABASE_URL[:30] + "…",
             "arrival_records": arrival_count,
             "labeled_records": labeled_count,
             "tracking_rows":   tracking_count,

@@ -62,6 +62,8 @@ const el = {
   recSection:   $("records-section"),
   recTbody:     $("records-tbody"),
   dataRefresh:  $("data-refresh-btn"),
+  quickFavs:    $("quick-favs"),
+  quickFavsList: $("quick-favs-list"),
 };
 
 // ── Theme ─────────────────────────────────────────────────
@@ -100,8 +102,13 @@ function removeFav(code) {
 }
 function syncFavBtn() {
   if (!S.stop) return;
-  el.favBtn.classList.toggle("active", isFav(S.stop));
-  el.favBtn.title = isFav(S.stop) ? "Remove from favourites" : "Save to favourites";
+  const saved = isFav(S.stop);
+  el.favBtn.classList.toggle("active", saved);
+  el.favBtn.title = saved ? "Remove from favourites" : "Save to favourites";
+  const lbl = document.getElementById("fav-btn-label");
+  const ico = document.getElementById("fav-btn-icon");
+  if (lbl) lbl.textContent = saved ? "Remove" : "Save";
+  if (ico) ico.setAttribute("fill", saved ? "currentColor" : "none");
 }
 function updateFavBadge() {
   const n = S.favs.length;
@@ -121,6 +128,15 @@ function renderFavGrid() {
       </div>
       <button class="fav-remove" data-code="${f.code}" title="Remove">✕</button>
     </div>`).join("");
+}
+function renderQuickFavs() {
+  if (!S.favs.length) { hide(el.quickFavs); return; }
+  show(el.quickFavs);
+  el.quickFavsList.innerHTML = S.favs.map(f => `
+    <button class="qfav-chip" data-code="${f.code}">
+      <span class="qfav-code">${f.code}</span>
+      <span class="qfav-name">${f.description || "Bus Stop"}</span>
+    </button>`).join("");
 }
 
 // ── Utilities ─────────────────────────────────────────────
@@ -364,7 +380,7 @@ async function loadStop(code) {
     el.stopRoad.textContent = stopInfo?.road_name   || "";
     renderArrivals(arrivals);
     renderCharts(stats);
-    syncFavBtn(); updateFavBadge();
+    syncFavBtn(); updateFavBadge(); renderQuickFavs();
     activateTab("search");
     location.hash = code;
     S.refreshTmr = setInterval(() => refreshStop(code), REFRESH_MS);
@@ -393,8 +409,7 @@ async function loadDataTab() {
     const isPostgres = db.type === "PostgreSQL";
     $("stat-db-type-val").textContent  = db.type;
     $("stat-db-type-val").className    = "stat-value " + (isPostgres ? "stat-ok" : "stat-warn");
-    $("stat-db-url").textContent       = db.url_prefix;
-    $("stat-arrivals").textContent     = db.arrival_records.toLocaleString();
+$("stat-arrivals").textContent     = db.arrival_records.toLocaleString();
     $("stat-labeled").textContent      = db.labeled_records.toLocaleString();
     $("stat-stops").textContent        = db.bus_stops.toLocaleString();
     $("stat-mae").textContent          = d.model.mae_seconds ?? "–";
@@ -491,7 +506,7 @@ el.refreshBtn.addEventListener("click", () => { if (S.stop) loadStop(S.stop); })
 el.favBtn.addEventListener("click", () => {
   if (!S.stop) return;
   isFav(S.stop) ? removeFav(S.stop) : addFav(S.stop, S.stopInfo || {});
-  syncFavBtn(); updateFavBadge();
+  syncFavBtn(); updateFavBadge(); renderQuickFavs();
 });
 
 // Fav grid (delegation)
@@ -500,12 +515,18 @@ el.favGrid.addEventListener("click", e => {
   if (rem) {
     e.stopPropagation();
     removeFav(rem.dataset.code);
-    renderFavGrid();
+    renderFavGrid(); renderQuickFavs();
     if (S.stop === rem.dataset.code) syncFavBtn();
     return;
   }
   const card = e.target.closest(".fav-card");
   if (card) { el.input.value = card.dataset.code; loadStop(card.dataset.code); }
+});
+
+// Quick-favs delegation
+el.quickFavsList.addEventListener("click", e => {
+  const chip = e.target.closest(".qfav-chip");
+  if (chip) { el.input.value = chip.dataset.code; loadStop(chip.dataset.code); }
 });
 
 // Data tab refresh
@@ -519,6 +540,7 @@ window.addEventListener("pagehide", () => {
 // ── Init ──────────────────────────────────────────────────
 initTheme();
 updateFavBadge();
+renderQuickFavs();
 loadModelBadge();
 const hash = location.hash.replace("#","").trim();
 if (hash && /^\d+$/.test(hash)) { el.input.value = hash; loadStop(hash); }

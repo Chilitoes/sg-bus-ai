@@ -216,6 +216,18 @@ body {
 .icon-btn:hover { background: var(--text-1); color: var(--text-inv); border-color: var(--text-1); }
 .fav-btn.active { color: #f59e0b; border-color: #f59e0b; background: rgba(245,158,11,.1); }
 
+/* fav toggle button with label */
+.fav-toggle-btn {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .35rem .75rem; border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border); background: var(--surface);
+  font-size: .78rem; font-weight: 600; color: var(--text-2);
+  cursor: pointer; transition: all var(--trans);
+}
+.fav-toggle-btn:hover { border-color: #f59e0b; color: #f59e0b; background: rgba(245,158,11,.08); }
+.fav-toggle-btn.active { color: var(--red); border-color: var(--red); background: var(--red-alpha); }
+.fav-toggle-btn.active:hover { background: rgba(230,57,70,.18); }
+
 /* ── Search ────────────────────────────────────────────── */
 .search-section { padding: 1.75rem 0 1rem; position: relative; }
 .search-row     { display: flex; gap: .6rem; }
@@ -481,6 +493,39 @@ details[open] .explainer-summary { border-bottom: 1px solid var(--border); }
 .page-head { padding: 1.75rem 0 1.25rem; }
 .page-head h2 { font-size: 1.3rem; font-weight: 700; }
 .page-head p  { font-size: .85rem; color: var(--text-3); margin-top: .2rem; }
+
+/* ── Quick-favs on search page ──────────────────────────── */
+.quick-favs {
+  margin-bottom: 1.25rem;
+}
+.quick-favs-head {
+  margin-bottom: .5rem;
+}
+.quick-favs-label {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: .72rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.quick-favs-label svg { color: #f59e0b; fill: #f59e0b; }
+.quick-favs-list {
+  display: flex; flex-wrap: wrap; gap: .5rem;
+}
+.qfav-chip {
+  display: flex; align-items: center; gap: .45rem;
+  padding: .4rem .75rem; border-radius: 999px;
+  background: var(--surface); border: 1.5px solid var(--border);
+  cursor: pointer; transition: all var(--trans);
+  max-width: 200px;
+}
+.qfav-chip:hover { border-color: var(--red); background: var(--red-alpha); }
+.qfav-code {
+  font-family: var(--mono); font-size: .78rem; font-weight: 800;
+  color: var(--text-1); white-space: nowrap;
+}
+.qfav-name {
+  font-size: .75rem; color: var(--text-2); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 120px;
+}
 
 .fav-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); gap: .9rem;

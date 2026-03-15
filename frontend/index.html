@@ -76,6 +76,17 @@
       </div>
     </div>
 
+    <!-- Quick favourites -->
+    <div id="quick-favs" class="quick-favs hidden">
+      <div class="quick-favs-head">
+        <span class="quick-favs-label">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          Favourites
+        </span>
+      </div>
+      <div id="quick-favs-list" class="quick-favs-list"></div>
+    </div>
+
     <!-- Stop header -->
     <div id="stop-header" class="stop-header hidden">
       <div class="stop-header-left">
@@ -87,8 +98,9 @@
       </div>
       <div class="stop-header-right">
         <span id="last-updated" class="last-updated"></span>
-        <button id="fav-btn" class="icon-btn fav-btn" title="Save to favourites">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        <button id="fav-btn" class="fav-toggle-btn" title="Save to favourites">
+          <svg id="fav-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span id="fav-btn-label">Save</span>
         </button>
         <button id="refresh-btn" class="icon-btn" title="Refresh">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -198,7 +210,6 @@
       <div class="stat-card" id="stat-db-type">
         <div class="stat-label">Database</div>
         <div class="stat-value" id="stat-db-type-val">—</div>
-        <div class="stat-sub"  id="stat-db-url">—</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Arrival Records</div>
