@@ -351,6 +351,7 @@ body {
 .arrivals-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+  align-items: start;
   gap: .9rem; margin-bottom: 1.1rem;
 }
 
