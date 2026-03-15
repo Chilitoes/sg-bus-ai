@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SG Bus AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────── -->
+<header class="header">
+  <div class="header-inner">
+    <div class="header-brand">
+      <div class="header-logo">🚌</div>
+      <div>
+        <div class="header-title">SG Bus <span class="header-ai">AI</span></div>
+        <div class="header-sub">Real-time arrivals · AI predictions</div>
+      </div>
+    </div>
+    <div id="model-badge" class="model-badge">AI loading…</div>
+  </div>
+</header>
+
+<!-- ── Main ────────────────────────────────────────────────────── -->
+<main>
+  <!-- Tabs -->
+  <div class="tabs-bar">
+    <div class="tabs-inner">
+      <button class="tab-btn active" data-tab="search">
+        <span class="tab-icon">🔍</span> Search
+      </button>
+      <button class="tab-btn" data-tab="favourites">
+        <span class="tab-icon">⭐</span> Favourites
+        <span id="fav-count" class="tab-badge hidden">0</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── SEARCH TAB ─────────────────────────────────────────── -->
+  <div id="tab-search" class="tab-panel active">
+    <div class="container">
+
+      <!-- Search box -->
+      <div class="search-section">
+        <div class="search-wrapper">
+          <div class="search-input-wrap">
+            <span class="search-icon">🔍</span>
+            <input
+              type="text"
+              id="stop-input"
+              class="search-input"
+              placeholder="Bus stop code or name (e.g. 83139 or Orchard)"
+              autocomplete="off"
+            />
+            <button id="search-clear" class="search-clear hidden">✕</button>
+          </div>
+          <button id="search-btn" class="search-btn">Search</button>
+        </div>
+
+        <!-- Autocomplete dropdown -->
+        <div id="autocomplete" class="autocomplete hidden"></div>
+
+        <!-- Quick stops -->
+        <div class="quick-stops">
+          <span class="quick-label">Popular:</span>
+          <button class="chip" data-stop="83139">83139 · Bedok Int</button>
+          <button class="chip" data-stop="01012">01012 · Hotel Grand Pacific</button>
+          <button class="chip" data-stop="01013">01013 · St Joseph's Ch</button>
+          <button class="chip" data-stop="03222">03222 · Raffles Place</button>
+        </div>
+      </div>
+
+      <!-- Stop header -->
+      <div id="stop-header" class="stop-header hidden">
+        <div class="stop-header-left">
+          <div class="stop-code-pill" id="stop-code-display"></div>
+          <div>
+            <div id="stop-name-display" class="stop-name"></div>
+            <div id="stop-road-display" class="stop-road"></div>
+          </div>
+        </div>
+        <div class="stop-header-right">
+          <button id="fav-btn" class="fav-btn" title="Add to favourites">☆</button>
+          <button id="refresh-btn" class="icon-btn" title="Refresh">↻</button>
+          <div id="last-updated" class="last-updated"></div>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div id="arrivals-error" class="alert alert-error hidden"></div>
+
+      <!-- Arrivals grid -->
+      <div id="arrivals-grid" class="arrivals-grid"></div>
+      <p id="no-services" class="empty-state hidden">No services found for this stop.</p>
+
+      <!-- Legend -->
+      <div id="legend" class="legend hidden">
+        <div class="legend-item"><span class="dot dot-gray"></span>API estimate</div>
+        <div class="legend-item"><span class="dot dot-blue"></span>AI prediction</div>
+        <div class="legend-item"><span class="load-pill SEA">SEA</span>Seats free</div>
+        <div class="legend-item"><span class="load-pill SDA">SDA</span>Standing</div>
+        <div class="legend-item"><span class="load-pill LSD">LSD</span>Limited</div>
+      </div>
+
+      <!-- Charts -->
+      <section id="charts-section" class="charts-section hidden">
+        <div class="section-heading">
+          <h2>Delay Statistics</h2>
+          <span class="section-sub">Last 30 days of collected data</span>
+        </div>
+        <div id="no-stats" class="empty-state hidden">
+          Not enough data yet — keep the app running to build history.
+        </div>
+        <div class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <h3>By service</h3>
+              <p>Average delay in seconds</p>
+            </div>
+            <div class="chart-wrap"><canvas id="chart-service"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <h3>By hour</h3>
+              <p>Peak hours highlighted</p>
+            </div>
+            <div class="chart-wrap"><canvas id="chart-hour"></canvas></div>
+          </div>
+          <div class="chart-card chart-wide">
+            <div class="chart-card-header">
+              <h3>14-day trend</h3>
+              <p>Daily average delay</p>
+            </div>
+            <div class="chart-wrap chart-wrap-tall"><canvas id="chart-trend"></canvas></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- AI explainer -->
+      <section id="ai-section" class="ai-section hidden">
+        <details class="ai-details">
+          <summary>How does the AI prediction work?</summary>
+          <div class="ai-body">
+            <p>The AI uses a <strong>Gradient Boosting Regressor</strong> to predict how many seconds the next bus will arrive <em>earlier or later</em> than the LTA API estimate.</p>
+            <div class="ai-grid">
+              <div class="ai-block">
+                <h4>Input features</h4>
+                <ul>
+                  <li><strong>Time of day</strong> — sin/cos cyclical encoding</li>
+                  <li><strong>Day of week</strong> — weekday / weekend flag</li>
+                  <li><strong>Peak hour</strong> — Mon–Fri 7–9 am, 5–7 pm</li>
+                  <li><strong>Bus load</strong> — SEA / SDA / LSD</li>
+                  <li><strong>Bus type</strong> — SD / DD / BD</li>
+                  <li><strong>Route &amp; stop hash</strong> — numeric proxy</li>
+                </ul>
+              </div>
+              <div class="ai-block">
+                <h4>Ground truth</h4>
+                <p>The background collector tracks each bus across API polls. When a bus disappears it has arrived. <code>delay = last_estimate − first_estimate</code>. This data retrains the model hourly.</p>
+                <h4>Bootstrap</h4>
+                <p>On first run the model uses 5 000 synthetic rows encoding known SG patterns (peak congestion, late-night reliability). Real data blends in with 3× weight as it accumulates.</p>
+              </div>
+            </div>
+            <div id="model-detail" class="model-detail"></div>
+          </div>
+        </details>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ── FAVOURITES TAB ──────────────────────────────────────── -->
+  <div id="tab-favourites" class="tab-panel hidden">
+    <div class="container">
+      <div class="fav-header">
+        <h2>Favourite Stops</h2>
+        <p>Tap a stop to load live arrivals</p>
+      </div>
+      <div id="fav-empty" class="empty-state">
+        No favourites yet — search for a stop and tap ☆ to save it.
+      </div>
+      <div id="fav-grid" class="fav-grid"></div>
+    </div>
+  </div>
+</main>
+
+<!-- ── Loading overlay ─────────────────────────────────────────── -->
+<div id="loading-overlay" class="loading-overlay hidden">
+  <div class="loader-card">
+    <div class="spinner"></div>
+    <div class="loader-text">Loading…</div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

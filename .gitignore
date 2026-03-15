@@ -1,0 +1,26 @@
+# Environment & secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# ML model (large binary — regenerated on startup)
+models/
+
+# Logs & temp
+*.log
+.tmp/
+wait_and_start.sh
+
+# macOS
+.DS_Store
