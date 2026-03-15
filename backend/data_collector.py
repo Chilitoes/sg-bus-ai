@@ -42,6 +42,19 @@ from ml_model import model as global_model
 
 logger = logging.getLogger(__name__)
 
+# Singapore Standard Time (UTC+8)
+_SGT = timezone(timedelta(hours=8))
+
+
+def _is_service_hours() -> bool:
+    """
+    Singapore bus services run roughly 05:30–00:30 SGT.
+    Skip data collection between 01:00 and 05:00 SGT when no buses run.
+    """
+    hour = datetime.now(_SGT).hour
+    return not (1 <= hour < 5)
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _round_dt(dt: datetime, minutes: int = 1) -> datetime:
@@ -117,7 +130,7 @@ def _upsert_tracking(
 
 
 def _close_stale_tracking(db: Session, stop_code: str, service_no: str,
-                           active_keys: set[datetime], now: datetime) -> None:
+                           active_keys: set[datetime]) -> None:
     """
     Close tracking rows whose arrival_key is NOT in the current API response.
     A missing entry means the bus arrived (or the service ended).
@@ -204,7 +217,7 @@ async def collect_stop(client: httpx.AsyncClient, stop_code: str, now: datetime)
 
         # Close tracking rows for buses that are no longer in the response
         for service_no, active_keys in active_keys_by_service.items():
-            _close_stale_tracking(db, stop_code, service_no, active_keys, now)
+            _close_stale_tracking(db, stop_code, service_no, active_keys)
 
         db.commit()
     except Exception as exc:
@@ -234,7 +247,13 @@ async def start_data_collection() -> None:
 
     async with httpx.AsyncClient() as client:
         while True:
-            now = datetime.utcnow()
+            if not _is_service_hours():
+                sgt_hour = datetime.now(_SGT).hour
+                logger.info("Outside service hours (SGT %02d:xx) — skipping collection", sgt_hour)
+                await asyncio.sleep(interval_sec)
+                continue
+
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
             db = SessionLocal()
             try:
                 stops = (

@@ -11,7 +11,7 @@ LTA_STOPS_ENDPOINT: str = f"{LTA_BASE_URL}/BusStops"
 DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./bus_data.db")
 
 COLLECTION_INTERVAL_MINUTES: int = int(os.getenv("COLLECTION_INTERVAL_MINUTES", "5"))
-MODEL_RETRAIN_INTERVAL_HOURS: int = int(os.getenv("MODEL_RETRAIN_INTERVAL_HOURS", "1"))
+MODEL_RETRAIN_INTERVAL_HOURS: float = float(os.getenv("MODEL_RETRAIN_INTERVAL_HOURS", "0.5"))
 
 # Bus stops actively polled by the background collector
 DEFAULT_MONITORED_STOPS: list[str] = [

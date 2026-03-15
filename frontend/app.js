@@ -19,6 +19,7 @@ const S = {
   tickTmr:     null,
   acTmr:       null,
   favs:        loadFavs(),
+  validStop:   false,
 };
 const charts = { service: null, hour: null, trend: null };
 
@@ -64,6 +65,9 @@ const el = {
   dataRefresh:  $("data-refresh-btn"),
   quickFavs:    $("quick-favs"),
   quickFavsList: $("quick-favs-list"),
+  noResults:    $("search-no-results"),
+  monInput:     $("monitor-input"),
+  monAddBtn:    $("monitor-add-btn"),
 };
 
 // ── Theme ─────────────────────────────────────────────────
@@ -172,9 +176,15 @@ function adjLabel(s) {
 }
 function adjClass(s) { return Math.abs(s) < 10 ? "" : s > 0 ? "late" : "early"; }
 
+// ── Search validation ─────────────────────────────────────
+function updateSearchBtn() {
+  const valid = S.validStop || /^\d{5}$/.test(el.input.value.trim());
+  el.searchBtn.disabled = !valid;
+}
+
 // ── API ───────────────────────────────────────────────────
-async function api(path) {
-  const r = await fetch(API_BASE + path);
+async function api(path, opts = {}) {
+  const r = await fetch(API_BASE + path, opts);
   if (!r.ok) { const b = await r.json().catch(()=>({})); throw new Error(b.detail || `HTTP ${r.status}`); }
   return r.json();
 }
@@ -195,10 +205,16 @@ function activateTab(name) {
 // ── Autocomplete ──────────────────────────────────────────
 function hideAc() { hide(el.ac); el.ac.innerHTML = ""; }
 async function doAc(q) {
-  if (!q || q.length < 2) { hideAc(); return; }
+  if (!q || q.length < 2) { hideAc(); hide(el.noResults); return; }
   try {
     const d = await api(`/api/stops/search?q=${encodeURIComponent(q)}&limit=8`);
-    if (!d.results.length) { hideAc(); return; }
+    if (!d.results.length) {
+      hideAc();
+      show(el.noResults);
+      S.validStop = false; updateSearchBtn();
+      return;
+    }
+    hide(el.noResults);
     el.ac.innerHTML = d.results.map(s => `
       <div class="ac-item" data-code="${s.bus_stop_code}">
         <div class="ac-code">${s.bus_stop_code}</div>
@@ -232,18 +248,35 @@ function busRowHtml(bus) {
 }
 
 function svcCardHtml(svc, idx) {
-  const fb  = svc.buses[0] || {};
+  const fb   = svc.buses[0] || {};
   const type = fb.type    ? `<span class="type-tag">${fb.type}</span>` : "";
   const wab  = fb.feature === "WAB" ? `<span class="wab-tag">♿</span>` : "";
+  const load = fb.load    ? `<span class="load-pill ${fb.load}">${fb.load}</span>` : "";
+  const aiDt = parseUTC(fb.ai_arrival);
+  const secs = secsUntil(aiDt);
   return `
-    <div class="service-card">
-      <div class="card-head c${idx % CARD_COLORS}">
-        <div><div class="card-svc-no">${svc.service_no}</div>
-             <div class="card-operator">${svc.operator||""}</div></div>
-        <div class="card-tags">${type}${wab}</div>
-      </div>
+    <div class="service-card collapsed">
+      <button class="card-head c${idx % CARD_COLORS}" onclick="toggleCard(this)">
+        <div class="card-head-main">
+          <div class="card-svc-no">${svc.service_no}</div>
+          <div class="card-operator">${svc.operator||""}</div>
+        </div>
+        <div class="card-head-meta">
+          ${load}
+          <div class="card-tags">${type}${wab}</div>
+          <div class="card-next">
+            <span class="cdval ${cdClass(secs)}" data-ai-iso="${fb.ai_arrival||""}">${fmtCountdown(secs)}</span>
+            <span class="cdunit">${secs !== null && secs >= ARRIVING_THRESH ? "min" : ""}</span>
+          </div>
+          <svg class="expand-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </button>
       <div class="bus-list">${svc.buses.map(busRowHtml).join("")}</div>
     </div>`;
+}
+
+function toggleCard(btn) {
+  btn.closest(".service-card").classList.toggle("collapsed");
 }
 
 function renderArrivals(data) {
@@ -417,12 +450,11 @@ $("stat-arrivals").textContent     = db.arrival_records.toLocaleString();
     hide(el.dataLoading); show(el.statsGrid);
 
     // Monitored stops
-    if (d.monitored_stops?.length) {
-      el.monCount.textContent = d.monitored_stops.length;
-      el.monChips.innerHTML   = d.monitored_stops
-        .map(s => `<span class="chip" style="cursor:default">${s}</span>`).join("");
-      show(el.monSection);
-    }
+    el.monCount.textContent = d.monitored_stops?.length || 0;
+    el.monChips.innerHTML   = (d.monitored_stops || [])
+      .map(s => `<span class="monitor-chip">${s}<button class="mon-remove" data-code="${s}" title="Stop monitoring">✕</button></span>`)
+      .join("");
+    show(el.monSection);
 
     // Tracking table
     if (d.recent_tracking?.length) {
@@ -483,23 +515,34 @@ el.input.addEventListener("keydown", e => {
 el.input.addEventListener("input", () => {
   const v = el.input.value.trim();
   v.length ? show(el.clearBtn) : hide(el.clearBtn);
+  S.validStop = false; hide(el.noResults); updateSearchBtn();
   clearTimeout(S.acTmr);
   S.acTmr = setTimeout(() => doAc(v), AC_DEBOUNCE_MS);
 });
 el.clearBtn.addEventListener("click", () => {
-  el.input.value = ""; hide(el.clearBtn); hideAc(); el.input.focus();
+  el.input.value = ""; hide(el.clearBtn); hideAc();
+  S.validStop = false; hide(el.noResults); updateSearchBtn();
+  el.input.focus();
 });
 document.addEventListener("click", e => {
   if (!el.ac.contains(e.target) && e.target !== el.input) hideAc();
 });
 el.ac.addEventListener("click", e => {
   const item = e.target.closest(".ac-item");
-  if (item) { el.input.value = item.dataset.code; loadStop(item.dataset.code); }
+  if (item) {
+    el.input.value = item.dataset.code;
+    S.validStop = true; hide(el.noResults); updateSearchBtn();
+    loadStop(item.dataset.code);
+  }
 });
 
 // Quick chips
 document.querySelectorAll(".chip[data-stop]").forEach(c =>
-  c.addEventListener("click", () => { el.input.value = c.dataset.stop; loadStop(c.dataset.stop); }));
+  c.addEventListener("click", () => {
+    el.input.value = c.dataset.stop;
+    S.validStop = true; hide(el.noResults); updateSearchBtn();
+    loadStop(c.dataset.stop);
+  }));
 
 // Stop header actions
 el.refreshBtn.addEventListener("click", () => { if (S.stop) loadStop(S.stop); });
@@ -521,6 +564,33 @@ el.favGrid.addEventListener("click", e => {
   }
   const card = e.target.closest(".fav-card");
   if (card) { el.input.value = card.dataset.code; loadStop(card.dataset.code); }
+});
+
+// ── Monitor management ────────────────────────────────────
+async function addMonitor(code) {
+  code = code.trim().toUpperCase();
+  if (!code) return;
+  try { await api(`/api/monitor/${code}`, { method: "POST" }); loadDataTab(); }
+  catch (err) { alert(`Could not add monitor: ${err.message}`); }
+}
+async function removeMonitor(code) {
+  try { await api(`/api/monitor/${code}`, { method: "DELETE" }); loadDataTab(); }
+  catch (err) { alert(`Could not remove monitor: ${err.message}`); }
+}
+
+// Monitored chips delegation (remove)
+el.monChips.addEventListener("click", e => {
+  const btn = e.target.closest(".mon-remove");
+  if (btn) removeMonitor(btn.dataset.code);
+});
+
+// Monitor add button
+el.monAddBtn && el.monAddBtn.addEventListener("click", () => {
+  addMonitor(el.monInput.value);
+  el.monInput.value = "";
+});
+el.monInput && el.monInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") { addMonitor(el.monInput.value); el.monInput.value = ""; }
 });
 
 // Quick-favs delegation
