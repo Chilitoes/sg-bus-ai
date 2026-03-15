@@ -388,6 +388,7 @@ function renderCharts(stats) {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { display: false },
           tooltip: { ...tooltip, callbacks: {
@@ -417,6 +418,7 @@ function renderCharts(stats) {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { display: false },
           tooltip: { ...tooltip, callbacks: {
@@ -447,7 +449,7 @@ function renderCharts(stats) {
       const first = vals.slice(0, Math.ceil(vals.length / 2)).reduce((a, b) => a + b, 0) / Math.ceil(vals.length / 2);
       const last  = vals.slice(-Math.ceil(vals.length / 2)).reduce((a, b) => a + b, 0) / Math.ceil(vals.length / 2);
       const badge = $("trend-badge");
-      if (badge) badge.textContent = last < first ? "✓ improving" : last > first ? "⚠ worsening" : "stable";
+      if (badge) badge.textContent = last < first ? "✓ Improving" : last > first ? "⚠ Worsening" : "Stable";
     }
     charts.trend = new Chart($("chart-trend"), {
       type: "line",

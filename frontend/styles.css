@@ -516,6 +516,7 @@ body {
 }
 .chart-wrap  { position: relative; height: 210px; }
 .chart-tall  { height: 250px; }
+.chart-wrap canvas { cursor: crosshair; }
 
 /* ── Explainer ─────────────────────────────────────────── */
 .explainer {
