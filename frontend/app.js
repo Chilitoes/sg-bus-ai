@@ -363,7 +363,7 @@ function renderCharts(stats) {
     border: { dash: [3, 3], display: false },
     ticks: {
       color: c.text, font: { size: 11 },
-      callback: (v) => v === 0 ? "0s" : `${v > 0 ? "+" : ""}${v}s`,
+      callback: (v) => { const r = Math.round(v); return r === 0 ? "0s" : `${r > 0 ? "+" : ""}${r}s`; },
     },
   };
   const xScale = {

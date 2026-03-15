@@ -500,12 +500,19 @@ body {
   gap: .75rem; margin-bottom: 1.1rem;
 }
 .chart-card-title {
-  font-size: .9rem; font-weight: 700; color: var(--text-1); white-space: nowrap;
+  font-size: .9rem; font-weight: 700; color: var(--text-1);
+  white-space: nowrap; min-width: 0;
 }
 .chart-badge {
+  display: inline-flex; align-items: center; gap: .3rem;
   font-size: .68rem; font-weight: 600; color: var(--text-3);
   background: var(--surface-3); border: 1px solid var(--border);
-  padding: .2rem .6rem; border-radius: 20px; white-space: nowrap;
+  padding: .2rem .65rem; border-radius: 20px;
+  white-space: nowrap; flex-shrink: 0;
+}
+.bdot {
+  display: inline-block; width: 7px; height: 7px;
+  border-radius: 50%; flex-shrink: 0;
 }
 .chart-wrap  { position: relative; height: 210px; }
 .chart-tall  { height: 250px; }
