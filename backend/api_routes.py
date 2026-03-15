@@ -13,6 +13,7 @@ POST /api/model/retrain              Trigger an immediate model retrain
 POST /api/monitor/{stop_code}        Add a stop to the background collector
 DELETE /api/monitor/{stop_code}      Remove a stop from the background collector
 GET  /api/monitor                    List all monitored stops
+GET  /api/data                       Database overview for the Data tab
 """
 
 import logging
@@ -21,11 +22,11 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
-from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL
-from database import BusArrivalRecord, BusStop, MonitoredStop, get_db
+from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL, DATABASE_URL
+from database import BusArrivalRecord, BusStop, BusTracking, MonitoredStop, get_db
 from ml_model import model as global_model
 
 logger = logging.getLogger(__name__)
@@ -393,3 +394,89 @@ def remove_monitored(stop_code: str, db: Session = Depends(get_db)) -> dict:
         row.is_active = False
         db.commit()
     return {"status": "removed", "bus_stop_code": stop_code}
+
+
+# ── Data overview ─────────────────────────────────────────────────────────────
+
+@router.get("/data")
+def get_data_overview(db: Session = Depends(get_db)) -> dict:
+    """
+    Returns a full database overview for the Data tab:
+    - DB type (PostgreSQL or SQLite)
+    - Row counts per table
+    - Recent 20 arrival records
+    - Closed tracking rows with computed delays
+    - Monitored stops
+    - ML model status
+    """
+    db_type = "PostgreSQL" if DATABASE_URL.startswith("postgresql") else "SQLite"
+
+    # Table counts
+    arrival_count  = db.query(func.count(BusArrivalRecord.id)).scalar() or 0
+    tracking_count = db.query(func.count(BusTracking.id)).scalar() or 0
+    stops_count    = db.query(func.count(BusStop.bus_stop_code)).scalar() or 0
+    labeled_count  = db.query(func.count(BusArrivalRecord.id)).filter(
+        BusArrivalRecord.delay_seconds.isnot(None)).scalar() or 0
+
+    # Recent 20 arrival records
+    recent_rows = (
+        db.query(BusArrivalRecord)
+        .order_by(BusArrivalRecord.collection_time.desc())
+        .limit(20)
+        .all()
+    )
+    recent = [
+        {
+            "id":               r.id,
+            "bus_stop_code":    r.bus_stop_code,
+            "bus_service":      r.bus_service,
+            "collection_time":  r.collection_time.isoformat() if r.collection_time else None,
+            "wait_seconds":     round(r.wait_seconds, 0) if r.wait_seconds else None,
+            "delay_seconds":    round(r.delay_seconds, 1) if r.delay_seconds is not None else None,
+            "hour_of_day":      r.hour_of_day,
+            "day_of_week":      r.day_of_week,
+            "bus_load":         r.bus_load,
+            "bus_type":         r.bus_type,
+            "is_peak":          r.is_peak,
+        }
+        for r in recent_rows
+    ]
+
+    # Recent closed tracking rows (ground-truth delays)
+    closed_rows = (
+        db.query(BusTracking)
+        .filter_by(is_closed=True)
+        .order_by(BusTracking.last_seen.desc())
+        .limit(10)
+        .all()
+    )
+    tracking = [
+        {
+            "bus_stop_code": t.bus_stop_code,
+            "bus_service":   t.bus_service,
+            "first_seen":    t.first_seen.isoformat() if t.first_seen else None,
+            "delay_seconds": round(t.delay_seconds, 1) if t.delay_seconds is not None else None,
+        }
+        for t in closed_rows
+    ]
+
+    # Monitored stops
+    monitored = [
+        s.bus_stop_code
+        for s in db.query(MonitoredStop).filter_by(is_active=True).all()
+    ]
+
+    return {
+        "database": {
+            "type":           db_type,
+            "url_prefix":     DATABASE_URL[:30] + "…",
+            "arrival_records": arrival_count,
+            "labeled_records": labeled_count,
+            "tracking_rows":   tracking_count,
+            "bus_stops":       stops_count,
+        },
+        "model":       global_model.status(),
+        "monitored_stops": monitored,
+        "recent_records":  recent,
+        "recent_tracking": tracking,
+    }
