@@ -133,15 +133,24 @@
       <p id="no-stats" class="empty-state hidden">Not enough data yet — keep the app running to build history.</p>
       <div class="charts-grid">
         <div class="card chart-card">
-          <div class="chart-card-title">Avg delay by service <span class="chart-unit">seconds</span></div>
+          <div class="chart-card-header">
+            <div class="chart-card-title">Delay by Route</div>
+            <span class="chart-badge">worst first · red = late · blue = early</span>
+          </div>
           <div class="chart-wrap"><canvas id="chart-service"></canvas></div>
         </div>
         <div class="card chart-card">
-          <div class="chart-card-title">Avg delay by hour <span class="chart-unit">peak highlighted</span></div>
+          <div class="chart-card-header">
+            <div class="chart-card-title">Delay by Time of Day</div>
+            <span class="chart-badge">🟠 peak hours</span>
+          </div>
           <div class="chart-wrap"><canvas id="chart-hour"></canvas></div>
         </div>
         <div class="card chart-card chart-wide">
-          <div class="chart-card-title">14-day delay trend <span class="chart-unit">daily average</span></div>
+          <div class="chart-card-header">
+            <div class="chart-card-title">14-Day Trend</div>
+            <span class="chart-badge" id="trend-badge">daily average</span>
+          </div>
           <div class="chart-wrap chart-tall"><canvas id="chart-trend"></canvas></div>
         </div>
       </div>

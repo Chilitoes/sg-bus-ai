@@ -309,69 +309,171 @@ function startTicker() {
 function destroyCharts() {
   Object.keys(charts).forEach(k => { if (charts[k]) { charts[k].destroy(); charts[k] = null; } });
 }
-function chartColors() {
-  const dark = document.documentElement.getAttribute("data-theme") === "dark";
-  return {
-    grid:   dark ? "#2d3a52" : "#e5e7eb",
-    red:    "rgba(230,57,70,.85)",
-    blue:   "rgba(0,119,182,.75)",
-    blueFill: "rgba(0,119,182,.12)",
-    blueLine: "rgba(0,119,182,1)",
-  };
-}
+
 function renderCharts(stats) {
   destroyCharts(); show(el.charts);
   if (!stats || stats.total_records === 0) { show(el.noStats); return; }
   hide(el.noStats);
-  const c = chartColors();
-  const baseOpts = (title) => ({
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      y: { title: { display: true, text: title }, grid: { color: c.grid },
-           ticks: { color: "#9ca3af" } },
-      x: { grid: { display: false }, ticks: { color: "#9ca3af" } },
-    },
-  });
 
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  const c = {
+    grid:         dark ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.06)",
+    zeroLine:     dark ? "rgba(255,255,255,.18)" : "rgba(0,0,0,.18)",
+    late:         "rgba(239,68,68,.75)",
+    lateSolid:    "#ef4444",
+    early:        "rgba(59,130,246,.75)",
+    earlySolid:   "#3b82f6",
+    peak:         "rgba(249,115,22,.8)",
+    offpeak:      "rgba(99,102,241,.65)",
+    trend:        "#8b5cf6",
+    trendFill:    dark ? "rgba(139,92,246,.15)" : "rgba(139,92,246,.1)",
+    text:         dark ? "#94a3b8" : "#6b7280",
+    tooltipBg:    dark ? "#1e293b" : "#ffffff",
+    tooltipBorder:dark ? "#334155" : "#e2e8f0",
+    tooltipTitle: dark ? "#f1f5f9" : "#0f172a",
+    tooltipBody:  dark ? "#94a3b8" : "#475569",
+    pointBorder:  dark ? "#1e293b" : "#ffffff",
+  };
+
+  const fmtDelay = (v) => {
+    if (v === null || v === undefined) return "No data";
+    const abs = Math.abs(v);
+    const m = Math.floor(abs / 60), s = Math.round(abs % 60);
+    const t = m > 0 ? `${m}m ${s}s` : `${s}s`;
+    if (Math.abs(v) < 5) return "On time";
+    return v > 0 ? `▲ ${t} late` : `▼ ${t} early`;
+  };
+
+  const tooltip = {
+    backgroundColor: c.tooltipBg,
+    titleColor: c.tooltipTitle,
+    bodyColor: c.tooltipBody,
+    borderColor: c.tooltipBorder,
+    borderWidth: 1,
+    padding: { x: 12, y: 8 },
+    cornerRadius: 8,
+    displayColors: false,
+  };
+
+  const yScale = {
+    grid: {
+      color: (ctx) => ctx.tick.value === 0 ? c.zeroLine : c.grid,
+      lineWidth: (ctx) => ctx.tick.value === 0 ? 1.5 : 1,
+    },
+    border: { dash: [3, 3], display: false },
+    ticks: {
+      color: c.text, font: { size: 11 },
+      callback: (v) => v === 0 ? "0s" : `${v > 0 ? "+" : ""}${v}s`,
+    },
+  };
+  const xScale = {
+    grid: { display: false },
+    border: { display: false },
+    ticks: { color: c.text, font: { size: 11 } },
+  };
+
+  // ── Chart 1: Delay by route (sorted worst-first) ───────
   if (stats.by_service?.length) {
+    const sorted = [...stats.by_service].sort((a, b) => b.avg_delay_sec - a.avg_delay_sec);
     charts.service = new Chart($("chart-service"), {
       type: "bar",
-      data: { labels: stats.by_service.map(s => s.service),
-              datasets: [{ data: stats.by_service.map(s => s.avg_delay_sec),
-                backgroundColor: stats.by_service.map(s => s.avg_delay_sec > 0 ? c.red : c.blue),
-                borderRadius: 4 }] },
-      options: baseOpts("seconds"),
-    });
-  }
-  if (stats.by_hour) {
-    const labels = Array.from({length:24}, (_,i) => `${i}h`);
-    charts.hour = new Chart($("chart-hour"), {
-      type: "bar",
-      data: { labels,
-              datasets: [{ data: stats.by_hour,
-                backgroundColor: labels.map((_,i) =>
-                  (i>=7&&i<9)||(i>=17&&i<19) ? c.red : c.blue),
-                borderRadius: 2 }] },
-      options: { ...baseOpts("seconds"),
-        plugins: { legend: { display: false },
-          tooltip: { callbacks: { title: items => {
-            const h = items[0].dataIndex;
-            return `${h}:00 — ${(h>=7&&h<9)||(h>=17&&h<19)?"Peak":"Off-peak"}`;
-          }}},
+      data: {
+        labels: sorted.map(s => s.service),
+        datasets: [{
+          data: sorted.map(s => s.avg_delay_sec),
+          backgroundColor: sorted.map(s => s.avg_delay_sec >= 0 ? c.late : c.early),
+          borderColor:     sorted.map(s => s.avg_delay_sec >= 0 ? c.lateSolid : c.earlySolid),
+          borderWidth: 1.5, borderRadius: 6, borderSkipped: false,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { ...tooltip, callbacks: {
+            title: (i) => `Bus ${i[0].label}`,
+            label: (i) => ` ${fmtDelay(i.raw)}`,
+          }},
         },
-        scales: { ...baseOpts("seconds").scales, x: { grid:{display:false}, ticks:{maxTicksLimit:12,color:"#9ca3af"} } },
+        scales: { y: yScale, x: xScale },
       },
     });
   }
+
+  // ── Chart 2: Delay by hour ─────────────────────────────
+  if (stats.by_hour) {
+    const isPeak = (h) => (h >= 7 && h < 9) || (h >= 17 && h < 19);
+    const hlabel = (h) => h === 0 ? "12am" : h === 12 ? "12pm" : h < 12 ? `${h}am` : `${h - 12}pm`;
+    const labels = Array.from({ length: 24 }, (_, i) => hlabel(i));
+    charts.hour = new Chart($("chart-hour"), {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [{
+          data: stats.by_hour,
+          backgroundColor: labels.map((_, i) => isPeak(i) ? c.peak : c.offpeak),
+          borderRadius: 4, borderSkipped: false,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { ...tooltip, callbacks: {
+            title: (i) => {
+              const h = i[0].dataIndex;
+              return `${hlabel(h)} – ${hlabel(h < 23 ? h + 1 : 0)}${isPeak(h) ? " · Peak" : ""}`;
+            },
+            label: (i) => ` ${fmtDelay(i.raw)}`,
+          }},
+        },
+        scales: {
+          y: yScale,
+          x: { ...xScale, ticks: { ...xScale.ticks, maxTicksLimit: 8 } },
+        },
+      },
+    });
+  }
+
+  // ── Chart 3: 14-day trend ──────────────────────────────
   if (stats.trend?.length) {
+    const dlabel = (d) => {
+      const dt = new Date(d + "T00:00:00");
+      return dt.toLocaleDateString("en-SG", { weekday: "short", day: "numeric", month: "short" });
+    };
+    // Update trend badge with direction
+    const vals = stats.trend.map(t => t.avg_delay_sec).filter(v => v !== null);
+    if (vals.length >= 2) {
+      const first = vals.slice(0, Math.ceil(vals.length / 2)).reduce((a, b) => a + b, 0) / Math.ceil(vals.length / 2);
+      const last  = vals.slice(-Math.ceil(vals.length / 2)).reduce((a, b) => a + b, 0) / Math.ceil(vals.length / 2);
+      const badge = $("trend-badge");
+      if (badge) badge.textContent = last < first ? "✓ improving" : last > first ? "⚠ worsening" : "stable";
+    }
     charts.trend = new Chart($("chart-trend"), {
       type: "line",
-      data: { labels: stats.trend.map(t => t.date),
-              datasets: [{ data: stats.trend.map(t => t.avg_delay_sec),
-                borderColor: c.blueLine, backgroundColor: c.blueFill,
-                fill: true, tension: 0.35, pointRadius: 4, pointBackgroundColor: c.blueLine }] },
-      options: baseOpts("seconds"),
+      data: {
+        labels: stats.trend.map(t => dlabel(t.date)),
+        datasets: [{
+          data: stats.trend.map(t => t.avg_delay_sec),
+          borderColor: c.trend, backgroundColor: c.trendFill,
+          fill: true, tension: 0.4, borderWidth: 2.5,
+          pointRadius: 4, pointHoverRadius: 7,
+          pointBackgroundColor: c.trend,
+          pointBorderColor: c.pointBorder, pointBorderWidth: 2,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: { ...tooltip, callbacks: {
+            title: (i) => i[0].label,
+            label: (i) => ` ${fmtDelay(i.raw)}`,
+          }},
+        },
+        scales: { y: yScale, x: xScale },
+      },
     });
   }
 }

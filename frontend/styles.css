@@ -491,14 +491,24 @@ body {
 
 /* ── Charts ────────────────────────────────────────────── */
 .charts-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap: .9rem;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap: 1rem;
 }
-.chart-card       { padding: 1.1rem 1.25rem; }
-.chart-wide       { grid-column: 1 / -1; }
-.chart-card-title { font-size: .875rem; font-weight: 600; margin-bottom: .85rem; }
-.chart-unit       { font-size: .72rem; font-weight: 400; color: var(--text-3); margin-left: .35rem; }
-.chart-wrap       { position: relative; height: 200px; }
-.chart-tall       { height: 240px; }
+.chart-card  { padding: 1.25rem 1.4rem; }
+.chart-wide  { grid-column: 1 / -1; }
+.chart-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem; margin-bottom: 1.1rem;
+}
+.chart-card-title {
+  font-size: .9rem; font-weight: 700; color: var(--text-1); white-space: nowrap;
+}
+.chart-badge {
+  font-size: .68rem; font-weight: 600; color: var(--text-3);
+  background: var(--surface-3); border: 1px solid var(--border);
+  padding: .2rem .6rem; border-radius: 20px; white-space: nowrap;
+}
+.chart-wrap  { position: relative; height: 210px; }
+.chart-tall  { height: 250px; }
 
 /* ── Explainer ─────────────────────────────────────────── */
 .explainer {
