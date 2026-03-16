@@ -98,11 +98,16 @@ function addFav(code, info = {}) {
   if (!isFav(code)) {
     S.favs.unshift({ code, description: info.description||null, road_name: info.road_name||null });
     saveFavs();
+    api(`/api/monitor/${code}`, { method: "POST" }).catch(() => {});
   }
 }
 function removeFav(code) {
   S.favs = S.favs.filter(f => f.code !== code);
   saveFavs();
+  api(`/api/monitor/${code}`, { method: "DELETE" }).catch(() => {});
+}
+function syncFavsToMonitor() {
+  S.favs.forEach(f => api(`/api/monitor/${f.code}`, { method: "POST" }).catch(() => {}));
 }
 function syncFavBtn() {
   if (!S.stop) return;
@@ -404,6 +409,7 @@ function renderCharts(stats) {
   // ── Chart 2: Delay by hour ─────────────────────────────
   if (stats.by_hour) {
     const isPeak = (h) => (h >= 7 && h < 9) || (h >= 17 && h < 19);
+    const noService = (h) => h >= 1 && h <= 4;  // SGT 1–5am: no buses
     const hlabel = (h) => h === 0 ? "12am" : h === 12 ? "12pm" : h < 12 ? `${h}am` : `${h - 12}pm`;
     const labels = Array.from({ length: 24 }, (_, i) => hlabel(i));
     charts.hour = new Chart($("chart-hour"), {
@@ -411,8 +417,8 @@ function renderCharts(stats) {
       data: {
         labels,
         datasets: [{
-          data: stats.by_hour,
-          backgroundColor: labels.map((_, i) => isPeak(i) ? c.peak : c.offpeak),
+          data: stats.by_hour.map((v, i) => noService(i) ? null : v),
+          backgroundColor: labels.map((_, i) => noService(i) ? "transparent" : isPeak(i) ? c.peak : c.offpeak),
           borderRadius: 4, borderSkipped: false,
         }],
       },
@@ -716,5 +722,6 @@ initTheme();
 updateFavBadge();
 renderQuickFavs();
 loadModelBadge();
+syncFavsToMonitor();
 const hash = location.hash.replace("#","").trim();
 if (hash && /^\d+$/.test(hash)) { el.input.value = hash; loadStop(hash); }

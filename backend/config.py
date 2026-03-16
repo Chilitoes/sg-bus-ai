@@ -16,7 +16,7 @@ MODEL_RETRAIN_INTERVAL_HOURS: float = float(os.getenv("MODEL_RETRAIN_INTERVAL_HO
 # Bus stops actively polled by the background collector
 DEFAULT_MONITORED_STOPS: list[str] = [
     s.strip()
-    for s in os.getenv("MONITORED_STOPS", "83139,83141,84009,01012,01013").split(",")
+    for s in os.getenv("MONITORED_STOPS", "").split(",")
     if s.strip()
 ]
 
