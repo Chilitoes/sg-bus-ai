@@ -340,13 +340,13 @@ function renderCharts(stats) {
     pointBorder:  dark ? "#1e293b" : "#ffffff",
   };
 
-  const fmtDelay = (v) => {
+  const fmtDelay = (v, prefix = "") => {
     if (v === null || v === undefined) return "No data";
     const abs = Math.abs(v);
     const m = Math.floor(abs / 60), s = Math.round(abs % 60);
-    const t = m > 0 ? `${m}m ${s}s` : `${s}s`;
-    if (Math.abs(v) < 5) return "On time";
-    return v > 0 ? `▲ ${t} late` : `▼ ${t} early`;
+    const t = m > 0 ? `${m} min ${s} sec` : `${s} sec`;
+    if (abs < 5) return `${prefix}Usually on time`;
+    return v > 0 ? `${prefix}Usually ${t} late` : `${prefix}Usually ${t} early`;
   };
 
   const tooltip = {
@@ -368,7 +368,7 @@ function renderCharts(stats) {
     border: { dash: [3, 3], display: false },
     ticks: {
       color: c.text, font: { size: 11 },
-      callback: (v) => { const r = Math.round(v); return r === 0 ? "0s" : `${r > 0 ? "+" : ""}${r}s`; },
+      callback: (v) => { const r = Math.round(v); return r === 0 ? "On time" : `${r > 0 ? "+" : ""}${r}s`; },
     },
   };
   const xScale = {
@@ -398,7 +398,7 @@ function renderCharts(stats) {
           legend: { display: false },
           tooltip: { ...tooltip, callbacks: {
             title: (i) => `Bus ${i[0].label}`,
-            label: (i) => ` ${fmtDelay(i.raw)}`,
+            label: (i) => ` ${fmtDelay(i.raw, "")}`,
           }},
         },
         scales: { y: yScale, x: xScale },
@@ -430,9 +430,9 @@ function renderCharts(stats) {
           tooltip: { ...tooltip, callbacks: {
             title: (i) => {
               const h = i[0].dataIndex;
-              return `${hlabel(h)} – ${hlabel(h < 23 ? h + 1 : 0)}${isPeak(h) ? " · Peak" : ""}`;
+              return `${hlabel(h)} – ${hlabel(h < 23 ? h + 1 : 0)}${isPeak(h) ? " · Peak Hours" : ""}`;
             },
-            label: (i) => ` ${fmtDelay(i.raw)}`,
+            label: (i) => i.raw === null ? " No buses at this hour" : ` ${fmtDelay(i.raw)}`,
           }},
         },
         scales: {
@@ -477,7 +477,7 @@ function renderCharts(stats) {
           legend: { display: false },
           tooltip: { ...tooltip, callbacks: {
             title: (i) => i[0].label,
-            label: (i) => ` ${fmtDelay(i.raw)}`,
+            label: (i) => i.raw === null ? " No data for this day" : ` ${fmtDelay(i.raw)}`,
           }},
         },
         scales: { y: yScale, x: xScale },
