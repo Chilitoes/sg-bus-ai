@@ -141,6 +141,14 @@ body {
   border-color: rgba(16,185,129,.3);
   color: #6ee7b7;
 }
+.model-badge.shimmer {
+  background: linear-gradient(90deg,
+    rgba(255,255,255,.05) 25%,
+    rgba(255,255,255,.14) 50%,
+    rgba(255,255,255,.05) 75%);
+  background-size: 200% auto;
+  animation: shimmer 1.4s linear infinite;
+}
 .theme-btn {
   background: rgba(255,255,255,.08);
   border: 1px solid rgba(255,255,255,.12);
@@ -184,8 +192,11 @@ body {
   padding: .1rem .4rem; min-width: 18px; text-align: center;
 }
 .tab-panel        { display: none; }
-.tab-panel.active { display: block; animation: fadeIn .2s ease; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+.tab-panel.active { display: block; animation: fadeIn .25s cubic-bezier(.2,.8,.4,1); }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
 
 /* ── Buttons ───────────────────────────────────────────── */
 .btn {
@@ -321,6 +332,20 @@ body {
 .chip:hover { background: var(--text-1); color: var(--text-inv); border-color: var(--text-1); }
 
 /* ── Stop header ───────────────────────────────────────── */
+@keyframes headerSlide {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes starPop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.5) rotate(-10deg); }
+  70%  { transform: scale(0.9) rotate(5deg); }
+  100% { transform: scale(1); }
+}
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
 .stop-header {
   display: flex; align-items: center; justify-content: space-between;
   gap: 1rem; flex-wrap: wrap;
@@ -328,6 +353,8 @@ body {
   border-radius: var(--radius); padding: 1rem 1.25rem;
   margin-bottom: 1.1rem; box-shadow: var(--shadow-xs);
 }
+.stop-header.header-in { animation: headerSlide .35s cubic-bezier(.2,.8,.4,1); }
+.star-pop { animation: starPop .38s cubic-bezier(.175,.885,.32,1.275); }
 .stop-header-left  { display: flex; align-items: center; gap: .9rem; }
 .stop-header-right { display: flex; align-items: center; gap: .6rem; }
 .stop-code-badge {
@@ -363,10 +390,10 @@ body {
   border-radius: var(--radius); overflow: hidden;
   box-shadow: var(--shadow-xs);
   transition: transform var(--trans), box-shadow var(--trans);
-  animation: slideUp .22s ease;
+  animation: slideUp .32s cubic-bezier(.2,.8,.4,1) backwards;
 }
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: none; }
 }
 .service-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }

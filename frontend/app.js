@@ -148,6 +148,21 @@ function renderQuickFavs() {
     </button>`).join("");
 }
 
+// ── Count-up animation ────────────────────────────────────
+function countUp(el, target) {
+  const num = Number(target);
+  if (!el || isNaN(num)) return;
+  const isFloat = !Number.isInteger(num);
+  const duration = 550;
+  const start = performance.now();
+  (function tick(now) {
+    const p = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = isFloat ? (num * eased).toFixed(1) : Math.round(num * eased).toLocaleString();
+    if (p < 1) requestAnimationFrame(tick);
+  })(start);
+}
+
 // ── Utilities ─────────────────────────────────────────────
 function show(e) { e && e.classList.remove("hidden"); }
 function hide(e) { e && e.classList.add("hidden"); }
@@ -260,7 +275,7 @@ function svcCardHtml(svc, idx) {
   const aiDt = parseUTC(fb.ai_arrival);
   const secs = secsUntil(aiDt);
   return `
-    <div class="service-card collapsed">
+    <div class="service-card collapsed" style="animation-delay:${idx * 0.07}s">
       <button class="card-head c${idx % CARD_COLORS}" onclick="toggleCard(this)">
         <div class="card-head-main">
           <div class="card-svc-no">${svc.service_no}</div>
@@ -295,7 +310,12 @@ function renderArrivals(data) {
   el.stopCode.textContent = data.bus_stop_code;
   el.lastUpd.textContent  = `Updated ${new Date().toLocaleTimeString("en-SG",
     { hour:"2-digit", minute:"2-digit", hour12:false })}`;
-  show(el.stopHeader); show(el.legend); show(el.aiSection);
+
+  // Slide stop header in each time a new stop loads
+  el.stopHeader.classList.remove("hidden", "header-in");
+  void el.stopHeader.offsetWidth;
+  el.stopHeader.classList.add("header-in");
+  show(el.legend); show(el.aiSection);
   if (!data.services?.length) { el.grid.innerHTML = ""; show(el.noSvc); return; }
   hide(el.noSvc);
   el.grid.innerHTML = data.services.map((s,i) => svcCardHtml(s,i)).join("");
@@ -411,6 +431,7 @@ function renderCharts(stats) {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
+        animation: { duration: 700, easing: "easeOutQuart" },
         interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { display: false },
@@ -442,6 +463,7 @@ function renderCharts(stats) {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
+        animation: { duration: 700, easing: "easeOutQuart" },
         interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { display: false },
@@ -490,6 +512,7 @@ function renderCharts(stats) {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
+        animation: { duration: 900, easing: "easeOutQuart" },
         interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { display: false },
@@ -512,8 +535,10 @@ function redrawChartsIfOpen() {
 
 // ── Model badge ───────────────────────────────────────────
 async function loadModelBadge() {
+  el.modelBadge.classList.add("shimmer");
   try {
     const s = await api("/api/model/status");
+    el.modelBadge.classList.remove("shimmer");
     el.modelBadge.textContent = `AI · MAE ${s.mae_seconds??'–'}s · ${s.training_rows} rows`;
     el.modelBadge.classList.add("ready");
     if (el.modelDetail) el.modelDetail.innerHTML = `
@@ -572,11 +597,11 @@ async function loadDataTab() {
     const isPostgres = db.type === "PostgreSQL";
     $("stat-db-type-val").textContent  = db.type;
     $("stat-db-type-val").className    = "stat-value " + (isPostgres ? "stat-ok" : "stat-warn");
-$("stat-arrivals").textContent     = db.arrival_records.toLocaleString();
-    $("stat-labeled").textContent      = db.labeled_records.toLocaleString();
-    $("stat-stops").textContent        = db.bus_stops.toLocaleString();
-    $("stat-mae").textContent          = d.model.mae_seconds ?? "–";
-    $("stat-train-rows").textContent   = d.model.training_rows.toLocaleString();
+    countUp($("stat-arrivals"),   db.arrival_records);
+    countUp($("stat-labeled"),    db.labeled_records);
+    countUp($("stat-stops"),      db.bus_stops);
+    countUp($("stat-mae"),        d.model.mae_seconds ?? 0);
+    countUp($("stat-train-rows"), d.model.training_rows);
     hide(el.dataLoading); show(el.statsGrid);
 
     // Monitored stops
@@ -680,6 +705,8 @@ el.favBtn.addEventListener("click", () => {
   if (!S.stop) return;
   isFav(S.stop) ? removeFav(S.stop) : addFav(S.stop, S.stopInfo || {});
   syncFavBtn(); updateFavBadge(); renderQuickFavs();
+  const ico = document.getElementById("fav-btn-icon");
+  if (ico) { ico.classList.remove("star-pop"); void ico.offsetWidth; ico.classList.add("star-pop"); }
 });
 
 // Fav grid (delegation)
