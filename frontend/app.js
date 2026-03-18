@@ -285,6 +285,12 @@ function toggleCard(btn) {
 }
 
 function renderArrivals(data) {
+  // Remember which service cards are currently open so refresh doesn't collapse them
+  const expanded = new Set(
+    [...document.querySelectorAll(".service-card:not(.collapsed)")]
+      .map(c => c.querySelector(".card-svc-no")?.textContent)
+  );
+
   S.arrivals = data; clearErr();
   el.stopCode.textContent = data.bus_stop_code;
   el.lastUpd.textContent  = `Updated ${new Date().toLocaleTimeString("en-SG",
@@ -293,6 +299,13 @@ function renderArrivals(data) {
   if (!data.services?.length) { el.grid.innerHTML = ""; show(el.noSvc); return; }
   hide(el.noSvc);
   el.grid.innerHTML = data.services.map((s,i) => svcCardHtml(s,i)).join("");
+
+  // Restore previously open cards
+  document.querySelectorAll(".service-card").forEach(c => {
+    if (expanded.has(c.querySelector(".card-svc-no")?.textContent))
+      c.classList.remove("collapsed");
+  });
+
   startTicker();
 }
 
