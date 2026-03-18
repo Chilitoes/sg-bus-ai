@@ -167,7 +167,7 @@ function fmtTime(dt) {
 }
 function fmtCountdown(s) {
   if (s === null) return "–";
-  if (s <= 0 || s < ARRIVING_THRESH) return "Arr";
+  if (s <= 0 || s < ARRIVING_THRESH) return "Now";
   const m = Math.floor(s / 60);
   return m < 60 ? String(m) : `${Math.floor(m/60)}h${m%60}m`;
 }
@@ -333,10 +333,15 @@ function renderCharts(stats) {
   if (!stats || stats.total_records === 0) { show(el.noStats); return; }
   hide(el.noStats);
 
+  // Label trend chart with the stop name so it's clear what's being shown
+  const trendStop = $("trend-stop");
+  if (trendStop) trendStop.textContent = S.stopInfo?.description
+    ? `· ${S.stopInfo.description}` : S.stop ? `· Stop ${S.stop}` : "";
+
   const dark = document.documentElement.getAttribute("data-theme") === "dark";
   const c = {
     grid:         dark ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.06)",
-    zeroLine:     dark ? "rgba(255,255,255,.18)" : "rgba(0,0,0,.18)",
+    zeroLine:     dark ? "rgba(255,255,255,.35)" : "rgba(0,0,0,.28)",
     late:         "rgba(239,68,68,.75)",
     lateSolid:    "#ef4444",
     early:        "rgba(59,130,246,.75)",
@@ -376,7 +381,7 @@ function renderCharts(stats) {
   const yScale = {
     grid: {
       color: (ctx) => ctx.tick.value === 0 ? c.zeroLine : c.grid,
-      lineWidth: (ctx) => ctx.tick.value === 0 ? 1.5 : 1,
+      lineWidth: (ctx) => ctx.tick.value === 0 ? 2 : 1,
     },
     border: { dash: [3, 3], display: false },
     ticks: {
@@ -547,10 +552,12 @@ async function loadStop(code) {
 }
 
 async function refreshStop(code) {
+  el.grid.classList.add("refreshing");
   try {
     const arrivals = await api(`/api/arrivals/${code}`);
     renderArrivals(arrivals); clearErr();
   } catch (err) { showErr(`Refresh failed: ${err.message}`); }
+  finally { el.grid.classList.remove("refreshing"); }
 }
 
 // ── Data tab ──────────────────────────────────────────────
