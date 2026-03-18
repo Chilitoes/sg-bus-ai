@@ -72,7 +72,7 @@ const el = {
 
 // ── Theme ─────────────────────────────────────────────────
 function initTheme() {
-  const saved = localStorage.getItem(THEME_KEY) || "light";
+  const saved = localStorage.getItem(THEME_KEY) || "dark";
   setTheme(saved);
 }
 function setTheme(t) {
