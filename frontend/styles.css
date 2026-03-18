@@ -418,7 +418,23 @@ body {
   flex-shrink: 0; transition: transform .2s ease; color: rgba(255,255,255,.7);
 }
 .service-card:not(.collapsed) .expand-chevron { transform: rotate(180deg); }
-.service-card.collapsed .bus-list { display: none; }
+.service-card:not(.collapsed) { box-shadow: var(--shadow-sm); }
+
+/* Smooth expand/collapse using CSS grid height animation */
+.bus-list-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .3s cubic-bezier(.2,.8,.4,1);
+}
+.service-card:not(.collapsed) .bus-list-wrap {
+  grid-template-rows: 1fr;
+}
+.bus-list { min-height: 0; overflow: hidden; }
+
+@keyframes rowSlide {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
 .card-svc-no {
   font-size: 1.9rem; font-weight: 900; letter-spacing: -.5px;
   line-height: 1; color: #fff;

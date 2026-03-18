@@ -292,12 +292,21 @@ function svcCardHtml(svc, idx) {
           <svg class="expand-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
       </button>
-      <div class="bus-list">${svc.buses.map(busRowHtml).join("")}</div>
+      <div class="bus-list-wrap"><div class="bus-list">${svc.buses.map(busRowHtml).join("")}</div></div>
     </div>`;
 }
 
 function toggleCard(btn) {
-  btn.closest(".service-card").classList.toggle("collapsed");
+  const card = btn.closest(".service-card");
+  const expanding = card.classList.contains("collapsed");
+  card.classList.toggle("collapsed");
+  if (expanding) {
+    card.querySelectorAll(".bus-row").forEach((row, i) => {
+      row.style.animation = "none";
+      void row.offsetWidth;
+      row.style.animation = `rowSlide .22s ease ${i * 0.07}s both`;
+    });
+  }
 }
 
 function renderArrivals(data) {
