@@ -182,7 +182,8 @@ function fmtTime(dt) {
 }
 function fmtCountdown(s) {
   if (s === null) return "–";
-  if (s <= 0 || s < ARRIVING_THRESH) return "Now";
+  if (s <= 0) return "Here";
+  if (s < ARRIVING_THRESH) return "Arr";
   const m = Math.floor(s / 60);
   return m < 60 ? String(m) : `${Math.floor(m/60)}h${m%60}m`;
 }
