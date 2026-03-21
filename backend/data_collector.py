@@ -277,11 +277,11 @@ async def start_data_collection() -> None:
             import time
             elapsed = time.monotonic() - last_retrain
             if elapsed >= retrain_every:
+                last_retrain = time.monotonic()  # always advance so failures don't cause infinite retries
                 logger.info("Triggering scheduled model retrain")
                 try:
                     global_model.retrain_from_db()
-                    last_retrain = time.monotonic()
                 except Exception as exc:
-                    logger.error("Model retrain failed: %s", exc)
+                    logger.exception("Model retrain failed: %s", exc)
 
             await asyncio.sleep(interval_sec)

@@ -250,6 +250,8 @@ class BusDelayModel:
             rows = (
                 db.query(BusArrivalRecord)
                 .filter(BusArrivalRecord.delay_seconds.isnot(None))
+                .order_by(BusArrivalRecord.collection_time.desc())
+                .limit(30_000)
                 .all()
             )
             if not rows:
