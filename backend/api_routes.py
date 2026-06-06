@@ -33,6 +33,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _parse_lta_dt(iso_str: str | None) -> datetime | None:
