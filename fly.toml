@@ -5,9 +5,10 @@ primary_region = 'sin'
 
 [env]
   PORT = '8000'
+  DATABASE_URL = 'sqlite:////data/bus_data.db'
 
-# Persistent volume keeps the SQLite database across restarts/deploys.
-# Create it once with: fly volumes create bus_data --size 1 --region sin
+# Persistent volume — keeps the SQLite database and collected data across
+# restarts and deploys. Create once: fly volumes create bus_data --size 1 --region sin
 [[mounts]]
   source = 'bus_data'
   destination = '/data'
@@ -25,7 +26,7 @@ primary_region = 'sin'
     soft_limit = 20
 
   [[http_service.checks]]
-    grace_period = '10s'
+    grace_period = '15s'
     interval = '30s'
     method = 'GET'
     path = '/api/health'
