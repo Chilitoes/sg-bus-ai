@@ -33,7 +33,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+@router.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
+# ── Internal helpers ─────────────────────────────────────────────
 
 def _parse_lta_dt(iso_str: str | None) -> datetime | None:
     if not iso_str:
@@ -73,7 +78,7 @@ async def _call_lta(stop_code: str) -> dict:
             raise HTTPException(status_code=502, detail=f"Could not reach LTA API: {exc}")
 
 
-# ── Arrivals ──────────────────────────────────────────────────────────────────
+# ── Arrivals ──────────────────────────────────────────────────────
 
 @router.get("/arrivals/{stop_code}")
 async def get_arrivals(stop_code: str, db: Session = Depends(get_db)) -> dict:
@@ -164,7 +169,7 @@ async def get_arrivals(stop_code: str, db: Session = Depends(get_db)) -> dict:
     }
 
 
-# ── Statistics ────────────────────────────────────────────────────────────────
+# ── Statistics ────────────────────────────────────────────────
 
 @router.get("/stats/{stop_code}")
 def get_stats(stop_code: str, db: Session = Depends(get_db)) -> dict:
@@ -185,7 +190,7 @@ def get_stats(stop_code: str, db: Session = Depends(get_db)) -> dict:
 
     total_rows = base_q.count()
 
-    # ── By service ────────────────────────────────────────────────────────────
+    # ── By service ──────────────────────────────────────────────────────
     by_service_q = (
         base_q
         .with_entities(
@@ -207,7 +212,7 @@ def get_stats(stop_code: str, db: Session = Depends(get_db)) -> dict:
         for r in by_service_q
     ]
 
-    # ── By hour ───────────────────────────────────────────────────────────────
+    # ── By hour ─────────────────────────────────────────────────────────
     by_hour_q = (
         base_q
         .with_entities(
@@ -222,7 +227,7 @@ def get_stats(stop_code: str, db: Session = Depends(get_db)) -> dict:
     # Fill missing hours with None
     by_hour_full = [by_hour.get(str(h)) for h in range(24)]
 
-    # ── Trend (daily average over last 14 days) ───────────────────────────────
+    # ── Trend (daily average over last 14 days) ──────────────────────────────
     trend_q = (
         base_q
         .filter(BusArrivalRecord.collection_time >= datetime.utcnow() - timedelta(days=14))
@@ -245,7 +250,7 @@ def get_stats(stop_code: str, db: Session = Depends(get_db)) -> dict:
     }
 
 
-# ── ML model ──────────────────────────────────────────────────────────────────
+# ── ML model ──────────────────────────────────────────────────────────
 
 @router.get("/model/status")
 def model_status() -> dict:
@@ -262,7 +267,7 @@ async def retrain_model() -> dict:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# ── Bus stop directory ────────────────────────────────────────────────────────
+# ── Bus stop directory ────────────────────────────────────────────────
 
 @router.get("/stops/search")
 def search_stops(
@@ -368,7 +373,7 @@ async def sync_stops() -> dict:
     return {"status": "ok", "stops_synced": total}
 
 
-# ── Monitored stops ───────────────────────────────────────────────────────────
+# ── Monitored stops ──────────────────────────────────────────────────
 
 @router.get("/monitor")
 def list_monitored(db: Session = Depends(get_db)) -> dict:
@@ -396,7 +401,7 @@ def remove_monitored(stop_code: str, db: Session = Depends(get_db)) -> dict:
     return {"status": "removed", "bus_stop_code": stop_code}
 
 
-# ── Data overview ─────────────────────────────────────────────────────────────
+# ── Data overview ────────────────────────────────────────────────────────
 
 @router.get("/data")
 def get_data_overview(db: Session = Depends(get_db)) -> dict:
