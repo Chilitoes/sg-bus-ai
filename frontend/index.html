@@ -148,6 +148,70 @@
     <div id="saved-list" class="saved-list"></div>
   </section>
 
+  <!-- ════ PLAN VIEW ════ -->
+  <section id="view-plan" class="view">
+    <h2 class="view-title">Plan a journey</h2>
+    <p class="view-sub">Find the best bus route between two stops, with live wait times and last-bus warnings.</p>
+
+    <div class="plan-form">
+      <!-- From -->
+      <div class="plan-row">
+        <span class="plan-row-label">From</span>
+        <div class="plan-field-wrap">
+          <div class="search-row">
+            <div class="search-box">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input id="plan-from-input" type="text" inputmode="search" placeholder="Stop name or code" autocomplete="off" spellcheck="false" />
+              <button id="plan-from-clear" class="search-clear hidden" aria-label="Clear">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <button id="plan-from-near" class="near-btn" aria-label="Use current location">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+            </button>
+          </div>
+          <div id="plan-from-ac" class="autocomplete hidden"></div>
+        </div>
+      </div>
+
+      <!-- Swap -->
+      <div class="plan-swap-row">
+        <button id="plan-swap" class="plan-swap-btn" aria-label="Swap from and to">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        </button>
+      </div>
+
+      <!-- To -->
+      <div class="plan-row">
+        <span class="plan-row-label">To</span>
+        <div class="plan-field-wrap">
+          <div class="search-row">
+            <div class="search-box">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input id="plan-to-input" type="text" inputmode="search" placeholder="Stop name or code" autocomplete="off" spellcheck="false" />
+              <button id="plan-to-clear" class="search-clear hidden" aria-label="Clear">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <button id="plan-to-near" class="near-btn" aria-label="Use current location">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+            </button>
+          </div>
+          <div id="plan-to-ac" class="autocomplete hidden"></div>
+        </div>
+      </div>
+    </div>
+
+    <button id="plan-btn" class="bigbtn plan-go-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>
+      Plan journey
+    </button>
+
+    <div id="plan-loading" class="plan-loading hidden">Finding routes…</div>
+    <div id="plan-error" class="error-note hidden"></div>
+    <div id="plan-results"></div>
+  </section>
+
   <!-- ════ DATA VIEW ════ -->
   <section id="view-data" class="view">
     <h2 class="view-title">Data &amp; model</h2>
@@ -189,6 +253,10 @@
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
     <span>Saved</span>
     <span id="nav-saved-count" class="nav-badge hidden"></span>
+  </button>
+  <button class="nav-item" data-view="plan">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>
+    <span>Plan</span>
   </button>
   <button class="nav-item" data-view="data">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg>

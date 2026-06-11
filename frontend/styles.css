@@ -603,6 +603,123 @@ th.num, td.num { text-align: right; }
 }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } }
 
+/* ── Plan view ───────────────────────────────────────── */
+.plan-form {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: .75rem .85rem;
+  margin-bottom: .75rem; box-shadow: var(--shadow-sm);
+}
+.plan-row {
+  display: flex; align-items: flex-start; gap: .55rem;
+}
+.plan-row-label {
+  font-size: .7rem; font-weight: 700; color: var(--ink-3);
+  width: 30px; flex-shrink: 0; padding-top: .8rem; text-transform: uppercase; letter-spacing: .06em;
+}
+.plan-field-wrap { flex: 1; min-width: 0; position: relative; }
+.plan-swap-row {
+  display: flex; justify-content: flex-end;
+  margin: .3rem 0;
+}
+.plan-swap-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 1.5px solid var(--line); background: var(--surface-2);
+  color: var(--ink-2);
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+.plan-swap-btn:active { background: var(--accent-soft); color: var(--accent); }
+.plan-go-btn { margin-bottom: .75rem; gap: .5rem; }
+.plan-loading {
+  text-align: center; color: var(--ink-3);
+  font-size: .82rem; padding: 1.5rem; letter-spacing: .02em;
+}
+.plan-no-routes {
+  text-align: center; color: var(--ink-3);
+  font-size: .84rem; padding: 2rem .5rem; line-height: 1.6;
+}
+
+/* Journey option cards */
+#plan-results { display: flex; flex-direction: column; gap: .65rem; }
+
+.journey-option {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+.journey-opt-head {
+  display: flex; align-items: center; gap: .55rem; flex-wrap: wrap;
+  padding: .6rem .9rem;
+  background: var(--surface-2); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+.opt-num {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: .66rem; font-weight: 800; flex-shrink: 0;
+}
+.opt-type { font-weight: 600; flex: 1; }
+.opt-time { font-variant-numeric: tabular-nums; color: var(--ink-2); font-weight: 600; }
+.last-bus-warn {
+  font-size: .68rem; font-weight: 700;
+  color: var(--bad); background: var(--bad-soft);
+  border-radius: 5px; padding: .07rem .38rem;
+}
+
+.journey-leg {
+  padding: .7rem .9rem; border-bottom: 1px solid var(--line);
+}
+.journey-leg:last-child { border-bottom: none; }
+
+.leg-top {
+  display: flex; align-items: center; gap: .5rem; margin-bottom: .42rem; flex-wrap: wrap;
+}
+.leg-route {
+  min-width: 44px; height: 32px; border-radius: 8px;
+  background: var(--ink); color: var(--bg);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: .9rem; font-weight: 800; padding: 0 .4rem; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.leg-stops { font-size: .76rem; color: var(--ink-2); flex: 1; }
+.leg-wait { font-size: .76rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.leg-wait.due { color: var(--good); }
+.last-bus-tag {
+  font-size: .65rem; font-weight: 700;
+  color: var(--bad); background: var(--bad-soft);
+  border-radius: 5px; padding: .06rem .34rem;
+}
+
+.leg-stop-row {
+  display: flex; align-items: baseline; gap: .32rem; font-size: .82rem;
+}
+.leg-stop-row + .leg-stop-row { margin-top: .16rem; }
+.leg-stop-label {
+  font-size: .68rem; color: var(--ink-3); flex-shrink: 0; width: 34px; font-weight: 500;
+}
+.leg-stop-name { font-weight: 600; flex: 1; min-width: 0; }
+.leg-stop-code {
+  font-size: .66rem; font-weight: 700; color: var(--ink-3);
+  border: 1px solid var(--line); border-radius: 4px;
+  padding: .02rem .2rem; background: var(--surface-2); flex-shrink: 0;
+}
+
+.leg-timing {
+  display: flex; align-items: center; gap: .38rem; flex-wrap: wrap;
+  font-size: .78rem; margin: .32rem 0;
+}
+.leg-timing b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.leg-ai { color: var(--accent); font-size: .74rem; font-weight: 600; }
+
+.journey-transfer {
+  display: flex; align-items: center; gap: .45rem;
+  padding: .48rem .9rem;
+  background: var(--surface-2);
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+  font-size: .76rem; color: var(--ink-3); font-weight: 500;
+}
+
 @media (min-width: 640px) {
   .stat-grid { grid-template-columns: repeat(3, 1fr); }
   .chart-box { height: 220px; }

@@ -125,6 +125,22 @@ class MonitoredStop(Base):
     is_active     = Column(Boolean, default=True, nullable=False)
 
 
+class BusRoute(Base):
+    """LTA bus route data: which stops each service visits, in sequence order."""
+    __tablename__ = "bus_routes"
+    __table_args__ = (
+        UniqueConstraint("service_no", "direction", "stop_sequence", name="uq_route_seq"),
+    )
+
+    id            = Column(Integer, primary_key=True)
+    service_no    = Column(String(10), nullable=False, index=True)
+    direction     = Column(Integer, nullable=False)
+    stop_sequence = Column(Integer, nullable=False)
+    bus_stop_code = Column(String(10), nullable=False, index=True)
+    distance_km   = Column(Float, nullable=True)
+    synced_at     = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class User(Base):
     """Registered account. Passwords are stored as salted PBKDF2 hashes."""
     __tablename__ = "users"

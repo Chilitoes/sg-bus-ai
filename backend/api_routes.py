@@ -6,8 +6,11 @@ Endpoints
 GET  /api/arrivals/{stop_code}       Real-time arrivals + AI predictions
 GET  /api/stats/{stop_code}          Delay stats for charts (by service, hour, day)
 GET  /api/stops/search               Search bus stops by code or name
+GET  /api/stops/nearby               Bus stops nearest to a lat/lng coordinate
 GET  /api/stops/{stop_code}          Get single bus stop info
 POST /api/stops/sync                 Re-sync bus stop directory from LTA
+POST /api/routes/sync                Sync full bus route graph from LTA
+GET  /api/journey/plan               Plan A→B journey with live timings
 GET  /api/model/status               ML model metadata
 POST /api/model/retrain              Trigger an immediate model retrain
 POST /api/monitor/{stop_code}        Add a stop to the background collector
@@ -16,7 +19,9 @@ GET  /api/monitor                    List all monitored stops
 GET  /api/data                       Database overview for the Data tab
 """
 
+import asyncio
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -27,7 +32,7 @@ from sqlalchemy.orm import Session
 
 from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL, DATABASE_URL
 from data_collector import persist_arrival_payload
-from database import BusArrivalRecord, BusStop, BusTracking, MonitoredStop, get_db
+from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, MonitoredStop, get_db
 from ml_model import model as global_model
 
 logger = logging.getLogger(__name__)
@@ -475,6 +480,312 @@ def remove_monitored(stop_code: str, db: Session = Depends(get_db)) -> dict:
         row.is_active = False
         db.commit()
     return {"status": "removed", "bus_stop_code": stop_code}
+
+
+# ── Route graph & journey planner ────────────────────────────────────────
+
+class _RouteGraph:
+    """In-memory graph of the Singapore bus network, lazily loaded from DB."""
+
+    MAX_STOPS = 50  # max stops per leg when searching
+
+    def __init__(self):
+        self._loaded = False
+        self._service_stops: dict[tuple, list[tuple]] = {}  # (svc,dir) -> [(seq,code,dist)]
+        self._stop_routes: dict[str, list[tuple]] = {}      # code -> [(svc,dir,seq)]
+
+    def load(self, db: Session) -> None:
+        svc_stops: dict[tuple, list] = defaultdict(list)
+        stop_routes: dict[str, list] = defaultdict(list)
+        rows = (
+            db.query(BusRoute)
+            .order_by(BusRoute.service_no, BusRoute.direction, BusRoute.stop_sequence)
+            .all()
+        )
+        for r in rows:
+            key = (r.service_no, r.direction)
+            svc_stops[key].append((r.stop_sequence, r.bus_stop_code, r.distance_km))
+            stop_routes[r.bus_stop_code].append((r.service_no, r.direction, r.stop_sequence))
+        self._service_stops = dict(svc_stops)
+        self._stop_routes = dict(stop_routes)
+        self._loaded = True
+
+    def invalidate(self):
+        self._loaded = False
+
+    def find_journeys(self, from_stop: str, to_stop: str, db: Session) -> list[dict]:
+        if not self._loaded:
+            self.load(db)
+        if not self._service_stops:
+            return []
+
+        N = self.MAX_STOPS
+        options: list[dict] = []
+
+        # ── Direct (no transfer) ─────────────────────────────────
+        for svc, dir_, from_seq in self._stop_routes.get(from_stop, []):
+            for seq, code, _ in self._service_stops.get((svc, dir_), []):
+                if seq <= from_seq:
+                    continue
+                sc = seq - from_seq
+                if sc > N:
+                    break
+                if code == to_stop:
+                    options.append({
+                        "legs": [{"service": svc, "direction": dir_,
+                                  "from_stop": from_stop, "to_stop": to_stop,
+                                  "stops_count": sc}],
+                        "transfers": 0, "total_stops": sc,
+                    })
+
+        # ── 1-transfer ───────────────────────────────────────────
+        # Stops reachable from from_stop on a single leg
+        reachable: dict[str, tuple] = {}
+        for svc1, dir1, from_seq1 in self._stop_routes.get(from_stop, []):
+            for seq, code, _ in self._service_stops.get((svc1, dir1), []):
+                if seq <= from_seq1:
+                    continue
+                sc1 = seq - from_seq1
+                if sc1 > N:
+                    break
+                if code not in reachable or reachable[code][2] > sc1:
+                    reachable[code] = (svc1, dir1, sc1)
+
+        # Stops that can reach to_stop on a single leg
+        can_reach: dict[str, tuple] = {}
+        for svc2, dir2, to_seq2 in self._stop_routes.get(to_stop, []):
+            for seq, code, _ in reversed(self._service_stops.get((svc2, dir2), [])):
+                if seq >= to_seq2:
+                    continue
+                sc2 = to_seq2 - seq
+                if sc2 > N:
+                    break
+                if code not in can_reach or can_reach[code][2] > sc2:
+                    can_reach[code] = (svc2, dir2, sc2)
+
+        for xfer in set(reachable) & set(can_reach) - {from_stop, to_stop}:
+            svc1, dir1, sc1 = reachable[xfer]
+            svc2, dir2, sc2 = can_reach[xfer]
+            if svc1 == svc2 and dir1 == dir2:
+                continue  # same service — no real transfer
+            total = sc1 + sc2
+            options.append({
+                "legs": [
+                    {"service": svc1, "direction": dir1,
+                     "from_stop": from_stop, "to_stop": xfer, "stops_count": sc1},
+                    {"service": svc2, "direction": dir2,
+                     "from_stop": xfer, "to_stop": to_stop, "stops_count": sc2},
+                ],
+                "transfers": 1, "total_stops": total,
+            })
+
+        options.sort(key=lambda o: (o["transfers"], o["total_stops"]))
+
+        # Deduplicate by (service chain)
+        seen: set[tuple] = set()
+        deduped: list[dict] = []
+        for opt in options:
+            key = tuple(
+                f"{l['service']}-{l['direction']}-{l['from_stop']}-{l['to_stop']}"
+                for l in opt["legs"]
+            )
+            if key not in seen:
+                seen.add(key)
+                deduped.append(opt)
+
+        return deduped[:5]
+
+
+_route_graph = _RouteGraph()
+
+
+@router.post("/routes/sync")
+async def sync_routes() -> dict:
+    """Sync the full LTA bus route graph (all services × all stops) into the DB."""
+    headers = {"AccountKey": LTA_API_KEY}
+    url = f"{LTA_BASE_URL}/BusRoutes"
+    total = 0
+    skip = 0
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        db_raw = get_db().__next__()
+        try:
+            while True:
+                resp = await client.get(url, headers=headers, params={"$skip": skip})
+                resp.raise_for_status()
+                rows = resp.json().get("value", [])
+                if not rows:
+                    break
+                for r in rows:
+                    svc = r.get("ServiceNo", "")
+                    direction = r.get("Direction", 1)
+                    seq = r.get("StopSequence", 0)
+                    code = r.get("BusStopCode", "")
+                    if not svc or not code:
+                        continue
+                    existing = db_raw.query(BusRoute).filter_by(
+                        service_no=svc, direction=direction, stop_sequence=seq,
+                    ).first()
+                    if existing:
+                        existing.bus_stop_code = code
+                        existing.distance_km = r.get("Distance")
+                        existing.synced_at = datetime.utcnow()
+                    else:
+                        db_raw.add(BusRoute(
+                            service_no=svc, direction=direction,
+                            stop_sequence=seq, bus_stop_code=code,
+                            distance_km=r.get("Distance"),
+                        ))
+                    total += 1
+                db_raw.commit()
+                skip += 500
+                if len(rows) < 500:
+                    break
+        finally:
+            db_raw.close()
+
+    _route_graph.invalidate()
+    return {"status": "ok", "routes_synced": total}
+
+
+@router.get("/journey/plan")
+async def plan_journey(
+    from_code: str = Query(..., description="Origin bus stop code"),
+    to_code: str = Query(..., description="Destination bus stop code"),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Plan a journey between two bus stops.
+
+    Returns up to 3 route options with live LTA arrival times and AI adjustments.
+    Each option shows legs (bus rides), wait times, estimated ride times, and
+    a last-bus warning when a service is running its final departure.
+    """
+    if from_code == to_code:
+        raise HTTPException(status_code=400, detail="Origin and destination must be different stops.")
+
+    route_count = db.query(func.count(BusRoute.id)).scalar() or 0
+    if not route_count:
+        raise HTTPException(
+            status_code=503,
+            detail="Route data not synced yet. Call POST /api/routes/sync first.",
+        )
+
+    def stop_info(code: str) -> dict:
+        s = db.query(BusStop).filter_by(bus_stop_code=code).first()
+        return {
+            "code": code,
+            "name": s.description if s else code,
+            "road": s.road_name if s else "",
+        }
+
+    from_info = stop_info(from_code)
+    to_info   = stop_info(to_code)
+
+    raw_options = _route_graph.find_journeys(from_code, to_code, db)
+    if not raw_options:
+        return {
+            "from": from_info, "to": to_info, "options": [],
+            "message": "No direct or 1-transfer route found. Try nearby stops.",
+        }
+
+    now = datetime.utcnow()
+    sgt = now + timedelta(hours=8)
+
+    # Fetch live arrivals for all unique boarding stops (concurrent)
+    unique_boards = {leg["from_stop"] for opt in raw_options[:3] for leg in opt["legs"]}
+
+    async def _fetch(code: str) -> tuple[str, dict | None]:
+        try:
+            return code, await _call_lta(code)
+        except Exception:
+            return code, None
+
+    fetched = await asyncio.gather(*[_fetch(c) for c in unique_boards])
+    arrivals_cache: dict[str, dict | None] = dict(fetched)
+
+    def enrich_leg(leg: dict) -> dict:
+        svc      = leg["service"]
+        board    = leg["from_stop"]
+        alight   = leg["to_stop"]
+        sc       = leg["stops_count"]
+        est_ride = max(2, sc * 2)  # ~2 min per stop
+
+        wait_min        = None
+        lta_arrival     = None
+        ai_arrival_str  = None
+        ai_adj_sec      = 0
+        buses_available = 0
+        is_last_bus     = False
+
+        lta_data = arrivals_cache.get(board)
+        if lta_data:
+            for sv in lta_data.get("Services", []):
+                if sv.get("ServiceNo") != svc:
+                    continue
+                for slot_key in ["NextBus", "NextBus2", "NextBus3"]:
+                    b = sv.get(slot_key) or {}
+                    if b.get("EstimatedArrival"):
+                        buses_available += 1
+
+                bus = sv.get("NextBus") or {}
+                est = _parse_lta_dt(bus.get("EstimatedArrival"))
+                if est:
+                    wait_sec = (est - now).total_seconds()
+                    wait_min = max(0, int(wait_sec / 60))
+
+                    adj = global_model.predict(
+                        hour=sgt.hour, day_of_week=sgt.weekday(),
+                        bus_load=bus.get("Load", "SEA"),
+                        bus_type=bus.get("Type", "SD"),
+                        service_no=svc, stop_code=board,
+                    )
+                    if wait_sec <= 120:
+                        adj *= 0.25
+                    elif wait_sec <= 300:
+                        adj *= 0.6
+                    if wait_sec > 0:
+                        adj = max(-0.5 * wait_sec, adj)
+                    ai_adj_sec = round(adj)
+
+                    lta_arrival    = est.isoformat()
+                    ai_arrival_str = (est + timedelta(seconds=adj)).isoformat()
+
+                is_last_bus = buses_available <= 1
+                break
+
+        brd = db.query(BusStop).filter_by(bus_stop_code=board).first()
+        alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()
+
+        return {
+            "service_no":       svc,
+            "direction":        leg["direction"],
+            "board_stop":       {"code": board,  "name": brd.description if brd else board,  "road": brd.road_name if brd else ""},
+            "alight_stop":      {"code": alight, "name": alt.description if alt else alight, "road": alt.road_name if alt else ""},
+            "stops_count":      sc,
+            "est_ride_min":     est_ride,
+            "wait_min":         wait_min,
+            "lta_arrival":      lta_arrival,
+            "ai_arrival":       ai_arrival_str,
+            "ai_adj_sec":       ai_adj_sec,
+            "buses_available":  buses_available,
+            "is_last_bus_soon": is_last_bus,
+        }
+
+    options = []
+    for raw in raw_options[:3]:
+        legs = [enrich_leg(l) for l in raw["legs"]]
+        total_min = sum(
+            (l.get("wait_min") or 5) + l["est_ride_min"] for l in legs
+        ) + raw["transfers"] * 3
+        options.append({
+            "transfers":           raw["transfers"],
+            "total_est_min":       total_min,
+            "has_last_bus_warning": any(l["is_last_bus_soon"] for l in legs),
+            "legs":                legs,
+        })
+
+    return {"from": from_info, "to": to_info, "options": options}
 
 
 # ── Data overview ────────────────────────────────────────────────────────
