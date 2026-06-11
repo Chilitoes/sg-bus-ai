@@ -752,12 +752,24 @@ window.addEventListener("pagehide", () => {
   clearInterval(S.tickTmr);
 });
 
+async function checkBackend() {
+  try {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 6000);
+    await fetch(API_BASE + "/api/health", { signal: ctrl.signal });
+    hide($("offline-banner"));
+  } catch {
+    show($("offline-banner"));
+  }
+}
+
 initTheme();
 syncAccountUI();
 afterFavsChanged();
 renderChips();
 loadModelInfo();
 hydrateServerFavs();
+checkBackend();
 
 const bootStop = location.hash.replace("#", "").trim();
 if (/^\d{5}$/.test(bootStop)) loadStop(bootStop);
