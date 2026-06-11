@@ -20,6 +20,7 @@ GET  /api/data                       Database overview for the Data tab
 """
 
 import asyncio
+import itertools
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -820,17 +821,18 @@ async def plan_multimodal(
     """
     Plan a journey between two coordinates using bus and/or MRT.
 
-    Finds up to 3 options:
-      • Bus-only   – nearest stops each end, existing BFS
-      • MRT route  – walk to nearest station, ride, walk to destination
+    Bus options try multiple origin/destination stops within walking distance
+    so the best alighting stop is chosen, not just the nearest to the pin.
+    If the nearest MRT station is >600 m away, a bus feeder leg is inserted.
     Walk speed assumed 80 m/min.
     """
     import math as _math
-    from mrt_data import nearest_station, find_mrt_path, mrt_wait_min, LINE_DISPLAY, STATIONS
+    from mrt_data import nearest_station, find_mrt_path, mrt_wait_min, STATIONS
 
-    WALK_MPS = 80.0  # metres per minute
+    WALK_MPS         = 80.0   # m/min
+    MRT_FEEDER_THRESHOLD = 600  # m — beyond this, try a bus to the station
 
-    def _haversine(lat1, lng1, lat2, lng2) -> float:
+    def _hav(lat1, lng1, lat2, lng2) -> float:
         r = 6371000.0
         p1, p2 = _math.radians(lat1), _math.radians(lat2)
         dp = _math.radians(lat2 - lat1)
@@ -838,158 +840,186 @@ async def plan_multimodal(
         a = _math.sin(dp / 2) ** 2 + _math.cos(p1) * _math.cos(p2) * _math.sin(dl / 2) ** 2
         return 2 * r * _math.asin(_math.sqrt(a))
 
-    def _nearest_bus_stop(lat, lng):
-        box = 0.02
-        candidates = (
-            db.query(BusStop)
-            .filter(
-                BusStop.latitude.isnot(None),
-                BusStop.latitude.between(lat - box, lat + box),
-                BusStop.longitude.between(lng - box, lng + box),
-            ).all()
+    def _stops_within(lat, lng, max_m: float, limit: int = 10) -> list[tuple]:
+        """Return [(BusStop, dist_m)] sorted by distance, within max_m metres."""
+        box = max(0.006, max_m / 80000)
+        cands = db.query(BusStop).filter(
+            BusStop.latitude.isnot(None),
+            BusStop.latitude.between(lat - box, lat + box),
+            BusStop.longitude.between(lng - box, lng + box),
+        ).all()
+        scored = sorted(
+            [(s, _hav(lat, lng, s.latitude, s.longitude)) for s in cands],
+            key=lambda x: x[1],
         )
-        if not candidates:
-            return None, float("inf")
-        best = min(candidates, key=lambda s: _haversine(lat, lng, s.latitude, s.longitude))
-        return best, _haversine(lat, lng, best.latitude, best.longitude)
+        return [(s, d) for s, d in scored if d <= max_m][:limit]
 
-    def _walk_leg(from_n, to_n, dist_m):
+    def _walk_leg(from_n: str, to_n: str, dist_m: float) -> dict:
         return {
             "type": "walk",
-            "from_name": from_n,
-            "to_name":   to_n,
+            "from_name":  from_n,
+            "to_name":    to_n,
             "distance_m": round(dist_m),
             "walk_min":   max(1, round(dist_m / WALK_MPS)),
         }
 
     now = datetime.utcnow()
     sgt = now + timedelta(hours=8)
+    route_count = db.query(func.count(BusRoute.id)).scalar() or 0
 
+    # ── Phase 1: collect raw route plans ─────────────────────
+    # Bus: try top-3 origin stops × all dest stops within 600 m
+    origin_stops = _stops_within(from_lat, from_lng, 400, 3)
+    dest_stops   = _stops_within(to_lat,   to_lng,   600, 8)
+
+    raw_bus_plans: list[tuple] = []  # (raw_opt, o_stop, o_dist, d_stop, d_dist)
+    seen_keys: set[tuple] = set()
+    if route_count and origin_stops and dest_stops:
+        for (o_stop, o_dist), (d_stop, d_dist) in itertools.product(origin_stops, dest_stops):
+            if len(raw_bus_plans) >= 6:
+                break
+            for raw in _route_graph.find_journeys(o_stop.bus_stop_code, d_stop.bus_stop_code, db)[:2]:
+                key = tuple(f"{l['service']}-{l['direction']}" for l in raw["legs"])
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    raw_bus_plans.append((raw, o_stop, o_dist, d_stop, d_dist))
+
+    # MRT: find nearest station; if walk too far, find bus feeder to station
+    origin_mrt = nearest_station(from_lat, from_lng, max_m=2000)
+    dest_mrt   = nearest_station(to_lat,   to_lng,   max_m=2000)
+    # (feeder_raw, o_stop, o_walk_m, mrt_adj_stop, mrt_adj_walk_m)
+    mrt_feeder: tuple | None = None
+
+    if origin_mrt and route_count:
+        o_code, o_dist_mrt = origin_mrt
+        if o_dist_mrt > MRT_FEEDER_THRESHOLD and origin_stops:
+            mrt_lat = STATIONS[o_code]["lat"]
+            mrt_lng = STATIONS[o_code]["lng"]
+            mrt_adj = _stops_within(mrt_lat, mrt_lng, 350, 6)
+            for (o_stop, o_walk) in origin_stops:
+                for (mrt_stop, mrt_walk) in mrt_adj:
+                    feeders = _route_graph.find_journeys(
+                        o_stop.bus_stop_code, mrt_stop.bus_stop_code, db
+                    )
+                    direct = [f for f in feeders if f["transfers"] == 0]
+                    if direct:
+                        mrt_feeder = (direct[0], o_stop, o_walk, mrt_stop, mrt_walk)
+                        break
+                if mrt_feeder:
+                    break
+
+    # ── Phase 2: fetch LTA arrivals for all boarding stops ───
+    unique_boards: set[str] = set()
+    for raw, *_ in raw_bus_plans[:3]:
+        for leg in raw["legs"]:
+            unique_boards.add(leg["from_stop"])
+    if mrt_feeder:
+        for leg in mrt_feeder[0]["legs"]:
+            unique_boards.add(leg["from_stop"])
+
+    async def _fetch(c):
+        try: return c, await _call_lta(c)
+        except: return c, None
+
+    arr_cache: dict[str, dict | None] = dict(
+        await asyncio.gather(*[_fetch(c) for c in unique_boards])
+    )
+
+    # ── enrich_bus_leg (uses arr_cache closure) ───────────────
+    def enrich_bus_leg(raw_leg: dict, earliest_board=None) -> dict:
+        svc    = raw_leg["service"]
+        board  = raw_leg["from_stop"]
+        alight = raw_leg["to_stop"]
+        sc     = raw_leg["stops_count"]
+        board_ref = earliest_board or now
+        wait_min = None; lta_arr = None; ai_arr_s = None
+        ai_adj = 0; buses_avail = 0; last_bus = False
+
+        lta_data = arr_cache.get(board)
+        if lta_data:
+            for sv in lta_data.get("Services", []):
+                if sv.get("ServiceNo") != svc: continue
+                for sk in ["NextBus", "NextBus2", "NextBus3"]:
+                    if (sv.get(sk) or {}).get("EstimatedArrival"): buses_avail += 1
+                chosen_b, chosen_e = None, None
+                for sk in ["NextBus", "NextBus2", "NextBus3"]:
+                    b = sv.get(sk) or {}
+                    e = _parse_lta_dt(b.get("EstimatedArrival"))
+                    if e and e >= board_ref - timedelta(seconds=90):
+                        chosen_b, chosen_e = b, e; break
+                if chosen_e:
+                    ws = (chosen_e - board_ref).total_seconds()
+                    wait_min = max(0, int(ws / 60))
+                    adj = global_model.predict(
+                        hour=sgt.hour, day_of_week=sgt.weekday(),
+                        bus_load=chosen_b.get("Load", "SEA"),
+                        bus_type=chosen_b.get("Type", "SD"),
+                        service_no=svc, stop_code=board,
+                    )
+                    if ws <= 120: adj *= 0.25
+                    elif ws <= 300: adj *= 0.6
+                    if ws > 0: adj = max(-0.5 * ws, adj)
+                    ai_adj = round(adj)
+                    lta_arr  = chosen_e.isoformat()
+                    ai_arr_s = (chosen_e + timedelta(seconds=adj)).isoformat()
+                last_bus = buses_avail <= 1; break
+
+        brd = db.query(BusStop).filter_by(bus_stop_code=board).first()
+        alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()
+        return {
+            "type": "bus",
+            "service_no": svc, "direction": raw_leg["direction"],
+            "board_stop":  {"code": board,  "name": brd.description if brd else board},
+            "alight_stop": {"code": alight, "name": alt.description if alt else alight},
+            "stops_count": sc, "est_ride_min": max(2, sc * 2),
+            "wait_min": wait_min, "lta_arrival": lta_arr,
+            "ai_arrival": ai_arr_s, "ai_adj_sec": ai_adj,
+            "buses_available": buses_avail, "is_last_bus_soon": last_bus,
+            "is_transfer_wait": earliest_board is not None,
+        }
+
+    # ── Phase 3: build options ────────────────────────────────
     options: list[dict] = []
 
-    # ── Option A: Bus-only ────────────────────────────────────
-    origin_stop,  origin_dist  = _nearest_bus_stop(from_lat, from_lng)
-    dest_stop,    dest_dist    = _nearest_bus_stop(to_lat,   to_lng)
+    # Bus options (up to 3)
+    for raw, o_stop, o_dist, d_stop, d_dist in raw_bus_plans[:3]:
+        walk_in  = _walk_leg(from_name, o_stop.description or o_stop.bus_stop_code, o_dist)
+        walk_out = _walk_leg(d_stop.description or d_stop.bus_stop_code, to_name, d_dist)
+        legs: list[dict] = [walk_in]
+        cum = walk_in["walk_min"]
+        for i, rl in enumerate(raw["legs"]):
+            earliest = None if i == 0 else now + timedelta(minutes=cum + 2)
+            bl = enrich_bus_leg(rl, earliest)
+            legs.append(bl)
+            cum += (bl.get("wait_min") or 5) + bl["est_ride_min"]
+        legs.append(walk_out)
+        total = (
+            walk_in["walk_min"]
+            + sum((l.get("wait_min") or 5) + l["est_ride_min"] for l in legs if l["type"] == "bus")
+            + walk_out["walk_min"]
+            + raw["transfers"] * 3
+        )
+        options.append({
+            "mode": "bus",
+            "transfers": raw["transfers"],
+            "total_est_min": total,
+            "has_last_bus_warning": any(l.get("is_last_bus_soon") for l in legs if l["type"] == "bus"),
+            "train_alert": False,
+            "legs": legs,
+        })
 
-    if origin_stop and dest_stop and origin_dist < 1500 and dest_dist < 1500:
-        route_count = db.query(func.count(BusRoute.id)).scalar() or 0
-        if route_count:
-            raw_opts = _route_graph.find_journeys(
-                origin_stop.bus_stop_code, dest_stop.bus_stop_code, db
-            )
-            unique_boards = {
-                leg["from_stop"]
-                for opt in raw_opts[:2]
-                for leg in opt["legs"]
-            }
-
-            async def _fetch2(c):
-                try: return c, await _call_lta(c)
-                except: return c, None
-
-            fetched2 = await asyncio.gather(*[_fetch2(c) for c in unique_boards])
-            arr2: dict[str, dict | None] = dict(fetched2)
-
-            def enrich_bus_leg(raw_leg, earliest_board=None):
-                svc    = raw_leg["service"]
-                board  = raw_leg["from_stop"]
-                alight = raw_leg["to_stop"]
-                sc     = raw_leg["stops_count"]
-                est_ride = max(2, sc * 2)
-                board_ref  = earliest_board or now
-                wait_min   = None; lta_arr = None; ai_arr_s = None
-                ai_adj     = 0;    buses_avail = 0; last_bus = False
-
-                lta_data = arr2.get(board)
-                if lta_data:
-                    for sv in lta_data.get("Services", []):
-                        if sv.get("ServiceNo") != svc: continue
-                        for sk in ["NextBus","NextBus2","NextBus3"]:
-                            if (sv.get(sk) or {}).get("EstimatedArrival"): buses_avail += 1
-                        chosen_b, chosen_e = None, None
-                        for sk in ["NextBus","NextBus2","NextBus3"]:
-                            b = sv.get(sk) or {}
-                            e = _parse_lta_dt(b.get("EstimatedArrival"))
-                            if e and e >= board_ref - timedelta(seconds=90):
-                                chosen_b, chosen_e = b, e; break
-                        if chosen_e:
-                            ws = (chosen_e - board_ref).total_seconds()
-                            wait_min = max(0, int(ws / 60))
-                            adj = global_model.predict(
-                                hour=sgt.hour, day_of_week=sgt.weekday(),
-                                bus_load=chosen_b.get("Load","SEA"),
-                                bus_type=chosen_b.get("Type","SD"),
-                                service_no=svc, stop_code=board,
-                            )
-                            if ws <= 120: adj *= 0.25
-                            elif ws <= 300: adj *= 0.6
-                            if ws > 0: adj = max(-0.5 * ws, adj)
-                            ai_adj = round(adj)
-                            lta_arr   = chosen_e.isoformat()
-                            ai_arr_s  = (chosen_e + timedelta(seconds=adj)).isoformat()
-                        last_bus = buses_avail <= 1; break
-
-                brd = db.query(BusStop).filter_by(bus_stop_code=board).first()
-                alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()
-                return {
-                    "type": "bus",
-                    "service_no": svc, "direction": raw_leg["direction"],
-                    "board_stop":  {"code": board,  "name": brd.description if brd else board},
-                    "alight_stop": {"code": alight, "name": alt.description if alt else alight},
-                    "stops_count": sc, "est_ride_min": est_ride,
-                    "wait_min": wait_min, "lta_arrival": lta_arr,
-                    "ai_arrival": ai_arr_s, "ai_adj_sec": ai_adj,
-                    "buses_available": buses_avail, "is_last_bus_soon": last_bus,
-                    "is_transfer_wait": earliest_board is not None,
-                }
-
-            for raw in raw_opts[:2]:
-                walk_in  = _walk_leg(from_name, origin_stop.description or origin_stop.bus_stop_code, origin_dist)
-                walk_out = _walk_leg(dest_stop.description or dest_stop.bus_stop_code, to_name, dest_dist)
-                legs: list[dict] = [walk_in]
-                cum = walk_in["walk_min"]
-                for i, rl in enumerate(raw["legs"]):
-                    earliest = None if i == 0 else now + timedelta(minutes=cum + 2)
-                    bl = enrich_bus_leg(rl, earliest)
-                    legs.append(bl)
-                    cum += (bl.get("wait_min") or 5) + bl["est_ride_min"]
-                legs.append(walk_out)
-                total = (
-                    walk_in["walk_min"]
-                    + sum((l.get("wait_min") or 5) + l["est_ride_min"] for l in legs if l["type"] == "bus")
-                    + walk_out["walk_min"]
-                    + raw["transfers"] * 3
-                )
-                options.append({
-                    "mode": "bus",
-                    "transfers": raw["transfers"],
-                    "total_est_min": total,
-                    "has_last_bus_warning": any(l.get("is_last_bus_soon") for l in legs if l["type"] == "bus"),
-                    "legs": legs,
-                })
-
-    # ── Option B: MRT route ───────────────────────────────────
-    origin_mrt  = nearest_station(from_lat, from_lng, max_m=2000)
-    dest_mrt    = nearest_station(to_lat,   to_lng,   max_m=2000)
-
+    # MRT option (with bus feeder if applicable)
     if origin_mrt and dest_mrt:
-        o_code, o_dist = origin_mrt
-        d_code, d_dist = dest_mrt
+        o_code, o_dist_mrt = origin_mrt
+        d_code, d_dist_mrt = dest_mrt
         mrt_legs = find_mrt_path(o_code, d_code)
 
         if mrt_legs is not None:
-            o_stn = STATIONS[o_code]
-            d_stn = STATIONS[d_code]
-            walk_in  = _walk_leg(from_name, f"{o_stn['name']} MRT", o_dist)
-            walk_out = _walk_leg(f"{d_stn['name']} MRT", to_name, d_dist)
-
-            # Add wait to first MRT leg
             enriched_mrt: list[dict] = []
             for i, ml in enumerate(mrt_legs):
                 wait = mrt_wait_min(ml["line"], sgt.hour, sgt.weekday()) if i == 0 else 3
                 enriched_mrt.append({**ml, "wait_min": wait})
 
-            check_alerts = True
             train_alerts: set[str] = set()
             try:
                 async with httpx.AsyncClient(timeout=5) as hc:
@@ -1001,20 +1031,54 @@ async def plan_multimodal(
                         for msg in r.json().get("value", {}).get("AffectedSegments", []):
                             train_alerts.add(msg.get("Line", ""))
             except Exception:
-                check_alerts = False
+                pass
 
-            all_legs = [walk_in] + enriched_mrt + [walk_out]
-            mrt_total = (
-                walk_in["walk_min"]
-                + sum(l["wait_min"] + l["est_ride_min"] for l in enriched_mrt)
-                + walk_out["walk_min"]
-            )
             lines_used = {l["line"] for l in enriched_mrt}
+
+            if mrt_feeder:
+                # Bus feeder → MRT
+                f_raw, f_o, f_o_walk, f_board, f_board_walk = mrt_feeder
+                walk_in  = _walk_leg(from_name, f_o.description or f_o.bus_stop_code, f_o_walk)
+                walk_xfr = _walk_leg(
+                    f_board.description or f_board.bus_stop_code,
+                    f"{STATIONS[o_code]['name']} MRT",
+                    f_board_walk,
+                )
+                walk_out = _walk_leg(f"{STATIONS[d_code]['name']} MRT", to_name, d_dist_mrt)
+                feeder_legs: list[dict] = []
+                cum = walk_in["walk_min"]
+                for i, rl in enumerate(f_raw["legs"]):
+                    earliest = None if i == 0 else now + timedelta(minutes=cum + 2)
+                    bl = enrich_bus_leg(rl, earliest)
+                    feeder_legs.append(bl)
+                    cum += (bl.get("wait_min") or 5) + bl["est_ride_min"]
+                all_legs = [walk_in] + feeder_legs + [walk_xfr] + enriched_mrt + [walk_out]
+                total = (
+                    walk_in["walk_min"]
+                    + sum((l.get("wait_min") or 5) + l["est_ride_min"] for l in feeder_legs)
+                    + walk_xfr["walk_min"]
+                    + sum(l["wait_min"] + l["est_ride_min"] for l in enriched_mrt)
+                    + walk_out["walk_min"]
+                )
+                xfers = len(feeder_legs) + max(0, len(enriched_mrt) - 1)
+            else:
+                walk_in  = _walk_leg(from_name, f"{STATIONS[o_code]['name']} MRT", o_dist_mrt)
+                walk_out = _walk_leg(f"{STATIONS[d_code]['name']} MRT", to_name, d_dist_mrt)
+                all_legs = [walk_in] + enriched_mrt + [walk_out]
+                total = (
+                    walk_in["walk_min"]
+                    + sum(l["wait_min"] + l["est_ride_min"] for l in enriched_mrt)
+                    + walk_out["walk_min"]
+                )
+                xfers = max(0, len(enriched_mrt) - 1)
+
             options.append({
                 "mode": "mrt",
-                "transfers": max(0, len(enriched_mrt) - 1),
-                "total_est_min": mrt_total,
-                "has_last_bus_warning": False,
+                "transfers": xfers,
+                "total_est_min": total,
+                "has_last_bus_warning": any(
+                    l.get("is_last_bus_soon") for l in all_legs if l.get("type") == "bus"
+                ),
                 "train_alert": bool(train_alerts & lines_used),
                 "legs": all_legs,
             })
