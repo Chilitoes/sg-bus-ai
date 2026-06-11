@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="description" content="Live Singapore bus arrival times with machine-learning adjusted predictions." />
   <title>SG Bus — live arrivals</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=4" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 </head>
 <body>
@@ -151,7 +151,7 @@
   <!-- ════ PLAN VIEW ════ -->
   <section id="view-plan" class="view">
     <h2 class="view-title">Plan a journey</h2>
-    <p class="view-sub">Find the best bus route between two stops, with live wait times and last-bus warnings.</p>
+    <p class="view-sub">Enter any Singapore address, landmark, or bus stop. Finds bus and MRT routes with live wait times.</p>
 
     <div class="plan-form">
       <!-- From -->
@@ -161,7 +161,7 @@
           <div class="search-row">
             <div class="search-box">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <input id="plan-from-input" type="text" inputmode="search" placeholder="Stop name or code" autocomplete="off" spellcheck="false" />
+              <input id="plan-from-input" type="text" inputmode="search" placeholder="Address, landmark or stop" autocomplete="off" spellcheck="false" />
               <button id="plan-from-clear" class="search-clear hidden" aria-label="Clear">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
               </button>
@@ -188,7 +188,7 @@
           <div class="search-row">
             <div class="search-box">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <input id="plan-to-input" type="text" inputmode="search" placeholder="Stop name or code" autocomplete="off" spellcheck="false" />
+              <input id="plan-to-input" type="text" inputmode="search" placeholder="Address, landmark or stop" autocomplete="off" spellcheck="false" />
               <button id="plan-to-clear" class="search-clear hidden" aria-label="Clear">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
               </button>
@@ -310,6 +310,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
