@@ -799,8 +799,8 @@ async def plan_journey(
             leg = enrich_leg(raw_leg, earliest)
             legs.append(leg)
             cumulative_mins += (leg.get("wait_min") or 5) + leg["est_ride_min"]
-        # Skip options where the first boarding bus is confirmed not running
-        if not legs[0].get("service_operating", True):
+        # Skip options where any boarding bus is confirmed not running right now
+        if any(not l.get("service_operating", True) for l in legs):
             continue
         total_min = sum(
             (l.get("wait_min") or 5) + l["est_ride_min"] for l in legs
@@ -1006,9 +1006,8 @@ async def plan_multimodal(
             legs.append(bl)
             cum += (bl.get("wait_min") or 5) + bl["est_ride_min"]
         legs.append(walk_out)
-        # Skip options where the first boarding bus is confirmed not operating right now
-        first_bus = next((l for l in legs if l["type"] == "bus"), None)
-        if first_bus and not first_bus.get("service_operating", True):
+        # Skip options where any bus leg is confirmed not operating right now
+        if any(l["type"] == "bus" and not l.get("service_operating", True) for l in legs):
             continue
         total = (
             walk_in["walk_min"]

@@ -146,6 +146,8 @@ def register(creds: Credentials, request: Request, db: Session = Depends(get_db)
             status_code=400,
             detail="Username must be 3-20 characters: letters, numbers, underscores.",
         )
+    if username.lower() == "admin":
+        raise HTTPException(status_code=409, detail="That username is taken.")
     if len(creds.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
     exists = db.query(User).filter(func.lower(User.username) == username.lower()).first()
@@ -189,6 +191,7 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) ->
         "created_at": user.created_at.isoformat(),
         "favourite_count": fav_count,
         "journey_count": journey_count,
+        "is_admin": user.username.lower() == "admin",
     }
 
 

@@ -22,10 +22,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from api_routes import router
-from auth_routes import router as auth_router
+from auth_routes import router as auth_router, hash_password
 from config import DEFAULT_MONITORED_STOPS
 from data_collector import start_data_collection
-from database import init_db
+from database import init_db, SessionLocal, User
 from ml_model import model
 
 logging.basicConfig(
@@ -40,6 +40,16 @@ async def lifespan(app: FastAPI):
     # ── Startup ───────────────────────────────────────────────────────────────
     logger.info("Initialising database …")
     init_db(seed_stops=DEFAULT_MONITORED_STOPS)
+
+    # Ensure the hardcoded admin account exists
+    db = SessionLocal()
+    try:
+        if not db.query(User).filter_by(username="admin").first():
+            db.add(User(username="admin", password_hash=hash_password("admin123!")))
+            db.commit()
+            logger.info("Admin account created.")
+    finally:
+        db.close()
 
     logger.info("Loading / training ML model …")
     model.load_or_train()
