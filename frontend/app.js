@@ -81,7 +81,9 @@ function fmtMin(s) {
 }
 function fmtClock(dt) {
   if (!dt) return "–";
-  return dt.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return dt.toLocaleTimeString("en-SG", {
+    hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore",
+  });
 }
 
 // ── API ───────────────────────────────────────────────────
@@ -502,7 +504,7 @@ function renderArrivals(data) {
     if (open.has(c.dataset.svc)) c.classList.add("open");
   });
   $("updated-at").textContent = `Updated ${new Date().toLocaleTimeString("en-SG",
-    { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+    { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore" })}`;
   startTicker();
 }
 
