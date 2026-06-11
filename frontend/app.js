@@ -815,9 +815,27 @@ async function loadData() {
 // ── Plan view ─────────────────────────────────────────────
 
 const planState = {
-  fromCode: null, fromName: null,
-  toCode:   null, toName:   null,
+  fromCode: null, fromName: null, fromLat: null, fromLng: null,
+  toCode:   null, toName:   null, toLat:   null, toLng:   null,
 };
+
+const ONEMAP_URL = "https://www.onemap.gov.sg/api/common/elastic/search";
+
+async function oneMapSearch(q) {
+  try {
+    const r = await fetch(
+      `${ONEMAP_URL}?searchVal=${encodeURIComponent(q)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`
+    );
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.results || []).slice(0, 5).map((s) => ({
+      name:    s.BUILDING && s.BUILDING !== "NIL" ? s.BUILDING : (s.ADDRESS || s.SEARCHVAL),
+      address: s.ADDRESS || "",
+      lat:     parseFloat(s.LATITUDE),
+      lng:     parseFloat(s.LONGITUDE),
+    })).filter((s) => s.lat && s.lng && !isNaN(s.lat));
+  } catch { return []; }
+}
 
 function setupPlanField(field) {
   const input = $(`plan-${field}-input`);
@@ -826,66 +844,73 @@ function setupPlanField(field) {
   const near  = $(`plan-${field}-near`);
   let acTmr   = null;
 
+  function clearSel() {
+    planState[`${field}Code`] = null; planState[`${field}Name`] = null;
+    planState[`${field}Lat`]  = null; planState[`${field}Lng`]  = null;
+  }
+
   input.addEventListener("input", () => {
     const v = input.value.trim();
     v ? show(clear) : hide(clear);
-    planState[`${field}Code`] = null; // invalidate until re-selected
+    clearSel();
     clearTimeout(acTmr);
     acTmr = setTimeout(async () => {
       if (!v || v.length < 2) { hide(ac); ac.innerHTML = ""; return; }
-      try {
-        const d = await api(`/api/stops/search?q=${encodeURIComponent(v)}&limit=8`);
-        ac.innerHTML = d.results.length
-          ? d.results.map((s) => `
-              <div class="ac-item" data-code="${esc(s.bus_stop_code)}" data-name="${esc(s.description || s.bus_stop_code)}">
-                <span class="ac-code">${esc(s.bus_stop_code)}</span>
-                <div>
-                  <div class="ac-name">${esc(s.description || "Bus stop")}</div>
-                  <div class="ac-road">${esc(s.road_name || "")}</div>
-                </div>
-              </div>`).join("")
-          : `<div class="ac-empty">No stops match "${esc(v)}".</div>`;
-        show(ac);
-      } catch { hide(ac); }
-    }, 220);
+      const [stops, places] = await Promise.all([
+        api(`/api/stops/search?q=${encodeURIComponent(v)}&limit=5`).catch(() => ({ results: [] })),
+        oneMapSearch(v),
+      ]);
+      const stopHtml = (stops.results || []).map((s) => `
+        <div class="ac-item" data-code="${esc(s.bus_stop_code)}"
+             data-name="${esc(s.description || s.bus_stop_code)}"
+             data-lat="${s.latitude || ""}" data-lng="${s.longitude || ""}">
+          <span class="ac-code">${esc(s.bus_stop_code)}</span>
+          <div>
+            <div class="ac-name">${esc(s.description || "Bus stop")}</div>
+            <div class="ac-road">${esc(s.road_name || "")}</div>
+          </div>
+        </div>`).join("");
+      const placeHtml = places.map((p) => `
+        <div class="ac-item ac-place" data-lat="${p.lat}" data-lng="${p.lng}"
+             data-name="${esc(p.name)}">
+          <svg class="ac-place-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+          <div>
+            <div class="ac-name">${esc(p.name)}</div>
+            <div class="ac-road">${esc(p.address)}</div>
+          </div>
+        </div>`).join("");
+      const div = placeHtml && stopHtml ? `<div class="ac-divider"></div>` : "";
+      ac.innerHTML = stopHtml + div + placeHtml ||
+        `<div class="ac-empty">No results for "${esc(v)}".</div>`;
+      show(ac);
+    }, 250);
   });
 
   input.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(ac); });
 
   clear.addEventListener("click", () => {
     input.value = ""; hide(clear); hide(ac); ac.innerHTML = "";
-    planState[`${field}Code`] = null;
-    planState[`${field}Name`] = null;
-    input.focus();
+    clearSel(); input.focus();
   });
 
   ac.addEventListener("click", (e) => {
     const item = e.target.closest(".ac-item");
-    if (item) setPlanStop(field, item.dataset.code, item.dataset.name);
+    if (!item) return;
+    setPlanLocation(field,
+      item.dataset.code || null, item.dataset.name,
+      item.dataset.lat  ? parseFloat(item.dataset.lat)  : null,
+      item.dataset.lng  ? parseFloat(item.dataset.lng)  : null,
+    );
   });
 
   near.addEventListener("click", () => {
     if (!navigator.geolocation) { toast("Location not supported on this device"); return; }
-    toast("Finding nearby stops…");
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      try {
-        const d = await api(
-          `/api/stops/nearby?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}&limit=8`
-        );
-        ac.innerHTML = d.results.length
-          ? d.results.map((s) => `
-              <div class="ac-item" data-code="${esc(s.bus_stop_code)}" data-name="${esc(s.description || s.bus_stop_code)}">
-                <span class="ac-code">${esc(s.bus_stop_code)}</span>
-                <div>
-                  <div class="ac-name">${esc(s.description || "Bus stop")}</div>
-                  <div class="ac-road">${esc(s.road_name || "")} · ${Math.round(s.distance_m)} m</div>
-                </div>
-              </div>`).join("")
-          : `<div class="ac-empty">No stops found nearby.</div>`;
-        show(ac);
-      } catch { toast("Couldn't load nearby stops"); }
-    }, () => toast("Location permission needed"),
-    { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 });
+    toast("Getting your location…");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setPlanLocation(field, null, "Current location", pos.coords.latitude, pos.coords.longitude); },
+      () => toast("Location permission needed"),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 },
+    );
   });
 
   document.addEventListener("click", (e) => {
@@ -894,9 +919,11 @@ function setupPlanField(field) {
   });
 }
 
-function setPlanStop(field, code, name) {
+function setPlanLocation(field, code, name, lat, lng) {
   planState[`${field}Code`] = code;
   planState[`${field}Name`] = name || code;
+  planState[`${field}Lat`]  = lat;
+  planState[`${field}Lng`]  = lng;
   $(`plan-${field}-input`).value = planState[`${field}Name`];
   show($(`plan-${field}-clear`));
   hide($(`plan-${field}-ac`));
@@ -904,11 +931,19 @@ function setPlanStop(field, code, name) {
 }
 
 $("plan-swap").addEventListener("click", () => {
-  const { fromCode, fromName, toCode, toName } = planState;
-  if (toCode)   setPlanStop("from", toCode, toName);
-  else { planState.fromCode = null; planState.fromName = null; $("plan-from-input").value = ""; hide($("plan-from-clear")); }
-  if (fromCode) setPlanStop("to", fromCode, fromName);
-  else { planState.toCode   = null; planState.toName   = null; $("plan-to-input").value   = ""; hide($("plan-to-clear")); }
+  const { fromCode, fromName, fromLat, fromLng, toCode, toName, toLat, toLng } = planState;
+  if (toCode || toLat)     setPlanLocation("from", toCode, toName, toLat, toLng);
+  else {
+    planState.fromCode = null; planState.fromName = null;
+    planState.fromLat  = null; planState.fromLng  = null;
+    $("plan-from-input").value = ""; hide($("plan-from-clear"));
+  }
+  if (fromCode || fromLat) setPlanLocation("to", fromCode, fromName, fromLat, fromLng);
+  else {
+    planState.toCode = null; planState.toName = null;
+    planState.toLat  = null; planState.toLng  = null;
+    $("plan-to-input").value = ""; hide($("plan-to-clear"));
+  }
 });
 
 $("plan-btn").addEventListener("click", doJourneyPlan);
@@ -918,8 +953,12 @@ $("plan-results").addEventListener("click", (e) => {
 });
 
 async function doJourneyPlan() {
-  const { fromCode, toCode } = planState;
-  if (!fromCode || !toCode) { toast("Select both a From and To stop first"); return; }
+  const { fromCode, fromLat, fromLng, fromName,
+          toCode,   toLat,   toLng,   toName } = planState;
+
+  const hasFrom = fromCode || (fromLat !== null);
+  const hasTo   = toCode   || (toLat   !== null);
+  if (!hasFrom || !hasTo) { toast("Select both a From and To location first"); return; }
 
   const err  = $("plan-error");
   const res  = $("plan-results");
@@ -928,32 +967,55 @@ async function doJourneyPlan() {
   $("plan-btn").disabled = true;
 
   try {
-    const data = await api(
-      `/api/journey/plan?from_code=${encodeURIComponent(fromCode)}&to_code=${encodeURIComponent(toCode)}`
-    );
-    res.innerHTML = renderJourneyResult(data);
+    let fLat = fromLat, fLng = fromLng;
+    let tLat = toLat,   tLng = toLng;
+
+    // Resolve any bus-stop-only selections to lat/lng
+    if (fromCode && fLat === null) {
+      const s = await api(`/api/stops/${fromCode}`).catch(() => null);
+      if (s?.latitude) { fLat = s.latitude; fLng = s.longitude; }
+    }
+    if (toCode && tLat === null) {
+      const s = await api(`/api/stops/${toCode}`).catch(() => null);
+      if (s?.latitude) { tLat = s.latitude; tLng = s.longitude; }
+    }
+
+    if (fLat !== null && tLat !== null) {
+      const data = await api(
+        `/api/journey/multimodal?from_lat=${fLat}&from_lng=${fLng}` +
+        `&to_lat=${tLat}&to_lng=${tLng}` +
+        `&from_name=${encodeURIComponent(fromName || "Origin")}` +
+        `&to_name=${encodeURIComponent(toName || "Destination")}`
+      );
+      res.innerHTML = renderMultimodalResult(data);
+    } else if (fromCode && toCode) {
+      const data = await api(
+        `/api/journey/plan?from_code=${encodeURIComponent(fromCode)}&to_code=${encodeURIComponent(toCode)}`
+      );
+      res.innerHTML = renderBusOnlyResult(data);
+    } else {
+      err.textContent = "Couldn't resolve location. Try a more specific address or bus stop.";
+      show(err);
+    }
   } catch (e) {
     const msg = e.message.includes("503")
       ? "Route data not loaded yet on the server — try again shortly."
       : `Couldn't plan journey: ${e.message}`;
-    err.textContent = msg;
-    show(err);
+    err.textContent = msg; show(err);
   } finally {
-    hide(load);
-    $("plan-btn").disabled = false;
+    hide(load); $("plan-btn").disabled = false;
   }
 }
 
-function renderJourneyResult(data) {
+// ── Render: bus-only (stop-code → stop-code) ─────────────
+function renderBusOnlyResult(data) {
   if (!data.options?.length) {
-    return `<div class="plan-no-routes">${esc(
-      data.message || "No route found. These stops may not be connected by bus, or try nearby stops."
-    )}</div>`;
+    return `<div class="plan-no-routes">${esc(data.message || "No route found. Try nearby stops.")}</div>`;
   }
-  return data.options.map(renderJourneyCard).join("");
+  return data.options.map(renderBusOnlyCard).join("");
 }
 
-function renderJourneyCard(opt) {
+function renderBusOnlyCard(opt) {
   const typeTxt = opt.transfers === 0 ? "Direct"
     : `${opt.transfers} transfer${opt.transfers > 1 ? "s" : ""}`;
   const badgesHtml = opt.legs.map((l, i, a) =>
@@ -965,10 +1027,9 @@ function renderJourneyCard(opt) {
   const first = opt.legs[0];
   const waitPart = first.wait_min !== null
     ? (first.wait_min === 0 ? "Arriving" : `${first.wait_min}m wait`) + " · " : "";
-  const warnPart = opt.has_last_bus_warning
-    ? ` <span class="last-bus-warn">⚠ Last bus</span>` : "";
+  const warnPart = opt.has_last_bus_warning ? ` <span class="last-bus-warn">⚠ Last bus</span>` : "";
   const detailHtml = opt.legs.map((leg, li, arr) =>
-    renderJourneyLeg(leg) +
+    renderBusLeg(leg) +
     (li < arr.length - 1 ? `
       <div class="journey-transfer">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
@@ -991,7 +1052,117 @@ function renderJourneyCard(opt) {
     </div>`;
 }
 
-function renderJourneyLeg(leg) {
+// ── Render: multimodal (address → address) ────────────────
+function renderMultimodalResult(data) {
+  if (!data.options?.length) {
+    return `<div class="plan-no-routes">No routes found between these locations. Try addresses closer to bus stops or MRT stations.</div>`;
+  }
+  return data.options.map(renderMultimodalCard).join("");
+}
+
+function renderMultimodalCard(opt) {
+  const active = opt.legs.filter((l) => l.type !== "walk");
+  const badgesHtml = active.map((l, i, a) =>
+    (l.type === "mrt"
+      ? `<span class="jcard-badge mrt-badge" style="background:${esc(l.line_color)}">${esc(l.line)}</span>`
+      : `<span class="jcard-badge">${esc(l.service_no)}</span>`) +
+    (i < a.length - 1
+      ? `<svg class="jcard-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`
+      : "")
+  ).join("") || `<span class="jcard-badge jcard-walk-only">Walk</span>`;
+
+  const firstActive = active[0];
+  const fw = firstActive?.wait_min;
+  const waitPart = fw != null ? (fw === 0 ? "Arriving · " : `${fw}m wait · `) : "";
+  const typeTxt = opt.mode === "mrt"
+    ? (active.length > 1 ? `MRT (${active.length - 1} xfer)` : "MRT")
+    : opt.transfers === 0 ? "Direct bus" : `Bus (${opt.transfers} xfer)`;
+  const warnPart = opt.has_last_bus_warning ? ` <span class="last-bus-warn">⚠ Last bus</span>` : "";
+  const alertPart = opt.train_alert ? ` <span class="last-bus-warn">⚠ Train alert</span>` : "";
+
+  const detailHtml = opt.legs.map((leg, li, arr) => {
+    const next = arr[li + 1];
+    const html = renderLegDetail(leg);
+    if (leg.type !== "walk" && next && next.type !== "walk") {
+      const atName = leg.type === "bus" ? leg.alight_stop?.name : leg.to_station;
+      return html + `
+        <div class="journey-transfer">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          Transfer at ${esc(atName || "interchange")}
+        </div>`;
+    }
+    return html;
+  }).join("");
+
+  return `
+    <div class="journey-card">
+      <div class="jcard-summary">
+        <div class="jcard-routes">${badgesHtml}</div>
+        <div class="jcard-meta">
+          <span class="jcard-type">${typeTxt}</span>
+          <span class="jcard-subtext">${waitPart}~${opt.total_est_min} min${warnPart}${alertPart}</span>
+        </div>
+        <button class="jcard-go">Go
+          <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+      </div>
+      <div class="jcard-detail">${detailHtml}</div>
+    </div>`;
+}
+
+function renderLegDetail(leg) {
+  if (leg.type === "walk") return renderWalkLeg(leg);
+  if (leg.type === "mrt")  return renderMrtLeg(leg);
+  return renderBusLeg(leg);
+}
+
+function renderWalkLeg(leg) {
+  return `
+    <div class="journey-leg walk-leg">
+      <div class="leg-top">
+        <span class="leg-route walk-route">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><path d="m9 20 3-6 3 2 2-8"/><path d="m6 9 6-1 4.5 1"/></svg>
+          Walk
+        </span>
+        <span class="leg-stops">${leg.distance_m} m · ~${leg.walk_min} min</span>
+      </div>
+      <div class="leg-stop-row">
+        <span class="leg-stop-label">From</span>
+        <span class="leg-stop-name">${esc(leg.from_name)}</span>
+      </div>
+      <div class="leg-stop-row">
+        <span class="leg-stop-label">To</span>
+        <span class="leg-stop-name">${esc(leg.to_name)}</span>
+      </div>
+    </div>`;
+}
+
+function renderMrtLeg(leg) {
+  const waitTxt   = leg.wait_min === 0 ? "Arriving"
+    : leg.wait_min != null ? `Wait ~${leg.wait_min} min` : "—";
+  const waitClass = leg.wait_min === 0 ? "due" : "";
+  return `
+    <div class="journey-leg mrt-leg">
+      <div class="leg-top">
+        <span class="leg-route mrt-route" style="background:${esc(leg.line_color)};color:#fff">${esc(leg.line)}</span>
+        <span class="leg-stops">${leg.stations_count} stops · ~${leg.est_ride_min} min</span>
+        <span class="leg-wait ${waitClass}">${waitTxt}</span>
+      </div>
+      <div class="leg-stop-row">
+        <span class="leg-stop-label">Board</span>
+        <span class="leg-stop-name">${esc(leg.from_station)} MRT</span>
+        <span class="leg-stop-code">${esc(leg.from_code)}</span>
+      </div>
+      <div class="leg-stop-row">
+        <span class="leg-stop-label">Alight</span>
+        <span class="leg-stop-name">${esc(leg.to_station)} MRT</span>
+        <span class="leg-stop-code">${esc(leg.to_code)}</span>
+      </div>
+      <div class="leg-line-name" style="color:${esc(leg.line_color)}">${esc(leg.line_name)}</div>
+    </div>`;
+}
+
+function renderBusLeg(leg) {
   const waitTxt   = leg.wait_min === null ? "—"
     : leg.wait_min === 0 ? "Arriving"
     : leg.is_transfer_wait ? `Transfer wait ${leg.wait_min} min`

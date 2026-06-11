@@ -735,6 +735,38 @@ th.num, td.num { text-align: right; }
   font-size: .76rem; color: var(--ink-3); font-weight: 500;
 }
 
+/* MRT leg */
+.mrt-leg .leg-route.mrt-route {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: .7rem; font-weight: 800; letter-spacing: .03em;
+  border-radius: 7px; padding: .1rem .42rem; flex-shrink: 0;
+}
+.mrt-leg .leg-line-name {
+  font-size: .72rem; font-weight: 600; margin-top: .3rem;
+}
+.jcard-badge.mrt-badge {
+  font-size: .62rem; font-weight: 800; letter-spacing: .03em; color: #fff !important;
+}
+.jcard-badge.jcard-walk-only {
+  background: var(--surface-2); color: var(--ink-2) !important;
+  border: 1px solid var(--line);
+}
+
+/* Walk leg */
+.walk-leg { background: var(--surface-2); }
+.walk-leg .leg-route.walk-route {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: .72rem; font-weight: 600; color: var(--ink-2);
+}
+
+/* Autocomplete address item */
+.ac-place { align-items: flex-start; }
+.ac-place-icon { color: var(--ink-3); flex-shrink: 0; margin-top: .14rem; }
+.ac-divider {
+  height: 1px; background: var(--line);
+  margin: .2rem 0;
+}
+
 @media (min-width: 640px) {
   .stat-grid { grid-template-columns: repeat(3, 1fr); }
   .chart-box { height: 220px; }
