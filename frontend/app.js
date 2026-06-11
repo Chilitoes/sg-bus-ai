@@ -29,7 +29,7 @@ const S = {
   stop: null,
   stopInfo: null,
   stats: null,
-  favs: readJSON(FAV_KEY, []),
+  favs: [],
   recent: readJSON(RECENT_KEY, []),
   token: localStorage.getItem(TOKEN_KEY) || null,
   username: localStorage.getItem(USER_KEY) || null,
@@ -40,6 +40,11 @@ const S = {
   chartsDirty: false,
 };
 const charts = { service: null, hour: null, trend: null };
+
+// Favourites are scoped per account: each logged-in user gets their own
+// list; the device list is kept separately for logged-out use.
+function favKey() { return S.username ? `${FAV_KEY}_u_${S.username}` : FAV_KEY; }
+S.favs = readJSON(favKey(), []);
 
 // ── Tiny helpers ──────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -88,7 +93,10 @@ async function api(path, opts = {}) {
   if (S.token) opts.headers["Authorization"] = `Bearer ${S.token}`;
   const r = await fetch(API_BASE + path, opts);
   if (!r.ok) {
-    if (r.status === 401 && S.token && path.startsWith("/api/auth/me")) clearAuth();
+    // Any 401 while holding a token means the session is dead — except a
+    // failed login/register attempt, which is just wrong credentials.
+    const isLoginAttempt = path.startsWith("/api/auth/login") || path.startsWith("/api/auth/register");
+    if (r.status === 401 && S.token && !isLoginAttempt) clearAuth();
     const b = await r.json().catch(() => ({}));
     throw new Error(b.detail || `HTTP ${r.status}`);
   }
@@ -122,7 +130,9 @@ function clearAuth() {
   S.token = null; S.username = null;
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  S.favs = readJSON(FAV_KEY, []);   // fall back to this device's own list
   syncAccountUI();
+  afterFavsChanged();
 }
 function syncAccountUI() {
   const loggedIn = !!S.token;
@@ -175,20 +185,27 @@ $("auth-form").addEventListener("submit", async (e) => {
   if (!username || !password) return;
   $("auth-submit").disabled = true;
   try {
+    const deviceFavs = S.favs;
     const res = await api(`/api/auth/${S.authMode}`, {
       method: "POST",
       body: JSON.stringify({ username, password }),
     });
     setAuth(res.token, res.username);
-    // Merge any local favourites into the account, adopt the merged list
     try {
-      const merged = await api("/api/favourites/sync", {
-        method: "POST",
-        body: JSON.stringify({ favourites: S.favs }),
-      });
-      S.favs = merged.favourites;
-      writeJSON(FAV_KEY, S.favs);
-    } catch { /* favourites stay local */ }
+      if (S.authMode === "register" && deviceFavs.length) {
+        // A brand-new account adopts the stops saved on this device.
+        const merged = await api("/api/favourites/sync", {
+          method: "POST",
+          body: JSON.stringify({ favourites: deviceFavs }),
+        });
+        S.favs = merged.favourites;
+      } else {
+        // Logging in: the account's own list is the source of truth.
+        const mine = await api("/api/favourites");
+        S.favs = mine.favourites;
+      }
+      writeJSON(favKey(), S.favs);
+    } catch { S.favs = readJSON(favKey(), []); }
     afterFavsChanged();
     closeSheet();
     toast(S.authMode === "login" ? `Welcome back, ${res.username}` : "Account created");
@@ -215,9 +232,9 @@ async function hydrateServerFavs() {
   try {
     const res = await api("/api/favourites");
     S.favs = res.favourites;
-    writeJSON(FAV_KEY, S.favs);
+    writeJSON(favKey(), S.favs);
     afterFavsChanged();
-  } catch { /* keep local cache */ }
+  } catch { /* keep local cache; api() drops dead sessions automatically */ }
 }
 
 // ── Favourites ────────────────────────────────────────────
@@ -230,7 +247,7 @@ function addFav(code, info = {}) {
     description: info.description || null,
     road_name: info.road_name || null,
   });
-  writeJSON(FAV_KEY, S.favs);
+  writeJSON(favKey(), S.favs);
   if (S.token) {
     api(`/api/favourites/${code}`, {
       method: "POST",
@@ -244,7 +261,7 @@ function addFav(code, info = {}) {
 
 function removeFav(code) {
   S.favs = S.favs.filter((f) => f.code !== code);
-  writeJSON(FAV_KEY, S.favs);
+  writeJSON(favKey(), S.favs);
   if (S.token) api(`/api/favourites/${code}`, { method: "DELETE" }).catch(() => {});
   afterFavsChanged();
 }
@@ -364,7 +381,32 @@ $("autocomplete").addEventListener("click", (e) => {
   if (item) { input.value = ""; hide($("search-clear")); hideAc(); loadStop(item.dataset.code); input.blur(); }
 });
 document.addEventListener("click", (e) => {
-  if (!$("autocomplete").contains(e.target) && e.target !== input) hideAc();
+  if (!$("autocomplete").contains(e.target) && e.target !== input
+      && !e.target.closest("#near-btn")) hideAc();
+});
+
+// ── Stops near me ─────────────────────────────────────────
+$("near-btn").addEventListener("click", () => {
+  if (!navigator.geolocation) { toast("Location not supported on this device"); return; }
+  toast("Finding stops near you…");
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    try {
+      const d = await api(`/api/stops/nearby?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}&limit=8`);
+      const box = $("autocomplete");
+      box.innerHTML = d.results.length
+        ? d.results.map((s) => `
+          <div class="ac-item" data-code="${esc(s.bus_stop_code)}">
+            <span class="ac-code">${esc(s.bus_stop_code)}</span>
+            <div>
+              <div class="ac-name">${esc(s.description || "Bus stop")}</div>
+              <div class="ac-road">${esc(s.road_name || "")} · ${Math.round(s.distance_m)} m away</div>
+            </div>
+          </div>`).join("")
+        : `<div class="ac-empty">No bus stops found nearby.</div>`;
+      show(box);
+    } catch { toast("Couldn't load nearby stops"); }
+  }, () => toast("Location permission needed for nearby stops"),
+  { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 });
 });
 
 // ── Arrivals ──────────────────────────────────────────────
@@ -373,24 +415,35 @@ function skeletons(n = 4) {
 }
 
 function adjChip(adj) {
-  if (Math.abs(adj) < 10) return `<span class="adj ontime">on time</span>`;
+  if (Math.abs(adj) < 15) return `<span class="adj ontime">on time</span>`;
   const cls = adj > 0 ? "late" : "early";
   const sign = adj > 0 ? "+" : "−";
-  return `<span class="adj ${cls}">${sign}${Math.abs(Math.round(adj))}s</span>`;
+  const a = Math.abs(Math.round(adj));
+  const txt = a >= 60 ? `${Math.round(a / 60)}m` : `${a}s`;
+  return `<span class="adj ${cls}">${sign}${txt}</span>`;
+}
+
+// Small "AI 5 min (+1m)" line shown under the headline LTA countdown.
+function aiText(aiSecs, adj) {
+  if (aiSecs === null) return "";
+  if (Math.abs(adj) < 15) return "AI agrees";
+  const sign = adj > 0 ? "+" : "−";
+  const a = Math.abs(Math.round(adj));
+  const diff = a >= 60 ? `${Math.round(a / 60)}m` : `${a}s`;
+  return `AI ${fmtMin(aiSecs)}${aiSecs < DUE_SECS ? "" : " min"} (${sign}${diff})`;
 }
 
 function busLine(bus) {
-  const ai = parseUTC(bus.ai_arrival);
   const lta = parseUTC(bus.api_arrival);
+  const ai = parseUTC(bus.ai_arrival);
   const load = bus.load
     ? `<span class="load-pill ${esc(bus.load)}">${LOAD_LABEL[bus.load] || esc(bus.load)}</span>` : "";
   return `
     <div class="bus-line">
       <span class="slot">${bus.slot === 1 ? "next" : bus.slot === 2 ? "2nd" : "3rd"}</span>
-      <span class="bus-times">
-        <span class="bus-time-ai" data-iso="${esc(bus.ai_arrival)}">${fmtClock(ai)}</span>
-        ${adjChip(bus.ai_adjustment_sec || 0)}
-        <span class="bus-time-lta">LTA ${fmtClock(lta)}</span>
+      <span class="bus-main">
+        <span class="bus-lta"><b>${fmtClock(lta)}</b><span class="lta-tag">LTA</span> ${adjChip(bus.ai_adjustment_sec || 0)}</span>
+        <span class="bus-ai">AI estimate ${fmtClock(ai)}</span>
       </span>
       ${load}
     </div>`;
@@ -398,9 +451,13 @@ function busLine(bus) {
 
 function svcCard(svc) {
   const next = svc.buses[0] || {};
-  const next2 = svc.buses[1];
-  const secs = secsUntil(parseUTC(next.ai_arrival));
+  const secs = secsUntil(parseUTC(next.api_arrival));
   const due = secs !== null && secs < DUE_SECS;
+  const adj = next.ai_adjustment_sec || 0;
+  const aiSecs = secsUntil(parseUTC(next.ai_arrival));
+  const later = svc.buses.slice(1);
+  const laterIsos = later.map((b) => b.api_arrival).join(",");
+  const laterTxt = later.map((b) => fmtMin(secsUntil(parseUTC(b.api_arrival)))).join(" · ");
   const tags = [
     next.type && next.type !== "SD" ? `<span class="tag">${esc(next.type)}</span>` : "",
     next.feature === "WAB" ? `<span class="tag">♿</span>` : "",
@@ -415,8 +472,9 @@ function svcCard(svc) {
           <span class="svc-tags">${tags}</span>
         </span>
         <span class="svc-eta">
-          <span class="eta-now ${due ? "due" : ""}" data-eta-iso="${esc(next.ai_arrival || "")}">${fmtMin(secs)}${due ? "" : `<span class="eta-unit">min</span>`}</span>
-          ${next2 ? `<span class="eta-next" data-next-iso="${esc(next2.ai_arrival)}">then ${fmtMin(secsUntil(parseUTC(next2.ai_arrival)))} min</span>` : `<span class="eta-next">last bus</span>`}
+          <span class="eta-now ${due ? "due" : ""}" data-eta-iso="${esc(next.api_arrival || "")}">${fmtMin(secs)}${due ? "" : `<span class="eta-unit">min</span>`}</span>
+          <span class="eta-ai" data-ai-iso="${esc(next.ai_arrival || "")}" data-adj="${Math.round(adj)}">${aiText(aiSecs, adj)}</span>
+          ${laterTxt ? `<span class="eta-next" data-next-isos="${esc(laterIsos)}">then ${laterTxt} min</span>` : `<span class="eta-next">last bus</span>`}
         </span>
         <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
@@ -458,8 +516,16 @@ function startTicker() {
       node.classList.toggle("due", due);
       node.innerHTML = `${fmtMin(s)}${due ? "" : `<span class="eta-unit">min</span>`}`;
     });
-    document.querySelectorAll("[data-next-iso]").forEach((node) => {
-      node.textContent = `then ${fmtMin(secsUntil(parseUTC(node.dataset.nextIso)))} min`;
+    document.querySelectorAll("[data-ai-iso]").forEach((node) => {
+      if (!node.dataset.aiIso) return;
+      node.textContent = aiText(
+        secsUntil(parseUTC(node.dataset.aiIso)),
+        Number(node.dataset.adj || 0));
+    });
+    document.querySelectorAll("[data-next-isos]").forEach((node) => {
+      const txt = node.dataset.nextIsos.split(",").filter(Boolean)
+        .map((iso) => fmtMin(secsUntil(parseUTC(iso)))).join(" · ");
+      if (txt) node.textContent = `then ${txt} min`;
     });
   }, 1000);
 }
@@ -672,7 +738,7 @@ async function loadSavedPreviews() {
       const top = (d.services || []).slice(0, 4);
       box.innerHTML = top.length
         ? top.map((svc) => {
-            const s = secsUntil(parseUTC(svc.buses[0]?.ai_arrival));
+            const s = secsUntil(parseUTC(svc.buses[0]?.api_arrival));
             const due = s !== null && s < DUE_SECS;
             return `<span class="preview-pill"><b>${esc(svc.service_no)}</b>
               <span class="pv-min ${due ? "due" : ""}">${fmtMin(s)}${due ? "" : "m"}</span></span>`;

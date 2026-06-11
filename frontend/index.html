@@ -41,12 +41,17 @@
   <section id="view-arrivals" class="view active">
 
     <div class="search-wrap">
-      <div class="search-box">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input id="stop-input" type="text" inputmode="search" placeholder="Stop name or 5-digit code"
-               autocomplete="off" spellcheck="false" enterkeyhint="search" />
-        <button id="search-clear" class="search-clear hidden" aria-label="Clear">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      <div class="search-row">
+        <div class="search-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input id="stop-input" type="text" inputmode="search" placeholder="Stop name or 5-digit code"
+                 autocomplete="off" spellcheck="false" enterkeyhint="search" />
+          <button id="search-clear" class="search-clear hidden" aria-label="Clear">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <button id="near-btn" class="near-btn" aria-label="Stops near me">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
         </button>
       </div>
       <div id="autocomplete" class="autocomplete hidden"></div>
@@ -76,7 +81,7 @@
         <span class="foot-sep">·</span>
         <span>auto-refresh 30s</span>
         <span class="foot-sep">·</span>
-        <span class="ai-note">times are AI-adjusted</span>
+        <span class="ai-note">official LTA times, AI estimate below</span>
       </div>
     </div>
 
@@ -118,11 +123,16 @@
         <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </summary>
       <div class="panel-body about-body">
-        <p>Every arrival time shown is the official LTA estimate, corrected by a
-        gradient-boosting model trained on how buses at this stop have actually
-        behaved — by hour, day, crowding and bus type.</p>
+        <p>The big number is the official LTA estimate. Underneath it, the AI
+        estimate shows when the bus will <em>actually</em> arrive based on how
+        this exact route at this exact stop has behaved historically.</p>
+        <p>Two prediction layers work together: a gradient-boosting model that
+        generalises across hour, day, crowding and bus type — and a per-route
+        memory of real measured delays from the last 30 days. Routes with more
+        history lean on real measurements; the correction also shrinks as a bus
+        gets close, since live GPS estimates are most accurate then.</p>
         <p>Ground truth comes from tracking each bus across successive polls
-        until it arrives. The model retrains itself continuously.</p>
+        until it arrives. The model retrains itself hourly.</p>
         <div id="model-info" class="model-info"></div>
       </div>
     </details>

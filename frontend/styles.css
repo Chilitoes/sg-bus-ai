@@ -153,6 +153,16 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ── Search ──────────────────────────────────────────── */
 .search-wrap { position: relative; margin-bottom: .75rem; }
+.search-row { display: flex; gap: .5rem; align-items: stretch; }
+.search-row .search-box { flex: 1; min-width: 0; }
+.near-btn {
+  flex-shrink: 0; width: 48px;
+  border: 1.5px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); color: var(--accent);
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+.near-btn:active { background: var(--accent-soft); }
 .search-box {
   display: flex; align-items: center; gap: .55rem;
   background: var(--surface);
@@ -311,14 +321,21 @@ button { font-family: inherit; cursor: pointer; }
 .load-dot.SDA { background: var(--warn); }
 .load-dot.LSD { background: var(--bad); }
 
-.svc-eta { text-align: right; flex-shrink: 0; }
+.svc-eta {
+  display: flex; flex-direction: column; align-items: flex-end;
+  text-align: right; flex-shrink: 0;
+}
 .eta-now {
   font-size: 1.55rem; font-weight: 800; line-height: 1;
   font-variant-numeric: tabular-nums; letter-spacing: -.03em;
 }
 .eta-now .eta-unit { font-size: .68rem; font-weight: 600; color: var(--ink-3); margin-left: .12rem; letter-spacing: 0; }
 .eta-now.due { color: var(--good); }
-.eta-next { font-size: .72rem; color: var(--ink-3); margin-top: .18rem; font-variant-numeric: tabular-nums; }
+.eta-ai {
+  font-size: .7rem; font-weight: 600; color: var(--accent);
+  margin-top: .22rem; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.eta-next { font-size: .7rem; color: var(--ink-3); margin-top: .12rem; font-variant-numeric: tabular-nums; }
 
 .svc .chev { color: var(--ink-3); transition: transform .2s; flex-shrink: 0; }
 .svc.open .chev { transform: rotate(180deg); }
@@ -336,9 +353,18 @@ button { font-family: inherit; cursor: pointer; }
   font-size: .8rem;
 }
 .bus-line .slot { color: var(--ink-3); font-size: .7rem; width: 34px; flex-shrink: 0; font-weight: 500; }
-.bus-line .bus-times { flex: 1; display: flex; align-items: baseline; gap: .45rem; flex-wrap: wrap; }
-.bus-time-ai { font-weight: 700; font-variant-numeric: tabular-nums; }
-.bus-time-lta { color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: .73rem; }
+.bus-main { flex: 1; min-width: 0; }
+.bus-lta { display: flex; align-items: center; gap: .4rem; }
+.bus-lta b { font-weight: 700; font-variant-numeric: tabular-nums; font-size: .92rem; }
+.lta-tag {
+  font-size: .58rem; font-weight: 700; letter-spacing: .06em;
+  color: var(--ink-3); border: 1px solid var(--line);
+  border-radius: 4px; padding: 0 .25rem;
+}
+.bus-ai {
+  display: block; font-size: .72rem; font-weight: 600;
+  color: var(--accent); margin-top: .12rem; font-variant-numeric: tabular-nums;
+}
 .adj { font-size: .67rem; font-weight: 600; border-radius: 5px; padding: .08rem .38rem; }
 .adj.late   { color: var(--bad);  background: var(--bad-soft); }
 .adj.early  { color: var(--good); background: var(--good-soft); }
