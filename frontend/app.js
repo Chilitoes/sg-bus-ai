@@ -134,8 +134,8 @@ function syncAccountUI() {
     $("profile-avatar").textContent = (S.username || "?")[0];
   }
   $("saved-sync-note").textContent = loggedIn
-    ? `Synced to ${S.username}'s account`
-    : "Saved on this device only — create an account to sync across devices.";
+    ? `Synced to ${S.username}'s account · monitored 24/7 for sharper predictions`
+    : "Saved on this device only. Log in to sync across devices — saved stops are monitored 24/7, which makes their predictions more accurate.";
 }
 
 function openSheet() {
@@ -269,7 +269,7 @@ function syncSaveBtn() {
 $("save-btn").addEventListener("click", () => {
   if (!S.stop) return;
   if (isFav(S.stop)) { removeFav(S.stop); toast("Removed from saved stops"); }
-  else { addFav(S.stop, S.stopInfo || {}); toast("Stop saved"); }
+  else { addFav(S.stop, S.stopInfo || {}); toast("Saved — now monitored for better predictions"); }
   syncSaveBtn();
 });
 
