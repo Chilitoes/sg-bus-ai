@@ -1,0 +1,20 @@
+[Unit]
+Description=SG Bus AI backend (FastAPI + background data collector)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# --- EDIT THESE TWO LINES to match your server ---
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/sg-bus-ai/backend
+# Loads LTA_API_KEY (and any other vars) from the repo-root .env file.
+# Make sure /home/YOUR_USER/sg-bus-ai/.env contains:  LTA_API_KEY=xxxxx
+EnvironmentFile=/home/YOUR_USER/sg-bus-ai/.env
+# Bind to localhost only — Tailscale Funnel proxies to it; it is NOT exposed on your LAN.
+ExecStart=/home/YOUR_USER/sg-bus-ai/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
