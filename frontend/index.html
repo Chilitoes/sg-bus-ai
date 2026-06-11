@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="description" content="Live Singapore bus arrival times with machine-learning adjusted predictions." />
   <title>SG Bus — live arrivals</title>
-  <link rel="stylesheet" href="styles.css?v=4" />
+  <link rel="stylesheet" href="styles.css?v=5" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 </head>
 <body>
@@ -141,11 +141,29 @@
 
   <!-- ════ SAVED VIEW ════ -->
   <section id="view-saved" class="view">
-    <h2 class="view-title">Saved stops</h2>
-    <p id="saved-sync-note" class="view-sub"></p>
-    <p id="saved-empty" class="empty">Nothing saved yet. Search for a stop and tap Save —
-    saved stops are monitored 24/7, so their predictions get more accurate over time.</p>
-    <div id="saved-list" class="saved-list"></div>
+    <h2 class="view-title">Saved</h2>
+
+    <!-- not logged in -->
+    <div id="saved-auth-prompt" class="hidden">
+      <p class="empty">Log in to save bus stops and journey routes — they sync to your account across all your devices.</p>
+      <button id="saved-login-btn" class="bigbtn" style="margin-top:0">Log in or create account</button>
+    </div>
+
+    <!-- logged in -->
+    <div id="saved-content">
+      <p id="saved-sync-note" class="view-sub"></p>
+
+      <div class="saved-section-hd">Stops</div>
+      <p id="saved-empty" class="empty hidden">No saved stops yet. Search for a stop and tap Save — monitored 24/7 for sharper predictions.</p>
+      <div id="saved-list" class="saved-list"></div>
+
+      <div class="saved-section-hd" style="margin-top:1.1rem">Routes</div>
+      <p id="saved-journeys-empty" class="empty hidden">No saved routes yet. Plan a journey and tap
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="vertical-align:-1px"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        to save it.
+      </p>
+      <div id="saved-journeys-list" class="saved-journeys-list"></div>
+    </div>
   </section>
 
   <!-- ════ PLAN VIEW ════ -->
@@ -310,6 +328,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

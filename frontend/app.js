@@ -30,6 +30,7 @@ const S = {
   stopInfo: null,
   stats: null,
   favs: [],
+  savedJourneys: [],
   recent: readJSON(RECENT_KEY, []),
   token: localStorage.getItem(TOKEN_KEY) || null,
   username: localStorage.getItem(USER_KEY) || null,
@@ -41,10 +42,9 @@ const S = {
 };
 const charts = { service: null, hour: null, trend: null };
 
-// Favourites are scoped per account: each logged-in user gets their own
-// list; the device list is kept separately for logged-out use.
-function favKey() { return S.username ? `${FAV_KEY}_u_${S.username}` : FAV_KEY; }
-S.favs = readJSON(favKey(), []);
+// Favourites require a logged-in account; scoped per username for caching.
+function favKey() { return `${FAV_KEY}_u_${S.username}`; }
+S.favs = S.username ? readJSON(favKey(), []) : [];
 
 // ── Tiny helpers ──────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -130,9 +130,11 @@ function clearAuth() {
   S.token = null; S.username = null;
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
-  S.favs = readJSON(FAV_KEY, []);   // fall back to this device's own list
+  S.favs = [];
+  S.savedJourneys = [];
   syncAccountUI();
   afterFavsChanged();
+  afterJourneysChanged();
 }
 function syncAccountUI() {
   const loggedIn = !!S.token;
@@ -145,19 +147,19 @@ function syncAccountUI() {
   }
   $("saved-sync-note").textContent = loggedIn
     ? `Synced to ${S.username}'s account · monitored 24/7 for sharper predictions`
-    : "Saved on this device only. Log in to sync across devices — saved stops are monitored 24/7, which makes their predictions more accurate.";
+    : "";
 }
 
 function openSheet() {
   show($("sheet-backdrop")); show($("account-sheet"));
   hide($("auth-error"));
   if (S.token)
-
     api("/api/auth/me")
       .then((me) => {
         const since = new Date(me.created_at + "Z").toLocaleDateString("en-SG",
           { day: "numeric", month: "short", year: "numeric" });
-        $("profile-meta").textContent = `${me.favourite_count} saved stops · joined ${since}`;
+        $("profile-meta").textContent =
+          `${me.favourite_count} stops · ${me.journey_count} routes · joined ${since}`;
       })
       .catch(() => {});
 }
@@ -192,21 +194,17 @@ $("auth-form").addEventListener("submit", async (e) => {
     });
     setAuth(res.token, res.username);
     try {
-      if (S.authMode === "register" && deviceFavs.length) {
-        // A brand-new account adopts the stops saved on this device.
-        const merged = await api("/api/favourites/sync", {
-          method: "POST",
-          body: JSON.stringify({ favourites: deviceFavs }),
-        });
-        S.favs = merged.favourites;
-      } else {
-        // Logging in: the account's own list is the source of truth.
-        const mine = await api("/api/favourites");
-        S.favs = mine.favourites;
-      }
+      // On login, account list is source of truth (register: start fresh since login required to save).
+      const [mine, journeys] = await Promise.all([
+        api("/api/favourites"),
+        api("/api/saved-journeys"),
+      ]);
+      S.favs = mine.favourites;
+      S.savedJourneys = journeys.journeys;
       writeJSON(favKey(), S.favs);
     } catch { S.favs = readJSON(favKey(), []); }
     afterFavsChanged();
+    afterJourneysChanged();
     closeSheet();
     toast(S.authMode === "login" ? `Welcome back, ${res.username}` : "Account created");
     $("auth-password").value = "";
@@ -230,10 +228,15 @@ $("logout-btn").addEventListener("click", async () => {
 async function hydrateServerFavs() {
   if (!S.token) return;
   try {
-    const res = await api("/api/favourites");
-    S.favs = res.favourites;
+    const [favRes, journeyRes] = await Promise.all([
+      api("/api/favourites"),
+      api("/api/saved-journeys"),
+    ]);
+    S.favs = favRes.favourites;
+    S.savedJourneys = journeyRes.journeys;
     writeJSON(favKey(), S.favs);
     afterFavsChanged();
+    afterJourneysChanged();
   } catch { /* keep local cache; api() drops dead sessions automatically */ }
 }
 
@@ -242,20 +245,12 @@ function isFav(code) { return S.favs.some((f) => f.code === code); }
 
 function addFav(code, info = {}) {
   if (isFav(code)) return;
-  S.favs.unshift({
-    code,
-    description: info.description || null,
-    road_name: info.road_name || null,
-  });
+  S.favs.unshift({ code, description: info.description || null, road_name: info.road_name || null });
   writeJSON(favKey(), S.favs);
-  if (S.token) {
-    api(`/api/favourites/${code}`, {
-      method: "POST",
-      body: JSON.stringify({ description: info.description, road_name: info.road_name }),
-    }).catch(() => toast("Saved on this device (sync failed)"));
-  } else {
-    api(`/api/monitor/${code}`, { method: "POST" }).catch(() => {});
-  }
+  api(`/api/favourites/${code}`, {
+    method: "POST",
+    body: JSON.stringify({ description: info.description, road_name: info.road_name }),
+  }).catch(() => toast("Sync failed — stop saved locally"));
   afterFavsChanged();
 }
 
@@ -267,7 +262,7 @@ function removeFav(code) {
 }
 
 function afterFavsChanged() {
-  const n = S.favs.length;
+  const n = S.favs.length + S.savedJourneys.length;
   const badge = $("nav-saved-count");
   badge.textContent = n;
   badge.classList.toggle("hidden", n === 0);
@@ -285,6 +280,7 @@ function syncSaveBtn() {
 
 $("save-btn").addEventListener("click", () => {
   if (!S.stop) return;
+  if (!S.token) { toast("Log in to save stops"); openSheet(); return; }
   if (isFav(S.stop)) { removeFav(S.stop); toast("Removed from saved stops"); }
   else { addFav(S.stop, S.stopInfo || {}); toast("Saved — now monitored for better predictions"); }
   syncSaveBtn();
@@ -706,26 +702,71 @@ async function loadModelInfo() {
 
 // ── Saved view ────────────────────────────────────────────
 function renderSaved() {
-  const list = $("saved-list");
   syncAccountUI();
-  if (!S.favs.length) { show($("saved-empty")); list.innerHTML = ""; return; }
-  hide($("saved-empty"));
-  list.innerHTML = S.favs.map((f) => `
-    <div class="saved-card" data-code="${esc(f.code)}">
-      <div class="saved-card-top">
-        <div>
-          <div class="saved-name">${esc(f.description || "Bus stop")} <span class="stop-code">${esc(f.code)}</span></div>
-          <div class="saved-road">${esc(f.road_name || "")}</div>
+
+  if (!S.token) {
+    show($("saved-auth-prompt"));
+    hide($("saved-content"));
+    return;
+  }
+  hide($("saved-auth-prompt"));
+  show($("saved-content"));
+
+  // Stops section
+  if (!S.favs.length) {
+    show($("saved-empty"));
+    $("saved-list").innerHTML = "";
+  } else {
+    hide($("saved-empty"));
+    $("saved-list").innerHTML = S.favs.map((f) => `
+      <div class="saved-card" data-code="${esc(f.code)}">
+        <div class="saved-card-top">
+          <div>
+            <div class="saved-name">${esc(f.description || "Bus stop")} <span class="stop-code">${esc(f.code)}</span></div>
+            <div class="saved-road">${esc(f.road_name || "")}</div>
+          </div>
+          <button class="saved-remove" data-remove="${esc(f.code)}" aria-label="Remove">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
         </div>
-        <button class="saved-remove" data-remove="${esc(f.code)}" aria-label="Remove">
+        <div class="saved-previews" data-preview="${esc(f.code)}">
+          <span class="preview-loading">loading arrivals…</span>
+        </div>
+      </div>`).join("");
+    loadSavedPreviews();
+  }
+
+  // Journeys section
+  if (!S.savedJourneys.length) {
+    show($("saved-journeys-empty"));
+    $("saved-journeys-list").innerHTML = "";
+  } else {
+    hide($("saved-journeys-empty"));
+    $("saved-journeys-list").innerHTML = S.savedJourneys.map(renderSavedJourneyCard).join("");
+  }
+}
+
+function renderSavedJourneyCard(j) {
+  return `
+    <div class="saved-journey-card">
+      <div class="sj-info">
+        <div class="sj-from">${esc(j.from_name)}</div>
+        <svg class="sj-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m5 12 14 0"/><path d="m13 6 6 6-6 6"/></svg>
+        <div class="sj-to">${esc(j.to_name)}</div>
+      </div>
+      <div class="sj-actions">
+        <button class="pillbtn sj-plan-btn"
+                data-from-lat="${j.from_lat}" data-from-lng="${j.from_lng}"
+                data-to-lat="${j.to_lat}" data-to-lng="${j.to_lng}"
+                data-from-name="${esc(j.from_name)}" data-to-name="${esc(j.to_name)}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>
+          Plan
+        </button>
+        <button class="saved-remove" data-sj-remove="${j.id}" aria-label="Remove saved route">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </button>
       </div>
-      <div class="saved-previews" data-preview="${esc(f.code)}">
-        <span class="preview-loading">loading arrivals…</span>
-      </div>
-    </div>`).join("");
-  loadSavedPreviews();
+    </div>`;
 }
 
 async function loadSavedPreviews() {
@@ -761,6 +802,21 @@ $("saved-list").addEventListener("click", (e) => {
   const card = e.target.closest(".saved-card");
   if (card) loadStop(card.dataset.code);
 });
+
+$("saved-journeys-list").addEventListener("click", (e) => {
+  const rm = e.target.closest("[data-sj-remove]");
+  if (rm) { removeJourney(parseInt(rm.dataset.sjRemove)); toast("Route removed"); return; }
+  const plan = e.target.closest(".sj-plan-btn");
+  if (plan) {
+    const { fromLat, fromLng, toLat, toLng, fromName, toName } = plan.dataset;
+    setPlanLocation("from", null, fromName, parseFloat(fromLat), parseFloat(fromLng));
+    setPlanLocation("to",   null, toName,   parseFloat(toLat),   parseFloat(toLng));
+    switchView("plan");
+    doJourneyPlan();
+  }
+});
+
+$("saved-login-btn").addEventListener("click", openSheet);
 
 // ── Data view ─────────────────────────────────────────────
 async function loadData() {
@@ -810,6 +866,59 @@ async function loadData() {
     el.textContent = `Couldn't load data: ${err.message}`;
     show(el);
   }
+}
+
+// ── Saved journeys ────────────────────────────────────────
+function journeyKey(fLat, fLng, tLat, tLng) {
+  return [fLat, fLng, tLat, tLng].map((v) => Math.round(v * 1e4)).join(",");
+}
+function isJourneySaved(fLat, fLng, tLat, tLng) {
+  const k = journeyKey(fLat, fLng, tLat, tLng);
+  return S.savedJourneys.some((j) => journeyKey(j.from_lat, j.from_lng, j.to_lat, j.to_lng) === k);
+}
+function getJourney(fLat, fLng, tLat, tLng) {
+  const k = journeyKey(fLat, fLng, tLat, tLng);
+  return S.savedJourneys.find((j) => journeyKey(j.from_lat, j.from_lng, j.to_lat, j.to_lng) === k);
+}
+
+async function saveJourney(fromName, fromLat, fromLng, toName, toLat, toLng) {
+  const res = await api("/api/saved-journeys", {
+    method: "POST",
+    body: JSON.stringify({ from_name: fromName, from_lat: fromLat, from_lng: fromLng,
+                           to_name: toName, to_lat: toLat, to_lng: toLng }),
+  });
+  if (!S.savedJourneys.some((j) => j.id === res.id)) S.savedJourneys.unshift(res);
+  afterJourneysChanged();
+}
+
+async function removeJourney(id) {
+  await api(`/api/saved-journeys/${id}`, { method: "DELETE" }).catch(() => {});
+  S.savedJourneys = S.savedJourneys.filter((j) => j.id !== id);
+  afterJourneysChanged();
+}
+
+function afterJourneysChanged() {
+  const n = S.favs.length + S.savedJourneys.length;
+  const badge = $("nav-saved-count");
+  badge.textContent = n;
+  badge.classList.toggle("hidden", n === 0);
+  updateJourneyCardSaveBtns();
+  if (S.view === "saved") renderSaved();
+}
+
+function updateJourneyCardSaveBtns() {
+  document.querySelectorAll(".jcard-save").forEach((btn) => {
+    const card = btn.closest(".journey-card");
+    if (!card) return;
+    const fLat = parseFloat(card.dataset.fromLat);
+    const fLng = parseFloat(card.dataset.fromLng);
+    const tLat = parseFloat(card.dataset.toLat);
+    const tLng = parseFloat(card.dataset.toLng);
+    if (isNaN(fLat)) return;
+    const saved = isJourneySaved(fLat, fLng, tLat, tLng);
+    btn.classList.toggle("saved", saved);
+    btn.setAttribute("aria-label", saved ? "Remove saved route" : "Save route");
+  });
 }
 
 // ── Plan view ─────────────────────────────────────────────
@@ -949,7 +1058,26 @@ $("plan-swap").addEventListener("click", () => {
 $("plan-btn").addEventListener("click", doJourneyPlan);
 $("plan-results").addEventListener("click", (e) => {
   const go = e.target.closest(".jcard-go");
-  if (go) go.closest(".journey-card").classList.toggle("open");
+  if (go) { go.closest(".journey-card").classList.toggle("open"); return; }
+
+  const saveBtn = e.target.closest(".jcard-save");
+  if (saveBtn) {
+    if (!S.token) { toast("Log in to save routes"); openSheet(); return; }
+    const card = saveBtn.closest(".journey-card");
+    const fLat = parseFloat(card.dataset.fromLat);
+    const fLng = parseFloat(card.dataset.fromLng);
+    const tLat = parseFloat(card.dataset.toLat);
+    const tLng = parseFloat(card.dataset.toLng);
+    if (isNaN(fLat)) { toast("Location data unavailable"); return; }
+    const existing = getJourney(fLat, fLng, tLat, tLng);
+    if (existing) {
+      removeJourney(existing.id).then(() => toast("Route removed"));
+    } else {
+      saveJourney(card.dataset.fromName, fLat, fLng, card.dataset.toName, tLat, tLng)
+        .then(() => toast("Route saved"))
+        .catch((err) => toast(err.message || "Couldn't save route"));
+    }
+  }
 });
 
 async function doJourneyPlan() {
@@ -970,14 +1098,14 @@ async function doJourneyPlan() {
     let fLat = fromLat, fLng = fromLng;
     let tLat = toLat,   tLng = toLng;
 
-    // Resolve any bus-stop-only selections to lat/lng
+    // Resolve any bus-stop-only selections to lat/lng; write back so save button can use them
     if (fromCode && fLat === null) {
       const s = await api(`/api/stops/${fromCode}`).catch(() => null);
-      if (s?.latitude) { fLat = s.latitude; fLng = s.longitude; }
+      if (s?.latitude) { fLat = planState.fromLat = s.latitude; fLng = planState.fromLng = s.longitude; }
     }
     if (toCode && tLat === null) {
       const s = await api(`/api/stops/${toCode}`).catch(() => null);
-      if (s?.latitude) { tLat = s.latitude; tLng = s.longitude; }
+      if (s?.latitude) { tLat = planState.toLat = s.latitude; tLng = planState.toLng = s.longitude; }
     }
 
     if (fLat !== null && tLat !== null) {
@@ -997,6 +1125,7 @@ async function doJourneyPlan() {
       err.textContent = "Couldn't resolve location. Try a more specific address or bus stop.";
       show(err);
     }
+    updateJourneyCardSaveBtns();
   } catch (e) {
     const msg = e.message.includes("503")
       ? "Route data not loaded yet on the server — try again shortly."
@@ -1036,14 +1165,23 @@ function renderBusOnlyCard(opt) {
         Transfer at ${esc(leg.alight_stop.name)}
       </div>` : "")
   ).join("");
+  const fLat = planState.fromLat ?? ""; const fLng = planState.fromLng ?? "";
+  const tLat = planState.toLat   ?? ""; const tLng = planState.toLng   ?? "";
+  const saved = (fLat !== "" && tLat !== "") && isJourneySaved(parseFloat(fLat), parseFloat(fLng), parseFloat(tLat), parseFloat(tLng));
   return `
-    <div class="journey-card">
+    <div class="journey-card"
+         data-from-lat="${fLat}" data-from-lng="${fLng}"
+         data-to-lat="${tLat}" data-to-lng="${tLng}"
+         data-from-name="${esc(planState.fromName || "")}" data-to-name="${esc(planState.toName || "")}">
       <div class="jcard-summary">
         <div class="jcard-routes">${badgesHtml}</div>
         <div class="jcard-meta">
           <span class="jcard-type">${typeTxt}</span>
           <span class="jcard-subtext">${waitPart}~${opt.total_est_min} min${warnPart}</span>
         </div>
+        <button class="jcard-save${saved ? " saved" : ""}" aria-label="${saved ? "Remove saved route" : "Save route"}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        </button>
         <button class="jcard-go">Go
           <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
@@ -1094,14 +1232,23 @@ function renderMultimodalCard(opt) {
     return html;
   }).join("");
 
+  const fLat = planState.fromLat ?? ""; const fLng = planState.fromLng ?? "";
+  const tLat = planState.toLat   ?? ""; const tLng = planState.toLng   ?? "";
+  const saved = (fLat !== "" && tLat !== "") && isJourneySaved(parseFloat(fLat), parseFloat(fLng), parseFloat(tLat), parseFloat(tLng));
   return `
-    <div class="journey-card">
+    <div class="journey-card"
+         data-from-lat="${fLat}" data-from-lng="${fLng}"
+         data-to-lat="${tLat}" data-to-lng="${tLng}"
+         data-from-name="${esc(planState.fromName || "")}" data-to-name="${esc(planState.toName || "")}">
       <div class="jcard-summary">
         <div class="jcard-routes">${badgesHtml}</div>
         <div class="jcard-meta">
           <span class="jcard-type">${typeTxt}</span>
           <span class="jcard-subtext">${waitPart}~${opt.total_est_min} min${warnPart}${alertPart}</span>
         </div>
+        <button class="jcard-save${saved ? " saved" : ""}" aria-label="${saved ? "Remove saved route" : "Save route"}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        </button>
         <button class="jcard-go">Go
           <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
