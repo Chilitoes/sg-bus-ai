@@ -1,312 +1,230 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SG Bus AI</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#f2f3f5" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0d0e10" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="description" content="Live Singapore bus arrival times with machine-learning adjusted predictions." />
+  <title>SG Bus — live arrivals</title>
   <link rel="stylesheet" href="styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 </head>
 <body>
 
-<!-- ═══ HEADER ══════════════════════════════════════════════════ -->
-<header class="header">
-  <div class="header-inner">
-    <div class="header-brand">
-      <span class="header-logo">🚌</span>
-      <div>
-        <div class="header-title">SG Bus <span class="ai-pill">AI</span></div>
-        <div class="header-sub">Real-time arrivals · AI predictions</div>
-      </div>
-    </div>
-    <div class="header-actions">
-      <div id="model-badge" class="model-badge">AI loading…</div>
-      <button id="theme-toggle" class="theme-btn" title="Toggle dark mode">🌙</button>
+<!-- Header -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="wordmark">SG Bus <span class="wordmark-sub">arrivals</span></div>
+    <div class="topbar-actions">
+      <button id="theme-btn" class="iconbtn" aria-label="Toggle theme">
+        <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+      </button>
+      <button id="account-btn" class="iconbtn" aria-label="Account">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span id="account-dot" class="account-dot hidden"></span>
+      </button>
     </div>
   </div>
 </header>
 
-<!-- ═══ TABS ════════════════════════════════════════════════════ -->
-<nav class="tabs-nav">
-  <div class="tabs-inner">
-    <button class="tab-btn active" data-tab="search">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      Search
-    </button>
-    <button class="tab-btn" data-tab="favourites">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-      Favourites
-      <span id="fav-count" class="tab-badge hidden">0</span>
-    </button>
-    <button class="tab-btn" data-tab="data">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-      Data
-    </button>
-  </div>
-</nav>
+<main class="main">
 
-<!-- ═══ SEARCH TAB ══════════════════════════════════════════════ -->
-<div id="tab-search" class="tab-panel active">
-  <div class="container">
+  <!-- ════ ARRIVALS VIEW ════ -->
+  <section id="view-arrivals" class="view active">
 
-    <!-- Search -->
-    <div class="search-section">
-      <div class="search-row">
-        <div class="search-box">
-          <svg class="search-box-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input id="stop-input" class="search-input" type="text"
-            placeholder="Stop code or name  (e.g. 83139 or Orchard)"
-            autocomplete="off" spellcheck="false" />
-          <button id="search-clear" class="search-clear hidden">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <button id="search-btn" class="btn btn-primary" disabled>Search</button>
+    <div class="search-wrap">
+      <div class="search-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input id="stop-input" type="text" inputmode="search" placeholder="Stop name or 5-digit code"
+               autocomplete="off" spellcheck="false" enterkeyhint="search" />
+        <button id="search-clear" class="search-clear hidden" aria-label="Clear">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
       </div>
       <div id="autocomplete" class="autocomplete hidden"></div>
-      <p id="search-no-results" class="search-no-results hidden">No matching stops found. Try a different name or 5-digit code.</p>
+    </div>
 
-      <div class="chips-row">
-        <span class="chips-label">Popular</span>
-        <button class="chip" data-stop="83139">83139 · Bedok Int</button>
-        <button class="chip" data-stop="01012">01012 · Hotel Grand Pacific</button>
-        <button class="chip" data-stop="03222">03222 · Raffles Place</button>
-        <button class="chip" data-stop="09022">09022 · Orchard Stn</button>
+    <div id="chips-area" class="chips-area"></div>
+
+    <!-- Stop header card -->
+    <div id="stop-card" class="stop-card hidden">
+      <div class="stop-card-top">
+        <div class="stop-id">
+          <div id="stop-name" class="stop-name"></div>
+          <div class="stop-meta"><span id="stop-road"></span> <span id="stop-code" class="stop-code"></span></div>
+        </div>
+        <div class="stop-actions">
+          <button id="save-btn" class="pillbtn">
+            <svg id="save-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            <span id="save-label">Save</span>
+          </button>
+          <button id="refresh-btn" class="iconbtn" aria-label="Refresh">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="stop-card-foot">
+        <span id="updated-at"></span>
+        <span class="foot-sep">·</span>
+        <span>auto-refresh 30s</span>
+        <span class="foot-sep">·</span>
+        <span class="ai-note">times are AI-adjusted</span>
       </div>
     </div>
 
-    <!-- Quick favourites -->
-    <div id="quick-favs" class="quick-favs hidden">
-      <div class="quick-favs-head">
-        <span class="quick-favs-label">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          Favourites
-        </span>
+    <div id="arrivals-error" class="error-note hidden"></div>
+
+    <div id="rows" class="rows"></div>
+    <p id="no-services" class="empty hidden">No buses serving this stop right now.</p>
+
+    <!-- Stats -->
+    <details id="stats-details" class="panel hidden">
+      <summary>
+        <span>Punctuality stats</span>
+        <span id="stats-badge" class="panel-badge">last 30 days</span>
+        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </summary>
+      <div class="panel-body">
+        <p id="no-stats" class="empty hidden">Not enough history for this stop yet — it builds automatically.</p>
+        <div id="charts-wrap">
+          <div class="chart-block">
+            <div class="chart-title">Average delay by route</div>
+            <div class="chart-box"><canvas id="chart-service"></canvas></div>
+          </div>
+          <div class="chart-block">
+            <div class="chart-title">Average delay by hour <span class="chart-hint">(orange = peak)</span></div>
+            <div class="chart-box"><canvas id="chart-hour"></canvas></div>
+          </div>
+          <div class="chart-block">
+            <div class="chart-title">Daily trend, last 14 days <span id="trend-dir" class="chart-hint"></span></div>
+            <div class="chart-box"><canvas id="chart-trend"></canvas></div>
+          </div>
+        </div>
       </div>
-      <div id="quick-favs-list" class="quick-favs-list"></div>
+    </details>
+
+    <!-- About -->
+    <details id="about-details" class="panel hidden">
+      <summary>
+        <span>How predictions work</span>
+        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </summary>
+      <div class="panel-body about-body">
+        <p>Every arrival time shown is the official LTA estimate, corrected by a
+        gradient-boosting model trained on how buses at this stop have actually
+        behaved — by hour, day, crowding and bus type.</p>
+        <p>Ground truth comes from tracking each bus across successive polls
+        until it arrives. The model retrains itself continuously.</p>
+        <div id="model-info" class="model-info"></div>
+      </div>
+    </details>
+
+  </section>
+
+  <!-- ════ SAVED VIEW ════ -->
+  <section id="view-saved" class="view">
+    <h2 class="view-title">Saved stops</h2>
+    <p id="saved-sync-note" class="view-sub"></p>
+    <p id="saved-empty" class="empty">Nothing saved yet. Search for a stop and tap Save.</p>
+    <div id="saved-list" class="saved-list"></div>
+  </section>
+
+  <!-- ════ DATA VIEW ════ -->
+  <section id="view-data" class="view">
+    <h2 class="view-title">Data &amp; model</h2>
+    <p class="view-sub">What the system has collected and learned so far.</p>
+    <div id="data-error" class="error-note hidden"></div>
+    <div id="data-grid" class="stat-grid"></div>
+
+    <div id="monitored-block" class="block hidden">
+      <div class="block-head">Continuously monitored stops <span id="mon-count" class="panel-badge"></span></div>
+      <div id="mon-chips" class="mon-chips"></div>
     </div>
 
-    <!-- Stop header -->
-    <div id="stop-header" class="stop-header hidden">
-      <div class="stop-header-left">
-        <div class="stop-code-badge" id="stop-code-display"></div>
-        <div>
-          <div id="stop-name-display" class="stop-name"></div>
-          <div id="stop-road-display" class="stop-road"></div>
-        </div>
-      </div>
-      <div class="stop-header-right">
-        <span id="last-updated" class="last-updated"></span>
-        <button id="fav-btn" class="fav-toggle-btn" title="Save to favourites">
-          <svg id="fav-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          <span id="fav-btn-label">Save</span>
-        </button>
-        <button id="refresh-btn" class="icon-btn" title="Refresh">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-        </button>
+    <div id="tracking-block" class="block hidden">
+      <div class="block-head">Latest measured delays</div>
+      <div class="tablewrap">
+        <table><thead><tr><th>Stop</th><th>Bus</th><th>When</th><th class="num">Delay</th></tr></thead>
+        <tbody id="tracking-tbody"></tbody></table>
       </div>
     </div>
 
-    <div id="arrivals-error" class="alert-error hidden"></div>
-    <div id="arrivals-grid" class="arrivals-grid"></div>
-    <p id="no-services" class="empty-state hidden">No services found for this stop.</p>
-
-    <!-- Legend -->
-    <div id="legend" class="legend hidden">
-      <div class="legend-item"><span class="legend-dot gray"></span>LTA API estimate</div>
-      <div class="legend-item"><span class="legend-dot blue"></span>AI prediction</div>
-      <div class="legend-sep"></div>
-      <span class="load-pill SEA">SEA</span><span class="legend-text">Seats free</span>
-      <span class="load-pill SDA">SDA</span><span class="legend-text">Standing</span>
-      <span class="load-pill LSD">LSD</span><span class="legend-text">Limited</span>
+    <div id="records-block" class="block hidden">
+      <div class="block-head">Recent snapshots</div>
+      <div class="tablewrap">
+        <table><thead><tr><th>Stop</th><th>Bus</th><th>When</th><th class="num">Delay</th><th>Load</th></tr></thead>
+        <tbody id="records-tbody"></tbody></table>
+      </div>
     </div>
+  </section>
 
-    <!-- Charts -->
-    <section id="charts-section" class="section hidden">
-      <div class="section-head">
-        <h2 class="section-title">Delay Statistics</h2>
-        <span class="section-badge">Last 30 Days</span>
+</main>
+
+<!-- Bottom navigation -->
+<nav class="bottomnav">
+  <button class="nav-item active" data-view="arrivals">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 11h16"/><circle cx="8" cy="15" r=".5"/><circle cx="16" cy="15" r=".5"/><path d="M6 19v2M18 19v2"/></svg>
+    <span>Arrivals</span>
+  </button>
+  <button class="nav-item" data-view="saved">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+    <span>Saved</span>
+    <span id="nav-saved-count" class="nav-badge hidden"></span>
+  </button>
+  <button class="nav-item" data-view="data">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg>
+    <span>Data</span>
+  </button>
+</nav>
+
+<!-- Account sheet -->
+<div id="sheet-backdrop" class="sheet-backdrop hidden"></div>
+<div id="account-sheet" class="sheet hidden" role="dialog" aria-label="Account">
+  <div class="sheet-handle"></div>
+
+  <!-- logged out -->
+  <div id="auth-forms">
+    <div class="seg">
+      <button id="seg-login" class="seg-btn active">Log in</button>
+      <button id="seg-register" class="seg-btn">Create account</button>
+    </div>
+    <form id="auth-form" novalidate>
+      <label class="field">
+        <span>Username</span>
+        <input id="auth-username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" />
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input id="auth-password" type="password" autocomplete="current-password" />
+      </label>
+      <p id="auth-error" class="error-note hidden"></p>
+      <button id="auth-submit" type="submit" class="bigbtn">Log in</button>
+      <p class="sheet-hint">An account keeps your saved stops on any device. No email needed.</p>
+    </form>
+  </div>
+
+  <!-- logged in -->
+  <div id="auth-profile" class="hidden">
+    <div class="profile-row">
+      <div class="profile-avatar" id="profile-avatar"></div>
+      <div>
+        <div id="profile-name" class="profile-name"></div>
+        <div id="profile-meta" class="profile-meta"></div>
       </div>
-      <p id="no-stats" class="empty-state hidden">Not enough data yet — keep the app running to build history.</p>
-      <div class="charts-grid">
-        <div class="card chart-card">
-          <div class="chart-card-header">
-            <div class="chart-card-title">Delay by Route</div>
-            <span class="chart-badge"><span class="bdot" style="background:#ef4444"></span>Late &nbsp;<span class="bdot" style="background:#3b82f6"></span>Early</span>
-          </div>
-          <p class="chart-desc">How many seconds each bus route typically runs late or early. Hover a bar to see details.</p>
-          <div class="chart-wrap"><canvas id="chart-service"></canvas></div>
-        </div>
-        <div class="card chart-card">
-          <div class="chart-card-header">
-            <div class="chart-card-title">Delay by Time of Day</div>
-            <span class="chart-badge"><span class="bdot" style="background:#f97316"></span>Peak Hours</span>
-          </div>
-          <p class="chart-desc">Which hours tend to have the most delays. Orange = peak commute hours (7–9am, 5–7pm).</p>
-          <div class="chart-wrap"><canvas id="chart-hour"></canvas></div>
-        </div>
-        <div class="card chart-card chart-wide">
-          <div class="chart-card-header">
-            <div class="chart-card-title">14-Day Trend <span id="trend-stop" class="trend-stop-label"></span></div>
-            <span class="chart-badge" id="trend-badge">Daily Average</span>
-          </div>
-          <p class="chart-desc">Daily average delay over the past two weeks. A line going down means buses are getting more punctual.</p>
-          <div class="chart-wrap chart-tall"><canvas id="chart-trend"></canvas></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- AI explainer -->
-    <section id="ai-section" class="section hidden">
-      <details class="explainer">
-        <summary class="explainer-summary">
-          <span class="explainer-icon">🤖</span>
-          How does the AI prediction work?
-        </summary>
-        <div class="explainer-body">
-          <p>The AI uses a <strong>Gradient Boosting Regressor</strong> to predict how many seconds each bus will arrive <em>earlier or later</em> than the LTA estimate. The adjusted time is shown in blue.</p>
-          <div class="explainer-grid">
-            <div>
-              <h4>Input features</h4>
-              <ul>
-                <li><strong>Hour</strong> — sin/cos cyclical encoding</li>
-                <li><strong>Day of week</strong> — weekday / weekend flag</li>
-                <li><strong>Peak hour</strong> — Mon–Fri 7–9 am, 5–7 pm</li>
-                <li><strong>Bus load</strong> — SEA / SDA / LSD</li>
-                <li><strong>Bus type</strong> — SD / DD / BD</li>
-                <li><strong>Route &amp; stop hash</strong> — numeric proxy</li>
-              </ul>
-            </div>
-            <div>
-              <h4>Ground truth</h4>
-              <p>The background collector tracks each bus across API polls. When it disappears it has arrived. <code>delay = last_estimate − first_estimate</code>. The model retrains hourly.</p>
-              <h4>Bootstrap</h4>
-              <p>Day one uses 5 000 synthetic rows. Real data is blended in with 3× weight as it accumulates.</p>
-            </div>
-          </div>
-          <div id="model-detail" class="model-detail-box"></div>
-        </div>
-      </details>
-    </section>
-
+    </div>
+    <p class="sheet-hint">Saved stops sync to this account automatically.</p>
+    <button id="logout-btn" class="bigbtn outline">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+      Log out
+    </button>
   </div>
 </div>
 
-<!-- ═══ FAVOURITES TAB ══════════════════════════════════════════ -->
-<div id="tab-favourites" class="tab-panel hidden">
-  <div class="container">
-    <div class="page-head">
-      <h2>Favourite Stops</h2>
-      <p>Tap a card to load live arrivals. Saved in your browser.</p>
-    </div>
-    <p id="fav-empty" class="empty-state">No favourites yet — search for a stop and tap ☆ to save it.</p>
-    <div id="fav-grid" class="fav-grid"></div>
-  </div>
-</div>
-
-<!-- ═══ DATA TAB ════════════════════════════════════════════════ -->
-<div id="tab-data" class="tab-panel hidden">
-  <div class="container">
-    <div class="page-head">
-      <h2>Database &amp; Model</h2>
-      <p>Live view of what's stored — use this to verify your database is connected.</p>
-      <button id="data-refresh-btn" class="btn btn-outline" style="margin-top:.75rem">↻ Refresh</button>
-    </div>
-
-    <div id="data-error" class="alert-error hidden"></div>
-    <div id="data-loading" class="empty-state">Loading…</div>
-
-    <!-- DB status cards -->
-    <div id="data-stats-grid" class="data-stats-grid hidden">
-      <div class="stat-card" id="stat-db-type">
-        <div class="stat-label">Database</div>
-        <div class="stat-value" id="stat-db-type-val">—</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Arrival Records</div>
-        <div class="stat-value" id="stat-arrivals">—</div>
-        <div class="stat-sub">total snapshots</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Labeled Records</div>
-        <div class="stat-value" id="stat-labeled">—</div>
-        <div class="stat-sub">with ground-truth delay</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Bus Stops</div>
-        <div class="stat-value" id="stat-stops">—</div>
-        <div class="stat-sub">in directory</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">AI Model MAE</div>
-        <div class="stat-value" id="stat-mae">—</div>
-        <div class="stat-sub">mean absolute error (s)</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Training Rows</div>
-        <div class="stat-value" id="stat-train-rows">—</div>
-        <div class="stat-sub">synthetic + real</div>
-      </div>
-    </div>
-
-    <!-- Monitored stops -->
-    <div id="monitored-section" class="section hidden">
-      <div class="section-head">
-        <h3 class="section-title">Monitored Stops</h3>
-        <span class="section-badge" id="monitored-count">0</span>
-      </div>
-      <div id="monitored-chips" class="chips-row" style="margin-top:.5rem"></div>
-      <div class="monitor-add-row">
-        <input id="monitor-input" type="text" class="mon-input" placeholder="Add stop code to monitor…" maxlength="5" autocomplete="off" />
-        <button id="monitor-add-btn" class="btn btn-outline btn-sm">+ Monitor</button>
-      </div>
-    </div>
-
-    <!-- Recent ground-truth delays -->
-    <div id="tracking-section" class="section hidden">
-      <div class="section-head">
-        <h3 class="section-title">Recent Ground-Truth Delays</h3>
-        <span class="section-badge">last 10</span>
-      </div>
-      <div class="table-wrap">
-        <table class="data-table" id="tracking-table">
-          <thead><tr>
-            <th>Stop</th><th>Service</th><th>First Seen</th><th>Delay (s)</th>
-          </tr></thead>
-          <tbody id="tracking-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Recent arrival records -->
-    <div id="records-section" class="section hidden">
-      <div class="section-head">
-        <h3 class="section-title">Recent Arrival Records</h3>
-        <span class="section-badge">last 20</span>
-      </div>
-      <div class="table-wrap">
-        <table class="data-table" id="records-table">
-          <thead><tr>
-            <th>Stop</th><th>Service</th><th>Time</th><th>Wait (s)</th><th>Delay (s)</th><th>Load</th><th>Peak</th>
-          </tr></thead>
-          <tbody id="records-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-
-  </div>
-</div>
-
-<!-- ═══ LOADING ══════════════════════════════════════════════════ -->
-<div id="loading-overlay" class="loading-overlay hidden">
-  <div class="loading-card">
-    <div class="spinner"></div>
-    <span>Loading…</span>
-  </div>
-</div>
+<div id="toast" class="toast hidden"></div>
 
 <script src="app.js"></script>
 </body>

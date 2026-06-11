@@ -129,8 +129,24 @@ The app will:
 | `GET` | `/api/monitor` | List monitored stops |
 | `POST` | `/api/monitor/{stop_code}` | Add stop to collector |
 | `DELETE` | `/api/monitor/{stop_code}` | Remove stop from collector |
+| `POST` | `/api/auth/register` | Create an account `{username, password}` |
+| `POST` | `/api/auth/login` | Log in, returns a bearer token |
+| `POST` | `/api/auth/logout` | Revoke the current token |
+| `GET` | `/api/auth/me` | Account info (auth) |
+| `GET` | `/api/favourites` | List account favourites (auth) |
+| `POST` | `/api/favourites/{stop_code}` | Add favourite (auth) |
+| `DELETE` | `/api/favourites/{stop_code}` | Remove favourite (auth) |
+| `POST` | `/api/favourites/sync` | Merge a local list into the account (auth) |
 
 Interactive docs: <http://localhost:8000/docs>
+
+### Data collection modes
+
+| Mode | What | Ground truth? |
+|---|---|---|
+| Monitored stops | Polled every cycle (favourites auto-join) | Yes — disappearance tracking |
+| Rotation scan | `ROTATION_BATCH_SIZE` (default 20) extra stops per cycle, sweeping all ~5,000 SG stops daily | No — snapshots only |
+| Passive | Every visitor arrivals query is persisted as a snapshot | Yes, if the visitor keeps the page open |
 
 ---
 

@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from api_routes import router
+from auth_routes import router as auth_router
 from config import DEFAULT_MONITORED_STOPS
 from data_collector import start_data_collection
 from database import init_db
@@ -82,6 +83,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
 
 # Serve the React/HTML frontend.
 # Must be mounted AFTER the API router so "/api/*" routes take priority.

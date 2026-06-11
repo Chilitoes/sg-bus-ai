@@ -21,11 +21,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
 from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL, DATABASE_URL
+from data_collector import persist_arrival_payload
 from database import BusArrivalRecord, BusStop, BusTracking, MonitoredStop, get_db
 from ml_model import model as global_model
 
@@ -81,7 +82,11 @@ async def _call_lta(stop_code: str) -> dict:
 # ── Arrivals ──────────────────────────────────────────────────────
 
 @router.get("/arrivals/{stop_code}")
-async def get_arrivals(stop_code: str, db: Session = Depends(get_db)) -> dict:
+async def get_arrivals(
+    stop_code: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> dict:
     """
     Fetch real-time arrivals from LTA and augment each bus slot with an
     AI-adjusted prediction.
@@ -117,6 +122,11 @@ async def get_arrivals(stop_code: str, db: Session = Depends(get_db)) -> dict:
     data     = await _call_lta(stop_code)
     services = data.get("Services", [])
     now      = datetime.utcnow()
+    sgt      = now + timedelta(hours=8)  # model features use Singapore time
+
+    # Passive collection: every visitor query doubles as a training snapshot,
+    # at zero extra LTA API cost. Runs after the response is sent.
+    background_tasks.add_task(persist_arrival_payload, stop_code, services, now)
 
     result_services = []
     for svc in services:
@@ -133,8 +143,8 @@ async def get_arrivals(stop_code: str, db: Session = Depends(get_db)) -> dict:
 
             # AI prediction
             adjustment_sec = global_model.predict(
-                hour        = now.hour,
-                day_of_week = now.weekday(),
+                hour        = sgt.hour,
+                day_of_week = sgt.weekday(),
                 bus_load    = load,
                 bus_type    = bus_type,
                 service_no  = service_no,
