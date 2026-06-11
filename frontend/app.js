@@ -81,7 +81,9 @@ function fmtMin(s) {
 }
 function fmtClock(dt) {
   if (!dt) return "–";
-  return dt.toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return dt.toLocaleTimeString("en-SG", {
+    hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore",
+  });
 }
 
 // ── API ───────────────────────────────────────────────────
@@ -152,7 +154,7 @@ function syncAccountUI() {
     ? `Synced to ${S.username}'s account · monitored 24/7 for sharper predictions`
     : "";
   // Data tab only visible to admin
-  $("nav-data-btn").classList.toggle("hidden", !admin);
+  $("nav-data-btn")?.classList.toggle("hidden", !admin);
   // If currently on data view and no longer admin, go to arrivals
   if (S.view === "data" && !admin) switchView("arrivals");
 }
@@ -502,7 +504,7 @@ function renderArrivals(data) {
     if (open.has(c.dataset.svc)) c.classList.add("open");
   });
   $("updated-at").textContent = `Updated ${new Date().toLocaleTimeString("en-SG",
-    { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+    { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore" })}`;
   startTicker();
 }
 
