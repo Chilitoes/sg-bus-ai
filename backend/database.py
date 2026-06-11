@@ -176,6 +176,25 @@ class UserFavourite(Base):
     added_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class SavedJourney(Base):
+    """Saved origin→destination pairs stored per user account."""
+    __tablename__ = "saved_journeys"
+    __table_args__ = (
+        UniqueConstraint("user_id", "from_lat", "from_lng", "to_lat", "to_lng",
+                         name="uq_user_journey"),
+    )
+
+    id        = Column(Integer, primary_key=True)
+    user_id   = Column(Integer, index=True, nullable=False)
+    from_name = Column(String(200), nullable=False)
+    from_lat  = Column(Float, nullable=False)
+    from_lng  = Column(Float, nullable=False)
+    to_name   = Column(String(200), nullable=False)
+    to_lat    = Column(Float, nullable=False)
+    to_lng    = Column(Float, nullable=False)
+    saved_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def get_db():

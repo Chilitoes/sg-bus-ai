@@ -767,6 +767,41 @@ th.num, td.num { text-align: right; }
   margin: .2rem 0;
 }
 
+/* ── Saved view section headers ────────────────────────── */
+.saved-section-hd {
+  font-size: .7rem; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--ink-3);
+  margin-bottom: .45rem;
+}
+
+/* ── Saved journey cards ─────────────────────────────── */
+.saved-journeys-list { display: flex; flex-direction: column; gap: .5rem; }
+.saved-journey-card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: .75rem .95rem;
+  box-shadow: var(--shadow-sm);
+  display: flex; align-items: center; gap: .6rem;
+}
+.sj-info { flex: 1; min-width: 0; }
+.sj-from { font-size: .9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sj-to { font-size: .85rem; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: .08rem; }
+.sj-arrow { color: var(--ink-3); display: block; margin: .18rem 0; }
+.sj-actions { display: flex; align-items: center; gap: .35rem; flex-shrink: 0; }
+.sj-plan-btn { gap: .3rem; padding: 0 .6rem; }
+
+/* ── Journey card bookmark button ─────────────────────── */
+.jcard-save {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--line); border-radius: 10px;
+  background: none; color: var(--ink-3);
+  width: 36px; height: 36px;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.jcard-save.saved { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.jcard-save.saved svg { fill: currentColor; }
+.jcard-save:active { background: var(--surface-2); }
+
 @media (min-width: 640px) {
   .stat-grid { grid-template-columns: repeat(3, 1fr); }
   .chart-box { height: 220px; }

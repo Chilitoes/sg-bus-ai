@@ -32,13 +32,14 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from database import User, UserFavourite, UserSession, MonitoredStop, get_db
+from database import User, UserFavourite, UserSession, MonitoredStop, SavedJourney, get_db
 
 router = APIRouter()
 
 PBKDF2_ITERATIONS = 200_000
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 MAX_FAVOURITES = 30
+MAX_SAVED_JOURNEYS = 30
 
 # Naive in-memory throttle: 20 auth attempts per IP per 15 minutes.
 _attempts: dict[str, list[float]] = defaultdict(list)
@@ -182,10 +183,12 @@ def logout(
 @router.get("/auth/me")
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     fav_count = db.query(func.count(UserFavourite.id)).filter_by(user_id=user.id).scalar() or 0
+    journey_count = db.query(func.count(SavedJourney.id)).filter_by(user_id=user.id).scalar() or 0
     return {
         "username": user.username,
         "created_at": user.created_at.isoformat(),
         "favourite_count": fav_count,
+        "journey_count": journey_count,
     }
 
 
@@ -243,6 +246,83 @@ def remove_favourite(
     db.query(UserFavourite).filter_by(user_id=user.id, bus_stop_code=stop_code).delete()
     db.commit()
     return {"status": "removed", "code": stop_code}
+
+
+class SavedJourneyIn(BaseModel):
+    from_name: str
+    from_lat: float
+    from_lng: float
+    to_name: str
+    to_lat: float
+    to_lng: float
+
+
+def _journey_out(j: SavedJourney) -> dict:
+    return {
+        "id": j.id,
+        "from_name": j.from_name,
+        "from_lat": j.from_lat,
+        "from_lng": j.from_lng,
+        "to_name": j.to_name,
+        "to_lat": j.to_lat,
+        "to_lng": j.to_lng,
+        "saved_at": j.saved_at.isoformat(),
+    }
+
+
+@router.get("/saved-journeys")
+def list_saved_journeys(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> dict:
+    journeys = (
+        db.query(SavedJourney)
+        .filter_by(user_id=user.id)
+        .order_by(SavedJourney.saved_at.desc())
+        .all()
+    )
+    return {"journeys": [_journey_out(j) for j in journeys]}
+
+
+@router.post("/saved-journeys")
+def save_journey(
+    body: SavedJourneyIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    existing = (
+        db.query(SavedJourney)
+        .filter_by(user_id=user.id,
+                   from_lat=body.from_lat, from_lng=body.from_lng,
+                   to_lat=body.to_lat, to_lng=body.to_lng)
+        .first()
+    )
+    if existing:
+        return _journey_out(existing)
+    count = db.query(func.count(SavedJourney.id)).filter_by(user_id=user.id).scalar() or 0
+    if count >= MAX_SAVED_JOURNEYS:
+        raise HTTPException(status_code=400, detail=f"Limit of {MAX_SAVED_JOURNEYS} saved routes reached.")
+    j = SavedJourney(
+        user_id=user.id,
+        from_name=body.from_name, from_lat=body.from_lat, from_lng=body.from_lng,
+        to_name=body.to_name,   to_lat=body.to_lat,   to_lng=body.to_lng,
+    )
+    db.add(j)
+    db.commit()
+    db.refresh(j)
+    return _journey_out(j)
+
+
+@router.delete("/saved-journeys/{journey_id}")
+def delete_saved_journey(
+    journey_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    j = db.query(SavedJourney).filter_by(id=journey_id, user_id=user.id).first()
+    if j:
+        db.delete(j)
+        db.commit()
+    return {"status": "removed", "id": journey_id}
 
 
 @router.post("/favourites/sync")
