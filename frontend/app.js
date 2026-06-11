@@ -52,7 +52,7 @@ function readJSON(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
   catch { return fallback; }
 }
-function writeJSON(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+function writeJSON(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
 function show(el) { el && el.classList.remove("hidden"); }
 function hide(el) { el && el.classList.add("hidden"); }
 function esc(s) {
@@ -76,7 +76,7 @@ function parseUTC(iso) {
 function secsUntil(dt) { return dt ? (dt - Date.now()) / 1000 : null; }
 function fmtMin(s) {
   if (s === null) return "–";
-  if (s < DUE_SECS) return "Due";
+  if (s < DUE_SECS) return "Arr";
   return String(Math.max(1, Math.floor(s / 60)));
 }
 function fmtClock(dt) {
@@ -106,7 +106,7 @@ async function api(path, opts = {}) {
 // ── Theme ─────────────────────────────────────────────────
 function applyTheme(t) {
   document.documentElement.setAttribute("data-theme", t);
-  localStorage.setItem(THEME_KEY, t);
+  try { localStorage.setItem(THEME_KEY, t); } catch {}
 }
 function initTheme() {
   const saved = localStorage.getItem(THEME_KEY);
@@ -912,6 +912,10 @@ $("plan-swap").addEventListener("click", () => {
 });
 
 $("plan-btn").addEventListener("click", doJourneyPlan);
+$("plan-results").addEventListener("click", (e) => {
+  const go = e.target.closest(".jcard-go");
+  if (go) go.closest(".journey-card").classList.toggle("open");
+});
 
 async function doJourneyPlan() {
   const { fromCode, toCode } = planState;
@@ -946,14 +950,24 @@ function renderJourneyResult(data) {
       data.message || "No route found. These stops may not be connected by bus, or try nearby stops."
     )}</div>`;
   }
-  return data.options.map((opt, i) => renderJourneyOption(opt, i + 1)).join("");
+  return data.options.map(renderJourneyCard).join("");
 }
 
-function renderJourneyOption(opt, idx) {
-  const typeTxt = opt.transfers === 0 ? "Direct" : `${opt.transfers} transfer${opt.transfers > 1 ? "s" : ""}`;
-  const warnHtml = opt.has_last_bus_warning
-    ? `<span class="last-bus-warn">⚠ Last bus</span>` : "";
-  const legsHtml = opt.legs.map((leg, li, arr) =>
+function renderJourneyCard(opt) {
+  const typeTxt = opt.transfers === 0 ? "Direct"
+    : `${opt.transfers} transfer${opt.transfers > 1 ? "s" : ""}`;
+  const badgesHtml = opt.legs.map((l, i, a) =>
+    `<span class="jcard-badge">${esc(l.service_no)}</span>` +
+    (i < a.length - 1
+      ? `<svg class="jcard-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`
+      : "")
+  ).join("");
+  const first = opt.legs[0];
+  const waitPart = first.wait_min !== null
+    ? (first.wait_min === 0 ? "Arriving" : `${first.wait_min}m wait`) + " · " : "";
+  const warnPart = opt.has_last_bus_warning
+    ? ` <span class="last-bus-warn">⚠ Last bus</span>` : "";
+  const detailHtml = opt.legs.map((leg, li, arr) =>
     renderJourneyLeg(leg) +
     (li < arr.length - 1 ? `
       <div class="journey-transfer">
@@ -962,19 +976,23 @@ function renderJourneyOption(opt, idx) {
       </div>` : "")
   ).join("");
   return `
-    <div class="journey-option">
-      <div class="journey-opt-head">
-        <span class="opt-num">${idx}</span>
-        <span class="opt-type">${typeTxt}</span>
-        <span class="opt-time">~${opt.total_est_min} min</span>
-        ${warnHtml}
+    <div class="journey-card">
+      <div class="jcard-summary">
+        <div class="jcard-routes">${badgesHtml}</div>
+        <div class="jcard-meta">
+          <span class="jcard-type">${typeTxt}</span>
+          <span class="jcard-subtext">${waitPart}~${opt.total_est_min} min${warnPart}</span>
+        </div>
+        <button class="jcard-go">Go
+          <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
       </div>
-      ${legsHtml}
+      <div class="jcard-detail">${detailHtml}</div>
     </div>`;
 }
 
 function renderJourneyLeg(leg) {
-  const waitTxt   = leg.wait_min === null ? "—" : leg.wait_min === 0 ? "Due now" : `Wait ${leg.wait_min} min`;
+  const waitTxt   = leg.wait_min === null ? "—" : leg.wait_min === 0 ? "Arriving" : `Wait ${leg.wait_min} min`;
   const waitClass = leg.wait_min === 0 ? "due" : "";
   const ltaDt     = parseUTC(leg.lta_arrival);
   const aiDt      = parseUTC(leg.ai_arrival);

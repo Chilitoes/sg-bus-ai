@@ -340,12 +340,9 @@ button { font-family: inherit; cursor: pointer; }
 .svc .chev { color: var(--ink-3); transition: transform .2s; flex-shrink: 0; }
 .svc.open .chev { transform: rotate(180deg); }
 
-.svc-detail {
-  display: grid; grid-template-rows: 0fr;
-  transition: grid-template-rows .22s ease;
-}
-.svc.open .svc-detail { grid-template-rows: 1fr; }
-.svc-detail-inner { min-height: 0; overflow: hidden; }
+.svc-detail { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
+.svc.open .svc-detail { max-height: 600px; }
+.svc-detail-inner { overflow: hidden; }
 .bus-line {
   display: flex; align-items: center; gap: .6rem;
   padding: .55rem .9rem;
@@ -639,27 +636,45 @@ th.num, td.num { text-align: right; }
   font-size: .84rem; padding: 2rem .5rem; line-height: 1.6;
 }
 
-/* Journey option cards */
+/* Journey cards */
 #plan-results { display: flex; flex-direction: column; gap: .65rem; }
 
-.journey-option {
+.journey-card {
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm);
 }
-.journey-opt-head {
-  display: flex; align-items: center; gap: .55rem; flex-wrap: wrap;
-  padding: .6rem .9rem;
-  background: var(--surface-2); border-bottom: 1px solid var(--line);
-  font-size: .82rem;
+.jcard-summary {
+  display: flex; align-items: center; gap: .65rem; padding: .78rem .9rem;
 }
-.opt-num {
-  width: 20px; height: 20px; border-radius: 50%;
-  background: var(--accent); color: #fff;
+.jcard-routes { display: flex; align-items: center; gap: .28rem; flex-shrink: 0; }
+.jcard-badge {
+  min-width: 42px; height: 34px; border-radius: 9px;
+  background: var(--ink); color: var(--bg);
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: .66rem; font-weight: 800; flex-shrink: 0;
+  font-size: .9rem; font-weight: 800; padding: 0 .4rem;
+  font-variant-numeric: tabular-nums;
 }
-.opt-type { font-weight: 600; flex: 1; }
-.opt-time { font-variant-numeric: tabular-nums; color: var(--ink-2); font-weight: 600; }
+.jcard-arrow { color: var(--ink-3); flex-shrink: 0; }
+.jcard-meta { flex: 1; min-width: 0; }
+.jcard-type { font-size: .86rem; font-weight: 700; display: block; line-height: 1.3; }
+.jcard-subtext { font-size: .74rem; color: var(--ink-2); font-variant-numeric: tabular-nums; margin-top: .06rem; display: block; }
+.jcard-go {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; gap: .3rem;
+  border: 1.5px solid var(--accent); border-radius: 10px;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: .82rem; font-weight: 700; padding: .42rem .72rem;
+  -webkit-tap-highlight-color: transparent;
+}
+.jcard-go:active { background: var(--accent); color: #fff; }
+.jcard-go .chev { transition: transform .2s; }
+.journey-card.open .jcard-go .chev { transform: rotate(180deg); }
+.jcard-detail {
+  max-height: 0; overflow: hidden; transition: max-height .3s ease;
+}
+.journey-card.open .jcard-detail {
+  max-height: 1200px; border-top: 1px solid var(--line);
+}
 .last-bus-warn {
   font-size: .68rem; font-weight: 700;
   color: var(--bad); background: var(--bad-soft);
