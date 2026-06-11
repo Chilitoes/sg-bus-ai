@@ -992,7 +992,10 @@ function renderJourneyCard(opt) {
 }
 
 function renderJourneyLeg(leg) {
-  const waitTxt   = leg.wait_min === null ? "—" : leg.wait_min === 0 ? "Arriving" : `Wait ${leg.wait_min} min`;
+  const waitTxt   = leg.wait_min === null ? "—"
+    : leg.wait_min === 0 ? "Arriving"
+    : leg.is_transfer_wait ? `Transfer wait ${leg.wait_min} min`
+    : `Wait ${leg.wait_min} min`;
   const waitClass = leg.wait_min === 0 ? "due" : "";
   const ltaDt     = parseUTC(leg.lta_arrival);
   const aiDt      = parseUTC(leg.ai_arrival);

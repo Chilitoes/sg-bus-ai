@@ -704,19 +704,22 @@ async def plan_journey(
     fetched = await asyncio.gather(*[_fetch(c) for c in unique_boards])
     arrivals_cache: dict[str, dict | None] = dict(fetched)
 
-    def enrich_leg(leg: dict) -> dict:
+    def enrich_leg(leg: dict, earliest_board: datetime | None = None) -> dict:
         svc      = leg["service"]
         board    = leg["from_stop"]
         alight   = leg["to_stop"]
         sc       = leg["stops_count"]
         est_ride = max(2, sc * 2)  # ~2 min per stop
 
-        wait_min        = None
-        lta_arrival     = None
-        ai_arrival_str  = None
-        ai_adj_sec      = 0
-        buses_available = 0
-        is_last_bus     = False
+        wait_min         = None
+        lta_arrival      = None
+        ai_arrival_str   = None
+        ai_adj_sec       = 0
+        buses_available  = 0
+        is_last_bus      = False
+        is_transfer_wait = earliest_board is not None
+
+        board_ref = earliest_board or now
 
         lta_data = arrivals_cache.get(board)
         if lta_data:
@@ -728,16 +731,23 @@ async def plan_journey(
                     if b.get("EstimatedArrival"):
                         buses_available += 1
 
-                bus = sv.get("NextBus") or {}
-                est = _parse_lta_dt(bus.get("EstimatedArrival"))
-                if est:
-                    wait_sec = (est - now).total_seconds()
+                # Find first catchable bus at or after board_ref (90s grace period)
+                chosen_bus, chosen_est = None, None
+                for slot_key in ["NextBus", "NextBus2", "NextBus3"]:
+                    b = sv.get(slot_key) or {}
+                    est = _parse_lta_dt(b.get("EstimatedArrival"))
+                    if est and est >= board_ref - timedelta(seconds=90):
+                        chosen_bus, chosen_est = b, est
+                        break
+
+                if chosen_est:
+                    wait_sec = (chosen_est - board_ref).total_seconds()
                     wait_min = max(0, int(wait_sec / 60))
 
                     adj = global_model.predict(
                         hour=sgt.hour, day_of_week=sgt.weekday(),
-                        bus_load=bus.get("Load", "SEA"),
-                        bus_type=bus.get("Type", "SD"),
+                        bus_load=chosen_bus.get("Load", "SEA"),
+                        bus_type=chosen_bus.get("Type", "SD"),
                         service_no=svc, stop_code=board,
                     )
                     if wait_sec <= 120:
@@ -748,8 +758,8 @@ async def plan_journey(
                         adj = max(-0.5 * wait_sec, adj)
                     ai_adj_sec = round(adj)
 
-                    lta_arrival    = est.isoformat()
-                    ai_arrival_str = (est + timedelta(seconds=adj)).isoformat()
+                    lta_arrival    = chosen_est.isoformat()
+                    ai_arrival_str = (chosen_est + timedelta(seconds=adj)).isoformat()
 
                 is_last_bus = buses_available <= 1
                 break
@@ -758,23 +768,30 @@ async def plan_journey(
         alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()
 
         return {
-            "service_no":       svc,
-            "direction":        leg["direction"],
-            "board_stop":       {"code": board,  "name": brd.description if brd else board,  "road": brd.road_name if brd else ""},
-            "alight_stop":      {"code": alight, "name": alt.description if alt else alight, "road": alt.road_name if alt else ""},
-            "stops_count":      sc,
-            "est_ride_min":     est_ride,
-            "wait_min":         wait_min,
-            "lta_arrival":      lta_arrival,
-            "ai_arrival":       ai_arrival_str,
-            "ai_adj_sec":       ai_adj_sec,
-            "buses_available":  buses_available,
-            "is_last_bus_soon": is_last_bus,
+            "service_no":        svc,
+            "direction":         leg["direction"],
+            "board_stop":        {"code": board,  "name": brd.description if brd else board,  "road": brd.road_name if brd else ""},
+            "alight_stop":       {"code": alight, "name": alt.description if alt else alight, "road": alt.road_name if alt else ""},
+            "stops_count":       sc,
+            "est_ride_min":      est_ride,
+            "wait_min":          wait_min,
+            "lta_arrival":       lta_arrival,
+            "ai_arrival":        ai_arrival_str,
+            "ai_adj_sec":        ai_adj_sec,
+            "buses_available":   buses_available,
+            "is_last_bus_soon":  is_last_bus,
+            "is_transfer_wait":  is_transfer_wait,
         }
 
     options = []
     for raw in raw_options[:3]:
-        legs = [enrich_leg(l) for l in raw["legs"]]
+        legs = []
+        cumulative_mins = 0
+        for i, raw_leg in enumerate(raw["legs"]):
+            earliest = None if i == 0 else now + timedelta(minutes=cumulative_mins + 2)
+            leg = enrich_leg(raw_leg, earliest)
+            legs.append(leg)
+            cumulative_mins += (leg.get("wait_min") or 5) + leg["est_ride_min"]
         total_min = sum(
             (l.get("wait_min") or 5) + l["est_ride_min"] for l in legs
         ) + raw["transfers"] * 3
