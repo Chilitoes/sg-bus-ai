@@ -136,8 +136,11 @@ function clearAuth() {
   afterFavsChanged();
   afterJourneysChanged();
 }
+function isAdmin() { return S.token && S.username === "admin"; }
+
 function syncAccountUI() {
   const loggedIn = !!S.token;
+  const admin = isAdmin();
   $("account-dot").classList.toggle("hidden", !loggedIn);
   $("auth-forms").classList.toggle("hidden", loggedIn);
   $("auth-profile").classList.toggle("hidden", !loggedIn);
@@ -148,6 +151,10 @@ function syncAccountUI() {
   $("saved-sync-note").textContent = loggedIn
     ? `Synced to ${S.username}'s account · monitored 24/7 for sharper predictions`
     : "";
+  // Data tab only visible to admin
+  $("nav-data-btn").classList.toggle("hidden", !admin);
+  // If currently on data view and no longer admin, go to arrivals
+  if (S.view === "data" && !admin) switchView("arrivals");
 }
 
 function openSheet() {
@@ -318,6 +325,7 @@ $("chips-area").addEventListener("click", (e) => {
 
 // ── Views / bottom nav ────────────────────────────────────
 function switchView(name) {
+  if (name === "data" && !isAdmin()) name = "arrivals";
   S.view = name;
   document.querySelectorAll(".nav-item").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === name));
