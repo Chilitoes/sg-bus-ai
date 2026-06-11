@@ -765,6 +765,11 @@ async def plan_journey(
                 is_last_bus = buses_available <= 1
                 break
 
+        # service_operating: True if API failed (unknown) OR buses are running;
+        # False only when the API responded and reported no buses for this service.
+        api_responded = lta_data is not None
+        service_operating = (not api_responded) or (buses_available > 0)
+
         brd = db.query(BusStop).filter_by(bus_stop_code=board).first()
         alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()
 
@@ -782,6 +787,7 @@ async def plan_journey(
             "buses_available":   buses_available,
             "is_last_bus_soon":  is_last_bus,
             "is_transfer_wait":  is_transfer_wait,
+            "service_operating": service_operating,
         }
 
     options = []
@@ -793,6 +799,9 @@ async def plan_journey(
             leg = enrich_leg(raw_leg, earliest)
             legs.append(leg)
             cumulative_mins += (leg.get("wait_min") or 5) + leg["est_ride_min"]
+        # Skip options where the first boarding bus is confirmed not running
+        if not legs[0].get("service_operating", True):
+            continue
         total_min = sum(
             (l.get("wait_min") or 5) + l["est_ride_min"] for l in legs
         ) + raw["transfers"] * 3
@@ -964,6 +973,9 @@ async def plan_multimodal(
                     ai_arr_s = (chosen_e + timedelta(seconds=adj)).isoformat()
                 last_bus = buses_avail <= 1; break
 
+        api_responded = lta_data is not None
+        service_operating = (not api_responded) or (buses_avail > 0)
+
         brd = db.query(BusStop).filter_by(bus_stop_code=board).first()
         alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()
         return {
@@ -976,6 +988,7 @@ async def plan_multimodal(
             "ai_arrival": ai_arr_s, "ai_adj_sec": ai_adj,
             "buses_available": buses_avail, "is_last_bus_soon": last_bus,
             "is_transfer_wait": earliest_board is not None,
+            "service_operating": service_operating,
         }
 
     # ── Phase 3: build options ────────────────────────────────
@@ -993,6 +1006,10 @@ async def plan_multimodal(
             legs.append(bl)
             cum += (bl.get("wait_min") or 5) + bl["est_ride_min"]
         legs.append(walk_out)
+        # Skip options where the first boarding bus is confirmed not operating right now
+        first_bus = next((l for l in legs if l["type"] == "bus"), None)
+        if first_bus and not first_bus.get("service_operating", True):
+            continue
         total = (
             walk_in["walk_min"]
             + sum((l.get("wait_min") or 5) + l["est_ride_min"] for l in legs if l["type"] == "bus")
@@ -1009,7 +1026,9 @@ async def plan_multimodal(
         })
 
     # MRT option (with bus feeder if applicable)
-    if origin_mrt and dest_mrt:
+    # Skip entirely during the hours MRT is definitely not running (1am–5am SGT)
+    mrt_running = not (1 <= sgt.hour <= 4)
+    if origin_mrt and dest_mrt and mrt_running:
         o_code, o_dist_mrt = origin_mrt
         d_code, d_dist_mrt = dest_mrt
         mrt_legs = find_mrt_path(o_code, d_code)
@@ -1035,23 +1054,30 @@ async def plan_multimodal(
 
             lines_used = {l["line"] for l in enriched_mrt}
 
+            use_feeder = False
             if mrt_feeder:
-                # Bus feeder → MRT
                 f_raw, f_o, f_o_walk, f_board, f_board_walk = mrt_feeder
-                walk_in  = _walk_leg(from_name, f_o.description or f_o.bus_stop_code, f_o_walk)
+                # Pre-build feeder legs to check if the feeder bus is operating
+                walk_in_f  = _walk_leg(from_name, f_o.description or f_o.bus_stop_code, f_o_walk)
                 walk_xfr = _walk_leg(
                     f_board.description or f_board.bus_stop_code,
                     f"{STATIONS[o_code]['name']} MRT",
                     f_board_walk,
                 )
-                walk_out = _walk_leg(f"{STATIONS[d_code]['name']} MRT", to_name, d_dist_mrt)
                 feeder_legs: list[dict] = []
-                cum = walk_in["walk_min"]
+                cum = walk_in_f["walk_min"]
                 for i, rl in enumerate(f_raw["legs"]):
                     earliest = None if i == 0 else now + timedelta(minutes=cum + 2)
                     bl = enrich_bus_leg(rl, earliest)
                     feeder_legs.append(bl)
                     cum += (bl.get("wait_min") or 5) + bl["est_ride_min"]
+                first_feeder = feeder_legs[0] if feeder_legs else None
+                use_feeder = first_feeder is None or first_feeder.get("service_operating", True)
+
+            if use_feeder:
+                # Bus feeder → MRT
+                walk_in  = walk_in_f
+                walk_out = _walk_leg(f"{STATIONS[d_code]['name']} MRT", to_name, d_dist_mrt)
                 all_legs = [walk_in] + feeder_legs + [walk_xfr] + enriched_mrt + [walk_out]
                 total = (
                     walk_in["walk_min"]
@@ -1062,6 +1088,7 @@ async def plan_multimodal(
                 )
                 xfers = len(feeder_legs) + max(0, len(enriched_mrt) - 1)
             else:
+                # Direct walk to MRT (feeder not available or not operating)
                 walk_in  = _walk_leg(from_name, f"{STATIONS[o_code]['name']} MRT", o_dist_mrt)
                 walk_out = _walk_leg(f"{STATIONS[d_code]['name']} MRT", to_name, d_dist_mrt)
                 all_legs = [walk_in] + enriched_mrt + [walk_out]
