@@ -56,6 +56,11 @@ def _parse_lta_dt(iso_str: str | None) -> datetime | None:
         return None
 
 
+def _sgt_iso(dt: datetime | None) -> str | None:
+    """UTC-naive datetime -> Singapore-time (UTC+8) ISO string."""
+    return (dt + timedelta(hours=8)).isoformat() if dt else None
+
+
 def _fmt_minutes(dt: datetime | None) -> str | None:
     """Return human-readable wait string, e.g. 'Arr', '3 min', '12 min'."""
     if dt is None:
@@ -181,8 +186,10 @@ async def get_arrivals(
                 "feature":            bus.get("Feature"),
                 "monitored":          bool(bus.get("Monitored", 0)),
                 "api_arrival":        estimated.isoformat(),
+                "api_arrival_sgt":    _sgt_iso(estimated),
                 "api_wait_min":       _fmt_minutes(estimated),
                 "ai_arrival":         ai_arrival.isoformat(),
+                "ai_arrival_sgt":     _sgt_iso(ai_arrival),
                 "ai_wait_min":        _fmt_minutes(ai_arrival),
                 "ai_adjustment_sec":  round(adjustment_sec),
             })
@@ -195,9 +202,10 @@ async def get_arrivals(
             })
 
     return {
-        "bus_stop_code": stop_code,
-        "fetched_at":    now.isoformat(),
-        "services":      result_services,
+        "bus_stop_code":  stop_code,
+        "fetched_at":     now.isoformat(),
+        "fetched_at_sgt": _sgt_iso(now),
+        "services":       result_services,
     }
 
 
@@ -715,7 +723,9 @@ async def plan_journey(
 
         wait_min         = None
         lta_arrival      = None
+        lta_arrival_sgt  = None
         ai_arrival_str   = None
+        ai_arrival_sgt   = None
         ai_adj_sec       = 0
         buses_available  = 0
         is_last_bus      = False
@@ -768,8 +778,10 @@ async def plan_journey(
                         adj = max(-0.5 * wait_sec, adj)
                     ai_adj_sec = round(adj)
 
-                    lta_arrival    = chosen_est.isoformat()
-                    ai_arrival_str = (chosen_est + timedelta(seconds=adj)).isoformat()
+                    lta_arrival     = chosen_est.isoformat()
+                    lta_arrival_sgt = _sgt_iso(chosen_est)
+                    ai_arrival_str  = (chosen_est + timedelta(seconds=adj)).isoformat()
+                    ai_arrival_sgt  = _sgt_iso(chosen_est + timedelta(seconds=adj))
 
                 is_last_bus = buses_available <= 1
                 break
@@ -791,7 +803,9 @@ async def plan_journey(
             "est_ride_min":      est_ride,
             "wait_min":          wait_min,
             "lta_arrival":       lta_arrival,
+            "lta_arrival_sgt":   lta_arrival_sgt,
             "ai_arrival":        ai_arrival_str,
+            "ai_arrival_sgt":    ai_arrival_sgt,
             "ai_adj_sec":        ai_adj_sec,
             "buses_available":   buses_available,
             "is_last_bus_soon":  is_last_bus,
@@ -963,6 +977,7 @@ async def plan_multimodal(
         sc     = raw_leg["stops_count"]
         board_ref = earliest_board or now
         wait_min = None; lta_arr = None; ai_arr_s = None
+        lta_arr_sgt = None; ai_arr_sgt = None
         ai_adj = 0; buses_avail = 0; last_bus = False
 
         lta_data = arr_cache.get(board)
@@ -997,8 +1012,10 @@ async def plan_multimodal(
                     elif ws <= 300: adj *= 0.6
                     if ws > 0: adj = max(-0.5 * ws, adj)
                     ai_adj = round(adj)
-                    lta_arr  = chosen_e.isoformat()
-                    ai_arr_s = (chosen_e + timedelta(seconds=adj)).isoformat()
+                    lta_arr     = chosen_e.isoformat()
+                    lta_arr_sgt = _sgt_iso(chosen_e)
+                    ai_arr_s    = (chosen_e + timedelta(seconds=adj)).isoformat()
+                    ai_arr_sgt  = _sgt_iso(chosen_e + timedelta(seconds=adj))
                 last_bus = buses_avail <= 1; break
 
         api_responded = lta_data is not None
@@ -1013,7 +1030,9 @@ async def plan_multimodal(
             "alight_stop": {"code": alight, "name": alt.description if alt else alight},
             "stops_count": sc, "est_ride_min": max(2, sc * 2),
             "wait_min": wait_min, "lta_arrival": lta_arr,
-            "ai_arrival": ai_arr_s, "ai_adj_sec": ai_adj,
+            "lta_arrival_sgt": lta_arr_sgt,
+            "ai_arrival": ai_arr_s, "ai_arrival_sgt": ai_arr_sgt,
+            "ai_adj_sec": ai_adj,
             "buses_available": buses_avail, "is_last_bus_soon": last_bus,
             "is_transfer_wait": earliest_board is not None,
             "service_operating": service_operating,
