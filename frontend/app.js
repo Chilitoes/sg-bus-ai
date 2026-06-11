@@ -854,7 +854,7 @@ async function loadData() {
     $("mon-chips").innerHTML = mon.map((c) => `<span class="mon-chip">${esc(c)}</span>`).join("");
     $("monitored-block").classList.toggle("hidden", !mon.length);
 
-    const fmtWhen = (iso) => (iso ? iso.slice(5, 16).replace("T", " ") : "–");
+    const fmtWhen = (iso) => iso ? fmtClock(parseUTC(iso)) : "–";
     const delayCell = (v) => v === null || v === undefined ? `<td class="num">–</td>`
       : `<td class="num ${v > 0 ? "delay-pos" : "delay-neg"}">${v > 0 ? "+" : ""}${Math.round(v)}s</td>`;
 
