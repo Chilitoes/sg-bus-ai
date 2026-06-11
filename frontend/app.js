@@ -152,7 +152,7 @@ function syncAccountUI() {
     ? `Synced to ${S.username}'s account · monitored 24/7 for sharper predictions`
     : "";
   // Data tab only visible to admin
-  $("nav-data-btn").classList.toggle("hidden", !admin);
+  $("nav-data-btn")?.classList.toggle("hidden", !admin);
   // If currently on data view and no longer admin, go to arrivals
   if (S.view === "data" && !admin) switchView("arrivals");
 }

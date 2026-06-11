@@ -141,7 +141,8 @@ async def get_arrivals(
         for slot_idx, slot_key in enumerate(["NextBus", "NextBus2", "NextBus3"], start=1):
             bus = svc.get(slot_key) or {}
             estimated = _parse_lta_dt(bus.get("EstimatedArrival"))
-            if estimated is None:
+            # Skip empty slots and the LTA "1900-01-01" no-bus sentinel.
+            if estimated is None or estimated < now - timedelta(seconds=90):
                 continue
 
             load     = bus.get("Load", "SEA")
@@ -727,19 +728,27 @@ async def plan_journey(
             for sv in lta_data.get("Services", []):
                 if sv.get("ServiceNo") != svc:
                     continue
-                for slot_key in ["NextBus", "NextBus2", "NextBus3"]:
-                    b = sv.get(slot_key) or {}
-                    if b.get("EstimatedArrival"):
-                        buses_available += 1
-
-                # Find first catchable bus at or after board_ref (90s grace period)
-                chosen_bus, chosen_est = None, None
+                # Parse all real near-future arrivals; the LTA API returns a
+                # "1900-01-01T00:00:00+08:00" sentinel when no bus is scheduled,
+                # so a raw truthiness check would wrongly count it as a bus.
+                ests: list[tuple] = []
                 for slot_key in ["NextBus", "NextBus2", "NextBus3"]:
                     b = sv.get(slot_key) or {}
                     est = _parse_lta_dt(b.get("EstimatedArrival"))
-                    if est and est >= board_ref - timedelta(seconds=90):
+                    if est and est > now - timedelta(seconds=90):
+                        ests.append((est, b))
+                buses_available = len(ests)
+
+                # First catchable bus at or after board_ref (90s grace period);
+                # if none is catchable, fall back to the earliest real bus so the
+                # last-bus time is still shown rather than left blank.
+                chosen_bus, chosen_est = None, None
+                for est, b in ests:
+                    if est >= board_ref - timedelta(seconds=90):
                         chosen_bus, chosen_est = b, est
                         break
+                if chosen_est is None and ests:
+                    chosen_est, chosen_bus = ests[0]
 
                 if chosen_est:
                     wait_sec = (chosen_est - board_ref).total_seconds()
@@ -811,6 +820,18 @@ async def plan_journey(
             "has_last_bus_warning": any(l["is_last_bus_soon"] for l in legs),
             "legs":                legs,
         })
+
+    # Drop redundant transfers: if a one-bus option already uses service X, then a
+    # transfer option whose first bus is also X is pointless (you'd just stay on X).
+    direct_services = {
+        o["legs"][0]["service_no"] for o in options if len(o["legs"]) == 1
+    }
+    pruned = [
+        o for o in options
+        if len(o["legs"]) == 1 or o["legs"][0]["service_no"] not in direct_services
+    ]
+    if pruned:
+        options = pruned
 
     return {"from": from_info, "to": to_info, "options": options}
 
@@ -948,14 +969,21 @@ async def plan_multimodal(
         if lta_data:
             for sv in lta_data.get("Services", []):
                 if sv.get("ServiceNo") != svc: continue
-                for sk in ["NextBus", "NextBus2", "NextBus3"]:
-                    if (sv.get(sk) or {}).get("EstimatedArrival"): buses_avail += 1
-                chosen_b, chosen_e = None, None
+                # Parse all real near-future arrivals; ignore the LTA
+                # "1900-01-01T00:00:00+08:00" no-bus sentinel.
+                ests: list[tuple] = []
                 for sk in ["NextBus", "NextBus2", "NextBus3"]:
                     b = sv.get(sk) or {}
                     e = _parse_lta_dt(b.get("EstimatedArrival"))
-                    if e and e >= board_ref - timedelta(seconds=90):
+                    if e and e > now - timedelta(seconds=90):
+                        ests.append((e, b))
+                buses_avail = len(ests)
+                chosen_b, chosen_e = None, None
+                for e, b in ests:
+                    if e >= board_ref - timedelta(seconds=90):
                         chosen_b, chosen_e = b, e; break
+                if chosen_e is None and ests:
+                    chosen_e, chosen_b = ests[0]
                 if chosen_e:
                     ws = (chosen_e - board_ref).total_seconds()
                     wait_min = max(0, int(ws / 60))
@@ -1108,6 +1136,39 @@ async def plan_multimodal(
                 "train_alert": bool(train_alerts & lines_used),
                 "legs": all_legs,
             })
+
+    # ── Phase 4: prune redundant / poor options ──────────────
+    def _bus_legs(opt):
+        return [l for l in opt["legs"] if l.get("type") == "bus"]
+
+    def _max_walk(opt):
+        return max((l["distance_m"] for l in opt["legs"] if l.get("type") == "walk"),
+                   default=0)
+
+    # Services that get there on a single bus (no transfer).
+    direct_services = {
+        _bus_legs(o)[0]["service_no"]
+        for o in options
+        if o["mode"] == "bus" and len(_bus_legs(o)) == 1
+    }
+
+    def _is_redundant_transfer(opt):
+        bl = _bus_legs(opt)
+        # A transfer whose first bus already reaches the destination on its own
+        # (e.g. ride 860 then change to 167, when 860 itself goes there).
+        return len(bl) >= 2 and bl[0]["service_no"] in direct_services
+
+    pruned = [o for o in options if not _is_redundant_transfer(o)]
+    if pruned:
+        options = pruned
+
+    # Drop options that need an excessively long single walk when a shorter
+    # alternative exists (e.g. an MRT route ending in a ~1 km walk vs a bus
+    # that drops you at the door).
+    LONG_WALK_M = 850
+    short_walk = [o for o in options if _max_walk(o) <= LONG_WALK_M]
+    if short_walk:
+        options = short_walk
 
     options.sort(key=lambda o: o["total_est_min"])
 
