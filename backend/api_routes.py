@@ -150,6 +150,21 @@ async def get_arrivals(
                 service_no  = service_no,
                 stop_code   = stop_code,
             )
+
+            # Confidence-aware scaling: the closer the bus, the more accurate
+            # the LTA GPS estimate, so shrink the model's correction.
+            wait_sec = (estimated - now).total_seconds()
+            if wait_sec <= 120:
+                adjustment_sec *= 0.25
+            elif wait_sec <= 300:
+                adjustment_sec *= 0.6
+            # A bus can't have already arrived: an early-correction can never
+            # remove more than half the remaining wait.
+            if wait_sec > 0:
+                adjustment_sec = max(-0.5 * wait_sec, adjustment_sec)
+            else:
+                adjustment_sec = 0.0
+
             ai_arrival = estimated + timedelta(seconds=adjustment_sec)
 
             buses.append({
@@ -318,6 +333,57 @@ def search_stops(
                 "longitude":     s.longitude,
             }
             for s in results
+        ],
+    }
+
+
+@router.get("/stops/nearby")
+def nearby_stops(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    limit: int = Query(10, le=20),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Bus stops nearest to a coordinate, with distance in metres."""
+    import math as _math
+
+    # Coarse bounding box (~2.2 km) first, exact haversine after.
+    box = 0.02
+    candidates = (
+        db.query(BusStop)
+        .filter(
+            BusStop.latitude.isnot(None),
+            BusStop.latitude.between(lat - box, lat + box),
+            BusStop.longitude.between(lng - box, lng + box),
+        )
+        .all()
+    )
+
+    def haversine_m(lat1, lng1, lat2, lng2):
+        r = 6371000.0
+        p1, p2 = _math.radians(lat1), _math.radians(lat2)
+        dp = _math.radians(lat2 - lat1)
+        dl = _math.radians(lng2 - lng1)
+        a = _math.sin(dp / 2) ** 2 + _math.cos(p1) * _math.cos(p2) * _math.sin(dl / 2) ** 2
+        return 2 * r * _math.asin(_math.sqrt(a))
+
+    ranked = sorted(
+        (
+            (haversine_m(lat, lng, s.latitude, s.longitude), s)
+            for s in candidates
+        ),
+        key=lambda t: t[0],
+    )[:limit]
+
+    return {
+        "results": [
+            {
+                "bus_stop_code": s.bus_stop_code,
+                "description":   s.description,
+                "road_name":     s.road_name,
+                "distance_m":    round(dist),
+            }
+            for dist, s in ranked
         ],
     }
 
