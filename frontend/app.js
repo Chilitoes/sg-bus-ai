@@ -812,6 +812,207 @@ async function loadData() {
   }
 }
 
+// ── Plan view ─────────────────────────────────────────────
+
+const planState = {
+  fromCode: null, fromName: null,
+  toCode:   null, toName:   null,
+};
+
+function setupPlanField(field) {
+  const input = $(`plan-${field}-input`);
+  const clear = $(`plan-${field}-clear`);
+  const ac    = $(`plan-${field}-ac`);
+  const near  = $(`plan-${field}-near`);
+  let acTmr   = null;
+
+  input.addEventListener("input", () => {
+    const v = input.value.trim();
+    v ? show(clear) : hide(clear);
+    planState[`${field}Code`] = null; // invalidate until re-selected
+    clearTimeout(acTmr);
+    acTmr = setTimeout(async () => {
+      if (!v || v.length < 2) { hide(ac); ac.innerHTML = ""; return; }
+      try {
+        const d = await api(`/api/stops/search?q=${encodeURIComponent(v)}&limit=8`);
+        ac.innerHTML = d.results.length
+          ? d.results.map((s) => `
+              <div class="ac-item" data-code="${esc(s.bus_stop_code)}" data-name="${esc(s.description || s.bus_stop_code)}">
+                <span class="ac-code">${esc(s.bus_stop_code)}</span>
+                <div>
+                  <div class="ac-name">${esc(s.description || "Bus stop")}</div>
+                  <div class="ac-road">${esc(s.road_name || "")}</div>
+                </div>
+              </div>`).join("")
+          : `<div class="ac-empty">No stops match "${esc(v)}".</div>`;
+        show(ac);
+      } catch { hide(ac); }
+    }, 220);
+  });
+
+  input.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(ac); });
+
+  clear.addEventListener("click", () => {
+    input.value = ""; hide(clear); hide(ac); ac.innerHTML = "";
+    planState[`${field}Code`] = null;
+    planState[`${field}Name`] = null;
+    input.focus();
+  });
+
+  ac.addEventListener("click", (e) => {
+    const item = e.target.closest(".ac-item");
+    if (item) setPlanStop(field, item.dataset.code, item.dataset.name);
+  });
+
+  near.addEventListener("click", () => {
+    if (!navigator.geolocation) { toast("Location not supported on this device"); return; }
+    toast("Finding nearby stops…");
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const d = await api(
+          `/api/stops/nearby?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}&limit=8`
+        );
+        ac.innerHTML = d.results.length
+          ? d.results.map((s) => `
+              <div class="ac-item" data-code="${esc(s.bus_stop_code)}" data-name="${esc(s.description || s.bus_stop_code)}">
+                <span class="ac-code">${esc(s.bus_stop_code)}</span>
+                <div>
+                  <div class="ac-name">${esc(s.description || "Bus stop")}</div>
+                  <div class="ac-road">${esc(s.road_name || "")} · ${Math.round(s.distance_m)} m</div>
+                </div>
+              </div>`).join("")
+          : `<div class="ac-empty">No stops found nearby.</div>`;
+        show(ac);
+      } catch { toast("Couldn't load nearby stops"); }
+    }, () => toast("Location permission needed"),
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 });
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!ac.contains(e.target) && e.target !== input && !e.target.closest(`#plan-${field}-near`))
+      hide(ac);
+  });
+}
+
+function setPlanStop(field, code, name) {
+  planState[`${field}Code`] = code;
+  planState[`${field}Name`] = name || code;
+  $(`plan-${field}-input`).value = planState[`${field}Name`];
+  show($(`plan-${field}-clear`));
+  hide($(`plan-${field}-ac`));
+  $(`plan-${field}-ac`).innerHTML = "";
+}
+
+$("plan-swap").addEventListener("click", () => {
+  const { fromCode, fromName, toCode, toName } = planState;
+  if (toCode)   setPlanStop("from", toCode, toName);
+  else { planState.fromCode = null; planState.fromName = null; $("plan-from-input").value = ""; hide($("plan-from-clear")); }
+  if (fromCode) setPlanStop("to", fromCode, fromName);
+  else { planState.toCode   = null; planState.toName   = null; $("plan-to-input").value   = ""; hide($("plan-to-clear")); }
+});
+
+$("plan-btn").addEventListener("click", doJourneyPlan);
+
+async function doJourneyPlan() {
+  const { fromCode, toCode } = planState;
+  if (!fromCode || !toCode) { toast("Select both a From and To stop first"); return; }
+
+  const err  = $("plan-error");
+  const res  = $("plan-results");
+  const load = $("plan-loading");
+  hide(err); res.innerHTML = ""; show(load);
+  $("plan-btn").disabled = true;
+
+  try {
+    const data = await api(
+      `/api/journey/plan?from_code=${encodeURIComponent(fromCode)}&to_code=${encodeURIComponent(toCode)}`
+    );
+    res.innerHTML = renderJourneyResult(data);
+  } catch (e) {
+    const msg = e.message.includes("503")
+      ? "Route data not loaded yet on the server — try again shortly."
+      : `Couldn't plan journey: ${e.message}`;
+    err.textContent = msg;
+    show(err);
+  } finally {
+    hide(load);
+    $("plan-btn").disabled = false;
+  }
+}
+
+function renderJourneyResult(data) {
+  if (!data.options?.length) {
+    return `<div class="plan-no-routes">${esc(
+      data.message || "No route found. These stops may not be connected by bus, or try nearby stops."
+    )}</div>`;
+  }
+  return data.options.map((opt, i) => renderJourneyOption(opt, i + 1)).join("");
+}
+
+function renderJourneyOption(opt, idx) {
+  const typeTxt = opt.transfers === 0 ? "Direct" : `${opt.transfers} transfer${opt.transfers > 1 ? "s" : ""}`;
+  const warnHtml = opt.has_last_bus_warning
+    ? `<span class="last-bus-warn">⚠ Last bus</span>` : "";
+  const legsHtml = opt.legs.map((leg, li, arr) =>
+    renderJourneyLeg(leg) +
+    (li < arr.length - 1 ? `
+      <div class="journey-transfer">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        Transfer at ${esc(leg.alight_stop.name)}
+      </div>` : "")
+  ).join("");
+  return `
+    <div class="journey-option">
+      <div class="journey-opt-head">
+        <span class="opt-num">${idx}</span>
+        <span class="opt-type">${typeTxt}</span>
+        <span class="opt-time">~${opt.total_est_min} min</span>
+        ${warnHtml}
+      </div>
+      ${legsHtml}
+    </div>`;
+}
+
+function renderJourneyLeg(leg) {
+  const waitTxt   = leg.wait_min === null ? "—" : leg.wait_min === 0 ? "Due now" : `Wait ${leg.wait_min} min`;
+  const waitClass = leg.wait_min === 0 ? "due" : "";
+  const ltaDt     = parseUTC(leg.lta_arrival);
+  const aiDt      = parseUTC(leg.ai_arrival);
+  const adj       = leg.ai_adj_sec || 0;
+  const lastHtml  = leg.is_last_bus_soon ? `<span class="last-bus-tag">Last bus</span>` : "";
+
+  let timingHtml = "";
+  if (ltaDt) {
+    const aiHtml = aiDt && Math.abs(adj) >= 15
+      ? `<span class="leg-ai">AI ${fmtClock(aiDt)}</span>` : "";
+    timingHtml = `
+      <div class="leg-timing">
+        <b>${fmtClock(ltaDt)}</b><span class="lta-tag">LTA</span>${adjChip(adj)}${aiHtml}
+      </div>`;
+  }
+
+  return `
+    <div class="journey-leg">
+      <div class="leg-top">
+        <span class="leg-route">${esc(leg.service_no)}</span>
+        <span class="leg-stops">${leg.stops_count} stops · ~${leg.est_ride_min} min</span>
+        <span class="leg-wait ${waitClass}">${waitTxt}</span>
+        ${lastHtml}
+      </div>
+      <div class="leg-stop-row">
+        <span class="leg-stop-label">Board</span>
+        <span class="leg-stop-name">${esc(leg.board_stop.name)}</span>
+        <span class="leg-stop-code">${esc(leg.board_stop.code)}</span>
+      </div>
+      ${timingHtml}
+      <div class="leg-stop-row">
+        <span class="leg-stop-label">Alight</span>
+        <span class="leg-stop-name">${esc(leg.alight_stop.name)}</span>
+        <span class="leg-stop-code">${esc(leg.alight_stop.code)}</span>
+      </div>
+    </div>`;
+}
+
 // ── Cleanup + init ────────────────────────────────────────
 window.addEventListener("pagehide", () => {
   clearInterval(S.refreshTmr);
@@ -836,6 +1037,8 @@ renderChips();
 loadModelInfo();
 hydrateServerFavs();
 checkBackend();
+setupPlanField("from");
+setupPlanField("to");
 
 const bootStop = location.hash.replace("#", "").trim();
 if (/^\d{5}$/.test(bootStop)) loadStop(bootStop);
