@@ -680,6 +680,15 @@ th.num, td.num { text-align: right; }
   color: var(--bad); background: var(--bad-soft);
   border-radius: 5px; padding: .07rem .38rem;
 }
+.unavailable-card {
+  opacity: .55;
+  border-style: dashed;
+  pointer-events: none;
+}
+.unavail-reason {
+  font-size: .75rem; color: var(--text-2);
+  font-style: italic;
+}
 
 .journey-leg {
   padding: .7rem .9rem; border-bottom: 1px solid var(--line);

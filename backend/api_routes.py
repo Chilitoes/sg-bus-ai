@@ -814,7 +814,8 @@ async def plan_journey(
         }
 
     options = []
-    for raw in raw_options[:3]:
+    unavailable: list[dict] = []
+    for raw in raw_options[:5]:
         legs = []
         cumulative_mins = 0
         for i, raw_leg in enumerate(raw["legs"]):
@@ -822,8 +823,15 @@ async def plan_journey(
             leg = enrich_leg(raw_leg, earliest)
             legs.append(leg)
             cumulative_mins += (leg.get("wait_min") or 5) + leg["est_ride_min"]
-        # Skip options where any boarding bus is confirmed not running right now
-        if any(not l.get("service_operating", True) for l in legs):
+        dead_legs = [l for l in legs if not l.get("service_operating", True)]
+        if dead_legs:
+            # Collect as unavailable so the frontend can explain the gap
+            services = " + ".join(l["service_no"] for l in dead_legs)
+            unavailable.append({
+                "transfers": raw["transfers"],
+                "legs": legs,
+                "unavailable_reason": f"Bus {services} not running right now",
+            })
             continue
         total_min = sum(
             (l.get("wait_min") or 5) + l["est_ride_min"] for l in legs
@@ -847,7 +855,7 @@ async def plan_journey(
     if pruned:
         options = pruned
 
-    return {"from": from_info, "to": to_info, "options": options}
+    return {"from": from_info, "to": to_info, "options": options, "unavailable": unavailable[:3]}
 
 
 # ── Multimodal journey planner ───────────────────────────────────────────────
@@ -1040,9 +1048,10 @@ async def plan_multimodal(
 
     # ── Phase 3: build options ────────────────────────────────
     options: list[dict] = []
+    unavailable: list[dict] = []
 
     # Bus options (up to 3)
-    for raw, o_stop, o_dist, d_stop, d_dist in raw_bus_plans[:3]:
+    for raw, o_stop, o_dist, d_stop, d_dist in raw_bus_plans[:4]:
         walk_in  = _walk_leg(from_name, o_stop.description or o_stop.bus_stop_code, o_dist)
         walk_out = _walk_leg(d_stop.description or d_stop.bus_stop_code, to_name, d_dist)
         legs: list[dict] = [walk_in]
@@ -1053,8 +1062,15 @@ async def plan_multimodal(
             legs.append(bl)
             cum += (bl.get("wait_min") or 5) + bl["est_ride_min"]
         legs.append(walk_out)
-        # Skip options where any bus leg is confirmed not operating right now
-        if any(l["type"] == "bus" and not l.get("service_operating", True) for l in legs):
+        dead_legs = [l for l in legs if l.get("type") == "bus" and not l.get("service_operating", True)]
+        if dead_legs:
+            services = " + ".join(l["service_no"] for l in dead_legs)
+            unavailable.append({
+                "mode": "bus",
+                "transfers": raw["transfers"],
+                "legs": legs,
+                "unavailable_reason": f"Bus {services} not running right now",
+            })
             continue
         total = (
             walk_in["walk_min"]
@@ -1074,6 +1090,13 @@ async def plan_multimodal(
     # MRT option (with bus feeder if applicable)
     # Skip entirely during the hours MRT is definitely not running (1am–5am SGT)
     mrt_running = not (1 <= sgt.hour <= 4)
+    if origin_mrt and dest_mrt and not mrt_running:
+        unavailable.append({
+            "mode": "mrt",
+            "transfers": 0,
+            "legs": [],
+            "unavailable_reason": "MRT not running (resumes ~5:30am)",
+        })
     if origin_mrt and dest_mrt and mrt_running:
         o_code, o_dist_mrt = origin_mrt
         d_code, d_dist_mrt = dest_mrt
@@ -1195,6 +1218,7 @@ async def plan_multimodal(
         "from": {"name": from_name, "lat": from_lat, "lng": from_lng},
         "to":   {"name": to_name,   "lat": to_lat,   "lng": to_lng},
         "options": options[:3],
+        "unavailable": unavailable[:3],
     }
 
 
