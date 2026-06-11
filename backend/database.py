@@ -125,6 +125,41 @@ class MonitoredStop(Base):
     is_active     = Column(Boolean, default=True, nullable=False)
 
 
+class User(Base):
+    """Registered account. Passwords are stored as salted PBKDF2 hashes."""
+    __tablename__ = "users"
+
+    id            = Column(Integer, primary_key=True)
+    username      = Column(String(30), unique=True, index=True, nullable=False)
+    password_hash = Column(String(200), nullable=False)
+    created_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class UserSession(Base):
+    """Opaque bearer tokens. One row per logged-in device; revocable."""
+    __tablename__ = "user_sessions"
+
+    token      = Column(String(64), primary_key=True)
+    user_id    = Column(Integer, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_used  = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class UserFavourite(Base):
+    """Server-side favourite stops, so they follow the account across devices."""
+    __tablename__ = "user_favourites"
+    __table_args__ = (
+        UniqueConstraint("user_id", "bus_stop_code", name="uq_user_fav"),
+    )
+
+    id            = Column(Integer, primary_key=True)
+    user_id       = Column(Integer, index=True, nullable=False)
+    bus_stop_code = Column(String(10), nullable=False)
+    description   = Column(String(200), nullable=True)
+    road_name     = Column(String(100), nullable=True)
+    added_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def get_db():
