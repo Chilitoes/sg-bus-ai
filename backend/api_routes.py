@@ -28,12 +28,13 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy import func, or_, text
+from sqlalchemy import case, func, or_, text
 from sqlalchemy.orm import Session
 
+from auth_routes import require_admin
 from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL, DATABASE_URL
 from data_collector import persist_arrival_payload
-from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, MonitoredStop, get_db
+from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, MonitoredStop, User, get_db
 from ml_model import model as global_model
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,37 @@ async def get_arrivals(
     # at zero extra LTA API cost. Runs after the response is sent.
     background_tasks.add_task(persist_arrival_payload, stop_code, services, now)
 
+    # Per-service reliability from 30 days of collected ground truth at this stop.
+    # "On time" = actual arrival within 2 minutes of the LTA estimate.
+    reliability: dict[str, dict] = {}
+    try:
+        rel_rows = (
+            db.query(
+                BusArrivalRecord.bus_service,
+                func.avg(BusArrivalRecord.delay_seconds).label("avg_delay"),
+                func.count().label("n"),
+                func.avg(
+                    case((func.abs(BusArrivalRecord.delay_seconds) <= 120, 1.0), else_=0.0)
+                ).label("on_time"),
+            )
+            .filter(
+                BusArrivalRecord.bus_stop_code == stop_code,
+                BusArrivalRecord.delay_seconds.isnot(None),
+                BusArrivalRecord.collection_time >= now - timedelta(days=30),
+            )
+            .group_by(BusArrivalRecord.bus_service)
+            .all()
+        )
+        for r in rel_rows:
+            if r.n >= 20:  # need enough samples to be meaningful
+                reliability[r.bus_service] = {
+                    "avg_delay_sec": round(r.avg_delay, 1),
+                    "on_time_pct":   round(r.on_time * 100),
+                    "samples":       r.n,
+                }
+    except Exception:
+        pass  # stats are a bonus; never break arrivals over them
+
     result_services = []
     for svc in services:
         service_no = svc.get("ServiceNo", "")
@@ -196,9 +228,10 @@ async def get_arrivals(
 
         if buses:
             result_services.append({
-                "service_no": service_no,
-                "operator":   svc.get("Operator", ""),
-                "buses":      buses,
+                "service_no":  service_no,
+                "operator":    svc.get("Operator", ""),
+                "reliability": reliability.get(service_no),
+                "buses":       buses,
             })
 
     return {
@@ -298,8 +331,8 @@ def model_status() -> dict:
 
 
 @router.post("/model/retrain")
-async def retrain_model() -> dict:
-    """Trigger an immediate model retrain from DB data."""
+async def retrain_model(admin: User = Depends(require_admin)) -> dict:
+    """Trigger an immediate model retrain from DB data. Admin only."""
     try:
         global_model.retrain_from_db()
         return {"status": "ok", **global_model.status()}
@@ -418,8 +451,13 @@ def get_stop(stop_code: str, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/stops/sync")
-async def sync_stops() -> dict:
-    """Fetch the full bus stop directory from LTA and upsert into the DB."""
+async def sync_stops(admin: User = Depends(require_admin)) -> dict:
+    """Fetch the full bus stop directory from LTA and upsert into the DB. Admin only."""
+    return await _sync_stops_impl()
+
+
+async def _sync_stops_impl() -> dict:
+    """Internal implementation — also called at startup without auth."""
     headers = {"AccountKey": LTA_API_KEY}
     url     = f"{LTA_BASE_URL}/BusStops"
     total   = 0
@@ -473,7 +511,7 @@ def list_monitored(db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/monitor/{stop_code}")
-def add_monitored(stop_code: str, db: Session = Depends(get_db)) -> dict:
+def add_monitored(stop_code: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
     existing = db.query(MonitoredStop).filter_by(bus_stop_code=stop_code).first()
     if existing:
         existing.is_active = True
@@ -484,7 +522,7 @@ def add_monitored(stop_code: str, db: Session = Depends(get_db)) -> dict:
 
 
 @router.delete("/monitor/{stop_code}")
-def remove_monitored(stop_code: str, db: Session = Depends(get_db)) -> dict:
+def remove_monitored(stop_code: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
     row = db.query(MonitoredStop).filter_by(bus_stop_code=stop_code).first()
     if row:
         row.is_active = False
@@ -610,8 +648,8 @@ _route_graph = _RouteGraph()
 
 
 @router.post("/routes/sync")
-async def sync_routes() -> dict:
-    """Sync the full LTA bus route graph (all services × all stops) into the DB."""
+async def sync_routes(admin: User = Depends(require_admin)) -> dict:
+    """Sync the full LTA bus route graph (all services × all stops) into the DB. Admin only."""
     headers = {"AccountKey": LTA_API_KEY}
     url = f"{LTA_BASE_URL}/BusRoutes"
     total = 0
@@ -1013,6 +1051,7 @@ async def plan_multimodal(
         wait_min = None; lta_arr = None; ai_arr_s = None
         lta_arr_sgt = None; ai_arr_sgt = None
         ai_adj = 0; buses_avail = 0; last_bus = False
+        next_wait_min = None
 
         lta_data = arr_cache.get(board)
         if lta_data:
@@ -1050,6 +1089,10 @@ async def plan_multimodal(
                     lta_arr_sgt = _sgt_iso(chosen_e)
                     ai_arr_s    = (chosen_e + timedelta(seconds=adj)).isoformat()
                     ai_arr_sgt  = _sgt_iso(chosen_e + timedelta(seconds=adj))
+                    # The bus after the chosen one — used for "if you miss it" info
+                    later = [e for e, _ in ests if e > chosen_e]
+                    if later:
+                        next_wait_min = max(0, int((later[0] - board_ref).total_seconds() / 60))
                 last_bus = buses_avail <= 1; break
 
         api_responded = lta_data is not None
@@ -1068,8 +1111,32 @@ async def plan_multimodal(
             "ai_arrival": ai_arr_s, "ai_arrival_sgt": ai_arr_sgt,
             "ai_adj_sec": ai_adj,
             "buses_available": buses_avail, "is_last_bus_soon": last_bus,
+            "next_wait_min": next_wait_min,
             "is_transfer_wait": earliest_board is not None,
             "service_operating": service_operating,
+        }
+
+    def _catch_verdict(legs: list[dict]) -> dict | None:
+        """'Should I run?' — compare the walk to the first stop against the live
+        bus wait. Only meaningful when the option starts with walk → bus."""
+        if len(legs) < 2 or legs[0].get("type") != "walk" or legs[1].get("type") != "bus":
+            return None
+        first_bus = legs[1]
+        if first_bus.get("wait_min") is None:
+            return None
+        margin = first_bus["wait_min"] - legs[0]["walk_min"]
+        if margin >= 2:
+            status = "make"
+        elif margin >= 0:
+            status = "tight"
+        else:
+            status = "miss"
+        return {
+            "status": status,
+            "margin_min": margin,
+            "walk_min": legs[0]["walk_min"],
+            "service_no": first_bus["service_no"],
+            "next_wait_min": first_bus.get("next_wait_min"),
         }
 
     # ── Phase 3: build options ────────────────────────────────
@@ -1110,6 +1177,7 @@ async def plan_multimodal(
             "total_est_min": total,
             "has_last_bus_warning": any(l.get("is_last_bus_soon") for l in legs if l["type"] == "bus"),
             "train_alert": False,
+            "catch": _catch_verdict(legs),
             "legs": legs,
         })
 
@@ -1228,6 +1296,7 @@ async def plan_multimodal(
                         l.get("is_last_bus_soon") for l in all_legs if l.get("type") == "bus"
                     ),
                     "train_alert": bool(train_alerts & lines_used),
+                    "catch": _catch_verdict(all_legs),
                     "legs": all_legs,
                 })
 
@@ -1276,7 +1345,7 @@ async def plan_multimodal(
 # ── Data overview ────────────────────────────────────────────────────────
 
 @router.get("/data")
-def get_data_overview(db: Session = Depends(get_db)) -> dict:
+def get_data_overview(admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
     """
     Returns a full database overview for the Data tab:
     - DB type (PostgreSQL or SQLite)

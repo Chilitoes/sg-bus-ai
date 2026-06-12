@@ -9,7 +9,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="description" content="Live Singapore bus arrival times with machine-learning adjusted predictions." />
   <title>SG Bus — live arrivals</title>
-  <link rel="stylesheet" href="styles.css?v=9" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="stylesheet" href="styles.css?v=10" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 </head>
 <body>
@@ -225,6 +227,8 @@
       Plan journey
     </button>
 
+    <div id="plan-recents" class="plan-recents hidden"></div>
+
     <div id="plan-loading" class="plan-loading hidden">Finding routes…</div>
     <div id="plan-error" class="error-note hidden"></div>
     <div id="plan-results"></div>
@@ -319,6 +323,21 @@
       </div>
     </div>
     <p class="sheet-hint">Saved stops sync to this account automatically.</p>
+
+    <details class="pw-change">
+      <summary>Change password</summary>
+      <label class="field">
+        <span>Current password</span>
+        <input id="pw-current" type="password" autocomplete="current-password" />
+      </label>
+      <label class="field">
+        <span>New password</span>
+        <input id="pw-new" type="password" autocomplete="new-password" />
+      </label>
+      <p id="pw-error" class="error-note hidden"></p>
+      <button id="pw-change-btn" class="bigbtn outline" type="button">Update password</button>
+    </details>
+
     <button id="logout-btn" class="bigbtn outline">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
       Log out
@@ -328,6 +347,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

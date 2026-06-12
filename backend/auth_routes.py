@@ -25,7 +25,7 @@ import re
 import secrets
 import time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
@@ -41,10 +41,16 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 MAX_FAVOURITES = 30
 MAX_SAVED_JOURNEYS = 30
 
-# Naive in-memory throttle: 20 auth attempts per IP per 15 minutes.
+# Naive in-memory throttle: 20 auth attempts per (IP, username) per 15 minutes.
+# Keyed per-username too because behind a reverse proxy / Tailscale Funnel all
+# visitors can share one client IP — a pure per-IP bucket would let one person
+# lock out logins for everyone.
 _attempts: dict[str, list[float]] = defaultdict(list)
 _ATTEMPT_WINDOW_SEC = 15 * 60
 _ATTEMPT_LIMIT = 20
+
+# Sessions idle longer than this are rejected and deleted.
+SESSION_TTL_DAYS = 30
 
 
 # ── Password hashing ──────────────────────────────────────────────────────────
@@ -66,13 +72,25 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
-def _throttle(request: Request) -> None:
-    ip = request.client.host if request.client else "unknown"
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _throttle(request: Request, username: str = "") -> None:
+    key = f"{_client_ip(request)}|{username.strip().lower()}"
     now = time.monotonic()
-    _attempts[ip] = [t for t in _attempts[ip] if now - t < _ATTEMPT_WINDOW_SEC]
-    if len(_attempts[ip]) >= _ATTEMPT_LIMIT:
+    _attempts[key] = [t for t in _attempts[key] if now - t < _ATTEMPT_WINDOW_SEC]
+    if len(_attempts[key]) >= _ATTEMPT_LIMIT:
         raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
-    _attempts[ip].append(now)
+    _attempts[key].append(now)
+    # Keep the table from growing forever
+    if len(_attempts) > 2000:
+        for stale in [k for k, v in _attempts.items()
+                      if not v or now - v[-1] > _ATTEMPT_WINDOW_SEC]:
+            del _attempts[stale]
 
 
 # ── Auth dependency ───────────────────────────────────────────────────────────
@@ -87,11 +105,21 @@ def get_current_user(
     session = db.query(UserSession).filter_by(token=token).first()
     if session is None:
         raise HTTPException(status_code=401, detail="Session expired. Log in again.")
+    if session.last_used < datetime.utcnow() - timedelta(days=SESSION_TTL_DAYS):
+        db.delete(session)
+        db.commit()
+        raise HTTPException(status_code=401, detail="Session expired. Log in again.")
     user = db.query(User).filter_by(id=session.user_id).first()
     if user is None:
         raise HTTPException(status_code=401, detail="Account no longer exists")
     session.last_used = datetime.utcnow()
     db.commit()
+    return user
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    if user.username.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
 
@@ -139,7 +167,7 @@ def _ensure_monitored(db: Session, stop_code: str) -> None:
 
 @router.post("/auth/register")
 def register(creds: Credentials, request: Request, db: Session = Depends(get_db)) -> dict:
-    _throttle(request)
+    _throttle(request, creds.username)
     username = creds.username.strip()
     if not USERNAME_RE.match(username):
         raise HTTPException(
@@ -162,7 +190,7 @@ def register(creds: Credentials, request: Request, db: Session = Depends(get_db)
 
 @router.post("/auth/login")
 def login(creds: Credentials, request: Request, db: Session = Depends(get_db)) -> dict:
-    _throttle(request)
+    _throttle(request, creds.username)
     username = creds.username.strip()
     user = db.query(User).filter(func.lower(User.username) == username.lower()).first()
     if user is None or not verify_password(creds.password, user.password_hash):
@@ -179,6 +207,34 @@ def logout(
         token = authorization.removeprefix("Bearer ").strip()
         db.query(UserSession).filter_by(token=token).delete()
         db.commit()
+    return {"status": "ok"}
+
+
+class ChangePassword(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/auth/change-password")
+def change_password(
+    body: ChangePassword,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    _throttle(request, user.username)
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Current password is wrong.")
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    user.password_hash = hash_password(body.new_password)
+    # Revoke every other session so a stolen token dies with the old password
+    current_token = (authorization or "").removeprefix("Bearer ").strip()
+    db.query(UserSession).filter(
+        UserSession.user_id == user.id, UserSession.token != current_token
+    ).delete()
+    db.commit()
     return {"status": "ok"}
 
 
