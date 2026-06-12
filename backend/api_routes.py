@@ -920,9 +920,11 @@ async def plan_multimodal(
     route_count = db.query(func.count(BusRoute.id)).scalar() or 0
 
     # ── Phase 1: collect raw route plans ─────────────────────
-    # Bus: try top-3 origin stops × all dest stops within 600 m
-    origin_stops = _stops_within(from_lat, from_lng, 400, 3)
-    dest_stops   = _stops_within(to_lat,   to_lng,   600, 8)
+    # Bus: try top-4 origin stops × all dest stops within 900 m
+    origin_stops = _stops_within(from_lat, from_lng, 500, 4)
+    dest_stops   = _stops_within(to_lat,   to_lng,   900, 10)
+
+    MAX_DEST_WALK_M = 1200  # Don't suggest a route whose final walk exceeds this
 
     raw_bus_plans: list[tuple] = []  # (raw_opt, o_stop, o_dist, d_stop, d_dist)
     seen_keys: set[tuple] = set()
@@ -1168,16 +1170,30 @@ async def plan_multimodal(
                 )
                 xfers = max(0, len(enriched_mrt) - 1)
 
-            options.append({
-                "mode": "mrt",
-                "transfers": xfers,
-                "total_est_min": total,
-                "has_last_bus_warning": any(
-                    l.get("is_last_bus_soon") for l in all_legs if l.get("type") == "bus"
-                ),
-                "train_alert": bool(train_alerts & lines_used),
-                "legs": all_legs,
-            })
+            # Don't suggest MRT if the final walk to the destination is too long;
+            # the user would be better off with a bus or a direct walk.
+            if d_dist_mrt > MAX_DEST_WALK_M:
+                unavailable.append({
+                    "mode": "mrt",
+                    "transfers": xfers,
+                    "legs": all_legs,
+                    "unavailable_reason": (
+                        f"Nearest MRT ({STATIONS[d_code]['name']}) is "
+                        f"{round(d_dist_mrt / 100) * 100:.0f} m from destination — "
+                        "try a bus instead"
+                    ),
+                })
+            else:
+                options.append({
+                    "mode": "mrt",
+                    "transfers": xfers,
+                    "total_est_min": total,
+                    "has_last_bus_warning": any(
+                        l.get("is_last_bus_soon") for l in all_legs if l.get("type") == "bus"
+                    ),
+                    "train_alert": bool(train_alerts & lines_used),
+                    "legs": all_legs,
+                })
 
     # ── Phase 4: prune redundant / poor options ──────────────
     def _bus_legs(opt):
@@ -1205,10 +1221,9 @@ async def plan_multimodal(
         options = pruned
 
     # Drop options that need an excessively long single walk when a shorter
-    # alternative exists (e.g. an MRT route ending in a ~1 km walk vs a bus
-    # that drops you at the door).
-    LONG_WALK_M = 850
-    short_walk = [o for o in options if _max_walk(o) <= LONG_WALK_M]
+    # alternative exists (e.g. a bus route ending in a long walk when another
+    # option drops you much closer).
+    short_walk = [o for o in options if _max_walk(o) <= MAX_DEST_WALK_M]
     if short_walk:
         options = short_walk
 
