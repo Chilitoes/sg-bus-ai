@@ -943,6 +943,8 @@ async def plan_multimodal(
     dest_mrt   = nearest_station(to_lat,   to_lng,   max_m=2000)
     # (feeder_raw, o_stop, o_walk_m, mrt_adj_stop, mrt_adj_walk_m)
     mrt_feeder: tuple | None = None
+    # Destination-side feeder: (feeder_raw, mrt_adj_stop, mrt_adj_walk_m, d_stop, d_walk_m)
+    dest_feeder: tuple | None = None
 
     if origin_mrt and route_count:
         o_code, o_dist_mrt = origin_mrt
@@ -962,6 +964,25 @@ async def plan_multimodal(
                 if mrt_feeder:
                     break
 
+    if dest_mrt and route_count:
+        d_code, d_dist_mrt = dest_mrt
+        if d_dist_mrt > MRT_FEEDER_THRESHOLD and dest_stops:
+            mrt_lat = STATIONS[d_code]["lat"]
+            mrt_lng = STATIONS[d_code]["lng"]
+            mrt_adj = _stops_within(mrt_lat, mrt_lng, 350, 6)
+            # Board a bus near the destination MRT, ride to a stop near the destination.
+            for (mrt_stop, mrt_walk) in mrt_adj:
+                for (d_stop, d_walk) in dest_stops:
+                    feeders = _route_graph.find_journeys(
+                        mrt_stop.bus_stop_code, d_stop.bus_stop_code, db
+                    )
+                    direct = [f for f in feeders if f["transfers"] == 0]
+                    if direct:
+                        dest_feeder = (direct[0], mrt_stop, mrt_walk, d_stop, d_walk)
+                        break
+                if dest_feeder:
+                    break
+
     # ── Phase 2: fetch LTA arrivals for all boarding stops ───
     unique_boards: set[str] = set()
     for raw, *_ in raw_bus_plans[:3]:
@@ -969,6 +990,9 @@ async def plan_multimodal(
             unique_boards.add(leg["from_stop"])
     if mrt_feeder:
         for leg in mrt_feeder[0]["legs"]:
+            unique_boards.add(leg["from_stop"])
+    if dest_feeder:
+        for leg in dest_feeder[0]["legs"]:
             unique_boards.add(leg["from_stop"])
 
     async def _fetch(c):
@@ -1125,15 +1149,15 @@ async def plan_multimodal(
 
             lines_used = {l["line"] for l in enriched_mrt}
 
-            use_feeder = False
+            # ── Origin side: bus feeder → MRT, or a direct walk to the station ──
+            in_legs: list[dict] = []
+            in_xfers = 0
             if mrt_feeder:
                 f_raw, f_o, f_o_walk, f_board, f_board_walk = mrt_feeder
-                # Pre-build feeder legs to check if the feeder bus is operating
-                walk_in_f  = _walk_leg(from_name, f_o.description or f_o.bus_stop_code, f_o_walk)
-                walk_xfr = _walk_leg(
+                walk_in_f = _walk_leg(from_name, f_o.description or f_o.bus_stop_code, f_o_walk)
+                walk_xfr  = _walk_leg(
                     f_board.description or f_board.bus_stop_code,
-                    f"{STATIONS[o_code]['name']} MRT",
-                    f_board_walk,
+                    f"{STATIONS[o_code]['name']} MRT", f_board_walk,
                 )
                 feeder_legs: list[dict] = []
                 cum = walk_in_f["walk_min"]
@@ -1143,36 +1167,48 @@ async def plan_multimodal(
                     feeder_legs.append(bl)
                     cum += (bl.get("wait_min") or 5) + bl["est_ride_min"]
                 first_feeder = feeder_legs[0] if feeder_legs else None
-                use_feeder = first_feeder is None or first_feeder.get("service_operating", True)
+                if first_feeder is None or first_feeder.get("service_operating", True):
+                    in_legs = [walk_in_f] + feeder_legs + [walk_xfr]
+                    in_xfers = len(feeder_legs)
+            if not in_legs:
+                in_legs = [_walk_leg(from_name, f"{STATIONS[o_code]['name']} MRT", o_dist_mrt)]
 
-            if use_feeder:
-                # Bus feeder → MRT
-                walk_in  = walk_in_f
-                walk_out = _walk_leg(f"{STATIONS[d_code]['name']} MRT", to_name, d_dist_mrt)
-                all_legs = [walk_in] + feeder_legs + [walk_xfr] + enriched_mrt + [walk_out]
-                total = (
-                    walk_in["walk_min"]
-                    + sum((l.get("wait_min") or 5) + l["est_ride_min"] for l in feeder_legs)
-                    + walk_xfr["walk_min"]
-                    + sum(l["wait_min"] + l["est_ride_min"] for l in enriched_mrt)
-                    + walk_out["walk_min"]
+            # ── Destination side: MRT → bus feeder → destination, or a walk ──
+            out_legs: list[dict] = []
+            out_xfers = 0
+            out_walk_m = d_dist_mrt
+            if dest_feeder:
+                g_raw, g_board, g_board_walk, g_d, g_d_walk = dest_feeder
+                walk_xfr2 = _walk_leg(
+                    f"{STATIONS[d_code]['name']} MRT",
+                    g_board.description or g_board.bus_stop_code, g_board_walk,
                 )
-                xfers = len(feeder_legs) + max(0, len(enriched_mrt) - 1)
-            else:
-                # Direct walk to MRT (feeder not available or not operating)
-                walk_in  = _walk_leg(from_name, f"{STATIONS[o_code]['name']} MRT", o_dist_mrt)
-                walk_out = _walk_leg(f"{STATIONS[d_code]['name']} MRT", to_name, d_dist_mrt)
-                all_legs = [walk_in] + enriched_mrt + [walk_out]
-                total = (
-                    walk_in["walk_min"]
-                    + sum(l["wait_min"] + l["est_ride_min"] for l in enriched_mrt)
-                    + walk_out["walk_min"]
-                )
-                xfers = max(0, len(enriched_mrt) - 1)
+                dfeeder_legs: list[dict] = []
+                for i, rl in enumerate(g_raw["legs"]):
+                    # Board ~ a few minutes after alighting the MRT; live timing is
+                    # approximate here, so just nudge the first leg forward a little.
+                    earliest = now + timedelta(minutes=8 + i * 5)
+                    bl = enrich_bus_leg(rl, earliest)
+                    dfeeder_legs.append(bl)
+                first_dfeeder = dfeeder_legs[0] if dfeeder_legs else None
+                if first_dfeeder is None or first_dfeeder.get("service_operating", True):
+                    walk_out2 = _walk_leg(g_d.description or g_d.bus_stop_code, to_name, g_d_walk)
+                    out_legs = [walk_xfr2] + dfeeder_legs + [walk_out2]
+                    out_xfers = len(dfeeder_legs)
+                    out_walk_m = max(g_board_walk, g_d_walk)
+            if not out_legs:
+                out_legs = [_walk_leg(f"{STATIONS[d_code]['name']} MRT", to_name, d_dist_mrt)]
 
-            # Don't suggest MRT if the final walk to the destination is too long;
-            # the user would be better off with a bus or a direct walk.
-            if d_dist_mrt > MAX_DEST_WALK_M:
+            all_legs = in_legs + enriched_mrt + out_legs
+            total = (
+                sum((l.get("wait_min") or 0) + (l.get("walk_min") or l.get("est_ride_min") or 0)
+                    for l in all_legs)
+            )
+            xfers = in_xfers + out_xfers + max(0, len(enriched_mrt) - 1)
+
+            # Only mark unavailable if even WITH a feeder the final walk is too long
+            # (i.e. no destination bus could get us close enough).
+            if out_walk_m > MAX_DEST_WALK_M:
                 unavailable.append({
                     "mode": "mrt",
                     "transfers": xfers,
