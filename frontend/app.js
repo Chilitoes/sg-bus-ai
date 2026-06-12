@@ -97,7 +97,8 @@ async function api(path, opts = {}) {
   if (!r.ok) {
     // Any 401 while holding a token means the session is dead — except a
     // failed login/register attempt, which is just wrong credentials.
-    const isLoginAttempt = path.startsWith("/api/auth/login") || path.startsWith("/api/auth/register");
+    const isLoginAttempt = path.startsWith("/api/auth/login") || path.startsWith("/api/auth/register")
+      || path.startsWith("/api/auth/change-password");
     if (r.status === 401 && S.token && !isLoginAttempt) clearAuth();
     const b = await r.json().catch(() => ({}));
     throw new Error(b.detail || `HTTP ${r.status}`);
@@ -485,9 +486,21 @@ function svcCard(svc) {
         <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="svc-detail"><div class="svc-detail-inner">
+        ${relLine(svc.reliability)}
         ${svc.buses.map(busLine).join("")}
       </div></div>
     </div>`;
+}
+
+function relLine(rel) {
+  if (!rel) return "";
+  const d = rel.avg_delay_sec;
+  const habit = Math.abs(d) < 45 ? "usually on schedule"
+    : `usually ${Math.max(1, Math.round(Math.abs(d) / 60))} min ${d > 0 ? "late" : "early"}`;
+  return `<div class="svc-rel">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    ${rel.on_time_pct}% on time · ${habit} <span class="svc-rel-n">(${rel.samples} observations)</span>
+  </div>`;
 }
 
 function renderArrivals(data) {
@@ -1136,6 +1149,7 @@ async function doJourneyPlan() {
       show(err);
     }
     updateJourneyCardSaveBtns();
+    pushRecent();
   } catch (e) {
     const msg = e.message.includes("503")
       ? "Route data not loaded yet on the server — try again shortly."
@@ -1145,6 +1159,42 @@ async function doJourneyPlan() {
     hide(load); $("plan-btn").disabled = false;
   }
 }
+
+// ── Recent searches ───────────────────────────────────────
+const RECENTS_KEY = "sgbus_recent_plans";
+
+function pushRecent() {
+  const { fromName, fromLat, fromLng, fromCode, toName, toLat, toLng, toCode } = planState;
+  if (!fromName || !toName) return;
+  const list = readJSON(RECENTS_KEY, []).filter(
+    (r) => !(r.fromName === fromName && r.toName === toName)
+  );
+  list.unshift({ fromName, fromLat, fromLng, fromCode, toName, toLat, toLng, toCode });
+  writeJSON(RECENTS_KEY, list.slice(0, 5));
+  renderRecents();
+}
+
+function renderRecents() {
+  const box = $("plan-recents");
+  if (!box) return;
+  const list = readJSON(RECENTS_KEY, []);
+  if (!list.length) { box.classList.add("hidden"); return; }
+  box.innerHTML = `<span class="recents-label">Recent</span>` + list.map((r, i) => `
+    <button class="recent-chip" data-i="${i}">
+      ${esc(r.fromName)} <span class="recent-arrow">→</span> ${esc(r.toName)}
+    </button>`).join("");
+  box.classList.remove("hidden");
+}
+
+$("plan-recents")?.addEventListener("click", (e) => {
+  const chip = e.target.closest(".recent-chip");
+  if (!chip) return;
+  const r = readJSON(RECENTS_KEY, [])[+chip.dataset.i];
+  if (!r) return;
+  setPlanLocation("from", r.fromCode || null, r.fromName, r.fromLat, r.fromLng);
+  setPlanLocation("to",   r.toCode   || null, r.toName,   r.toLat,   r.toLng);
+  doJourneyPlan();
+});
 
 // ── Render: bus-only (stop-code → stop-code) ─────────────
 function renderBusOnlyResult(data) {
@@ -1201,6 +1251,20 @@ function renderBusOnlyCard(opt) {
     </div>`;
 }
 
+function catchLine(c) {
+  if (!c) return "";
+  if (c.status === "make") {
+    return `<span class="jcard-catch make">✓ You'll make the ${esc(c.service_no)} — ${c.margin_min} min to spare</span>`;
+  }
+  if (c.status === "tight") {
+    return `<span class="jcard-catch tight">⚠ Tight — leave now to catch the ${esc(c.service_no)}</span>`;
+  }
+  const next = c.next_wait_min != null
+    ? ` — next one in ${c.next_wait_min} min`
+    : "";
+  return `<span class="jcard-catch miss">✗ ${c.walk_min} min walk, bus in ${c.walk_min + c.margin_min} — you'll likely miss it${next}</span>`;
+}
+
 function renderUnavailableCard(opt) {
   const badgesHtml = (opt.legs || [])
     .filter((l) => l.type === "bus" || l.type === "mrt")
@@ -1252,6 +1316,7 @@ function renderMultimodalCard(opt) {
     : opt.transfers === 0 ? "Direct bus" : `Bus (${opt.transfers} xfer)`;
   const warnPart = opt.has_last_bus_warning ? ` <span class="last-bus-warn">⚠ Last bus</span>` : "";
   const alertPart = opt.train_alert ? ` <span class="last-bus-warn">⚠ Train alert</span>` : "";
+  const catchHtml = catchLine(opt.catch);
 
   const detailHtml = opt.legs.map((leg, li, arr) => {
     const next = arr[li + 1];
@@ -1280,6 +1345,7 @@ function renderMultimodalCard(opt) {
         <div class="jcard-meta">
           <span class="jcard-type">${typeTxt}</span>
           <span class="jcard-subtext">${waitPart}~${opt.total_est_min} min${warnPart}${alertPart}</span>
+          ${catchHtml}
         </div>
         <button class="jcard-save${saved ? " saved" : ""}" aria-label="${saved ? "Remove saved route" : "Save route"}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
@@ -1404,6 +1470,29 @@ async function checkBackend() {
   }
 }
 
+// ── Change password ───────────────────────────────────────
+$("pw-change-btn")?.addEventListener("click", async () => {
+  const cur = $("pw-current").value;
+  const nw  = $("pw-new").value;
+  const err = $("pw-error");
+  hide(err);
+  if (nw.length < 8) {
+    err.textContent = "New password must be at least 8 characters.";
+    show(err); return;
+  }
+  try {
+    await api("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: cur, new_password: nw }),
+    });
+    $("pw-current").value = ""; $("pw-new").value = "";
+    toast("Password updated");
+  } catch (e) {
+    err.textContent = e.message || "Couldn't update password.";
+    show(err);
+  }
+});
+
 initTheme();
 syncAccountUI();
 afterFavsChanged();
@@ -1413,6 +1502,10 @@ hydrateServerFavs();
 checkBackend();
 setupPlanField("from");
 setupPlanField("to");
+renderRecents();
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
 
 const bootStop = location.hash.replace("#", "").trim();
 if (/^\d{5}$/.test(bootStop)) loadStop(bootStop);

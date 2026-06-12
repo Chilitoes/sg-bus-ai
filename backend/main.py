@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from api_routes import router
-from auth_routes import router as auth_router, hash_password
+from auth_routes import router as auth_router, hash_password, verify_password
 from config import DEFAULT_MONITORED_STOPS
 from data_collector import start_data_collection
 from database import init_db, SessionLocal, User
@@ -41,23 +41,32 @@ async def lifespan(app: FastAPI):
     logger.info("Initialising database …")
     init_db(seed_stops=DEFAULT_MONITORED_STOPS)
 
-    # Ensure the hardcoded admin account exists
-    db = SessionLocal()
-    try:
-        if not db.query(User).filter_by(username="admin").first():
-            db.add(User(username="admin", password_hash=hash_password("admin123!")))
+    # Provision the admin account from the ADMIN_PASSWORD env var (.env on the
+    # server). Never hardcoded — this repo is public.
+    admin_pw = os.getenv("ADMIN_PASSWORD")
+    if admin_pw:
+        db = SessionLocal()
+        try:
+            admin = db.query(User).filter_by(username="admin").first()
+            if admin is None:
+                db.add(User(username="admin", password_hash=hash_password(admin_pw)))
+                logger.info("Admin account created.")
+            elif not verify_password(admin_pw, admin.password_hash):
+                admin.password_hash = hash_password(admin_pw)
+                logger.info("Admin password rotated from ADMIN_PASSWORD.")
             db.commit()
-            logger.info("Admin account created.")
-    finally:
-        db.close()
+        finally:
+            db.close()
+    else:
+        logger.warning("ADMIN_PASSWORD not set — admin account not provisioned.")
 
     logger.info("Loading / training ML model …")
     model.load_or_train()
 
     logger.info("Syncing bus stop directory from LTA …")
     try:
-        from api_routes import sync_stops
-        await sync_stops()
+        from api_routes import _sync_stops_impl
+        await _sync_stops_impl()
         logger.info("Bus stop directory synced.")
     except Exception as exc:
         logger.warning("Bus stop sync failed (non-fatal): %s", exc)
@@ -87,7 +96,13 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # tighten in production
+    allow_origins=[
+        "https://alstonshi.com",
+        "https://www.alstonshi.com",
+        "https://alston-b550mh.tail8c7cb3.ts.net",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
