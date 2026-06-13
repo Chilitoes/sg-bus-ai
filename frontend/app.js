@@ -1356,9 +1356,24 @@ $("plan-swap").addEventListener("click", () => {
 });
 
 $("plan-btn").addEventListener("click", doJourneyPlan);
+
+// Departure-time control: reveal a "Now" reset once a future time is picked.
+(() => {
+  const t = $("plan-time"), nowBtn = $("plan-time-now");
+  if (!t || !nowBtn) return;
+  t.addEventListener("input", () => nowBtn.classList.toggle("hidden", !t.value));
+  nowBtn.addEventListener("click", () => { t.value = ""; nowBtn.classList.add("hidden"); });
+})();
 $("plan-results").addEventListener("click", (e) => {
   const go = e.target.closest(".jcard-go");
-  if (go) { go.closest(".journey-card").classList.toggle("open"); return; }
+  if (go) {
+    const card = go.closest(".journey-card");
+    card.classList.toggle("open");
+    // Redraw the map to show this route option
+    const idx = parseInt(card.dataset.optIndex, 10);
+    if (!isNaN(idx) && _planData && _planCoords) updatePlanMap(_planData, _planCoords, idx);
+    return;
+  }
 
   const shareBtn = e.target.closest(".jcard-share");
   if (shareBtn) { shareCurrentJourney(); return; }
@@ -1382,6 +1397,30 @@ $("plan-results").addEventListener("click", (e) => {
     }
   }
 });
+
+// Build the &depart_at=… query suffix when a future time is set, else "".
+function _departQueryParam() {
+  const v = $("plan-time")?.value;
+  if (!v) return "";
+  const planned = new Date(v); // datetime-local is local wall-clock (SGT for SG users)
+  if (isNaN(planned) || planned.getTime() <= Date.now() + 3 * 60000) return "";
+  return `&depart_at=${encodeURIComponent(v)}`;
+}
+
+// Banner shown above results when planning for a future time.
+function _futureBanner(d) {
+  if (!d?.is_future || !d.planned_for) return "";
+  let txt = d.planned_for;
+  try {
+    txt = new Date(d.planned_for).toLocaleString("en-SG", {
+      weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit",
+    });
+  } catch {}
+  return `<div class="plan-future-note">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Planned for <b>${esc(txt)}</b> · live bus waits aren't shown for future trips — times are schedule estimates
+    </div>`;
+}
 
 async function doJourneyPlan() {
   const { fromCode, fromLat, fromLng, fromName,
@@ -1411,20 +1450,23 @@ async function doJourneyPlan() {
       if (s?.latitude) { tLat = planState.toLat = s.latitude; tLng = planState.toLng = s.longitude; }
     }
 
+    const departParam = _departQueryParam();
     let planData = null;
     if (fLat !== null && tLat !== null) {
       planData = await api(
         `/api/journey/multimodal?from_lat=${fLat}&from_lng=${fLng}` +
         `&to_lat=${tLat}&to_lng=${tLng}` +
         `&from_name=${encodeURIComponent(fromName || "Origin")}` +
-        `&to_name=${encodeURIComponent(toName || "Destination")}`
+        `&to_name=${encodeURIComponent(toName || "Destination")}` +
+        departParam
       );
-      res.innerHTML = renderMultimodalResult(planData);
+      res.innerHTML = _futureBanner(planData) + renderMultimodalResult(planData);
     } else if (fromCode && toCode) {
       planData = await api(
-        `/api/journey/plan?from_code=${encodeURIComponent(fromCode)}&to_code=${encodeURIComponent(toCode)}`
+        `/api/journey/plan?from_code=${encodeURIComponent(fromCode)}&to_code=${encodeURIComponent(toCode)}` +
+        departParam
       );
-      res.innerHTML = renderBusOnlyResult(planData);
+      res.innerHTML = _futureBanner(planData) + renderBusOnlyResult(planData);
     } else {
       err.textContent = "Couldn't resolve location. Try a more specific address or bus stop.";
       show(err);
@@ -1490,7 +1532,7 @@ function renderBusOnlyResult(data) {
     + _unavailableSection(data);
 }
 
-function renderBusOnlyCard(opt) {
+function renderBusOnlyCard(opt, idx = 0) {
   const typeTxt = opt.transfers === 0 ? "Direct"
     : `${opt.transfers} transfer${opt.transfers > 1 ? "s" : ""}`;
   const badgesHtml = opt.legs.map((l, i, a) =>
@@ -1515,7 +1557,7 @@ function renderBusOnlyCard(opt) {
   const tLat = planState.toLat   ?? ""; const tLng = planState.toLng   ?? "";
   const saved = (fLat !== "" && tLat !== "") && isJourneySaved(parseFloat(fLat), parseFloat(fLng), parseFloat(tLat), parseFloat(tLng));
   return `
-    <div class="journey-card"
+    <div class="journey-card" data-opt-index="${idx}"
          data-from-lat="${fLat}" data-from-lng="${fLng}"
          data-to-lat="${tLat}" data-to-lng="${tLng}"
          data-from-name="${esc(planState.fromName || "")}" data-to-name="${esc(planState.toName || "")}">
@@ -1585,7 +1627,7 @@ function renderMultimodalResult(data) {
     + _unavailableSection(data);
 }
 
-function renderMultimodalCard(opt) {
+function renderMultimodalCard(opt, idx = 0) {
   const active = opt.legs.filter((l) => l.type !== "walk");
   const badgesHtml = active.map((l, i, a) =>
     (l.type === "mrt"
@@ -1624,7 +1666,7 @@ function renderMultimodalCard(opt) {
   const tLat = planState.toLat   ?? ""; const tLng = planState.toLng   ?? "";
   const saved = (fLat !== "" && tLat !== "") && isJourneySaved(parseFloat(fLat), parseFloat(fLng), parseFloat(tLat), parseFloat(tLng));
   return `
-    <div class="journey-card"
+    <div class="journey-card" data-opt-index="${idx}"
          data-from-lat="${fLat}" data-from-lng="${fLng}"
          data-to-lat="${tLat}" data-to-lng="${tLng}"
          data-from-name="${esc(planState.fromName || "")}" data-to-name="${esc(planState.toName || "")}">
@@ -1787,6 +1829,9 @@ $("pw-change-btn")?.addEventListener("click", async () => {
 // ── Maps ──────────────────────────────────────────────────
 // Leaflet is loaded async (defer); guard every call with typeof L check.
 let _planMap = null;   // Leaflet instance for plan tab
+let _planData = null;  // last plan response, for redrawing on route switch
+let _planCoords = null;
+let _planOptIdx = 0;   // which option is currently drawn on the map
 
 function _leafletReady() { return typeof L !== "undefined"; }
 
@@ -2030,15 +2075,19 @@ function _stitchWays(segs, start, end) {
   return chain.slice(0, endI + 1);
 }
 
-// Colour for a journey leg polyline
+// Colour for a journey leg polyline. MRT legs always use their official line
+// colour; buses use one consistent blue that isn't any MRT line colour so a
+// transfer reads clearly on the map.
+const BUS_COLOR = "#1e88e5";
 function _legColor(leg) {
   if (leg.type === "walk") return "#888";
   if (leg.type === "mrt") return leg.line_color || MRT_COLORS[leg.line] || "#555";
-  return "#e5282a"; // bus red
+  return BUS_COLOR;
 }
 
-function updatePlanMap(data, coords) {
-  if (!_leafletReady()) { _whenLeaflet(() => updatePlanMap(data, coords)); return; }
+function updatePlanMap(data, coords, optIdx = 0) {
+  if (!_leafletReady()) { _whenLeaflet(() => updatePlanMap(data, coords, optIdx)); return; }
+  _planData = data; _planCoords = coords; _planOptIdx = optIdx;
   let { fLat, fLng, tLat, tLng, fromName, toName } = coords;
   const wrap = $("plan-map-wrap");
   // Fall back to coords in the response (bus-only plan has them in data.from/to)
@@ -2078,8 +2127,9 @@ function updatePlanMap(data, coords) {
    .addTo(_planMap);
   bounds.push([tLat, tLng]);
 
-  // Draw the first available option's legs
-  const option = data.options?.[0];
+  // Draw the selected option's legs (defaults to the first/best option)
+  const safeIdx = Math.min(Math.max(0, optIdx), (data.options?.length || 1) - 1);
+  const option = data.options?.[safeIdx];
   if (option?.legs) {
     option.legs.forEach((leg, li) => {
       const color = _legColor(leg);

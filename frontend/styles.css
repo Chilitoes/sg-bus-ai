@@ -683,6 +683,33 @@ th.num, td.num { text-align: right; }
   width: 30px; flex-shrink: 0; padding-top: .8rem; text-transform: uppercase; letter-spacing: .06em;
 }
 .plan-field-wrap { flex: 1; min-width: 0; position: relative; }
+/* Departure-time row */
+.plan-time-row { margin-top: .55rem; align-items: center; }
+.plan-time-row .plan-row-label { padding-top: 0; }
+.plan-time-wrap { flex: 1; display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.plan-time-input {
+  flex: 1; min-width: 0;
+  background: var(--surface-2); border: 1.5px solid var(--line);
+  border-radius: 10px; color: var(--ink);
+  padding: .5rem .6rem; font-size: .82rem; font-family: inherit;
+  -webkit-appearance: none; appearance: none;
+}
+.plan-time-input:focus { outline: none; border-color: var(--accent); }
+.plan-time-now {
+  flex-shrink: 0; border: 1.5px solid var(--line); background: var(--surface-2);
+  color: var(--ink-2); border-radius: 10px; padding: .5rem .7rem;
+  font-size: .78rem; font-weight: 700;
+}
+.plan-time-now:active { background: var(--accent-soft); color: var(--accent); }
+/* Future-trip note above results */
+.plan-future-note {
+  display: flex; align-items: center; gap: .45rem;
+  background: var(--accent-soft); color: var(--ink-2);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: .6rem .75rem; margin-bottom: .65rem;
+  font-size: .76rem; line-height: 1.45;
+}
+.plan-future-note svg { flex-shrink: 0; color: var(--accent); }
 .plan-swap-row {
   display: flex; justify-content: flex-end;
   margin: .3rem 0;
