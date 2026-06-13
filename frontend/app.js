@@ -1858,19 +1858,36 @@ function initMapView() {
 }
 
 function _loadMapTabStops(lat, lng) {
-  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=40`).then((d) => {
+  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=20`).then((d) => {
     if (!_mapTabMap) return;
     d.results?.forEach((s) => {
       if (!s.latitude) return;
       if (_mapTabStopCodes.has(s.bus_stop_code)) return;   // avoid duplicates
       _mapTabStopCodes.add(s.bus_stop_code);
-      L.marker([s.latitude, s.longitude], {
+      const handler = () => { switchView("arrivals"); loadStop(s.bus_stop_code); };
+      const marker = L.marker([s.latitude, s.longitude], {
         icon: _stopPinIcon(),
         title: s.description || s.bus_stop_code,
       })
-      .bindTooltip(s.description || s.bus_stop_code, { direction: "top", offset: [0, -12] })
-      .on("click", () => { switchView("arrivals"); loadStop(s.bus_stop_code); })
+      .on("click", handler)
       .addTo(_mapTabMap);
+      // iOS Safari: Leaflet's tooltip bindTooltip() intercepts the first tap to
+      // show the tooltip rather than firing click. Bypass by attaching a raw DOM
+      // touchend listener directly on the icon element.
+      if (marker._icon) {
+        let _tx = 0, _ty = 0;
+        marker._icon.addEventListener("touchstart", (e) => {
+          _tx = e.touches[0].clientX; _ty = e.touches[0].clientY;
+        }, { passive: true });
+        marker._icon.addEventListener("touchend", (e) => {
+          const dx = e.changedTouches[0].clientX - _tx;
+          const dy = e.changedTouches[0].clientY - _ty;
+          if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+            e.preventDefault();
+            handler();
+          }
+        }, { passive: false });
+      }
     });
     // Markers added after the container was first sized can land with a stale
     // hit-test offset; nudge Leaflet to recompute pane positions.
@@ -1924,9 +1941,23 @@ function _mrtClientWaypoints(fromCode, toCode) {
 
 // Smooth a sparse point list (e.g. MRT station coords) into a curved path with
 // a Catmull-Rom spline so the line bends through the stations instead of
-// cutting straight across them. Returns the original list if too short.
+// cutting straight across them.
 function _smoothLine(points, segments = 16) {
-  if (!points || points.length < 3) return points;
+  if (!points || points.length < 2) return points;
+  // For a 2-point leg (adjacent stations), insert a midpoint offset slightly
+  // perpendicular to the segment so the spline can produce a visible arc.
+  if (points.length === 2) {
+    const [p0, p1] = points;
+    const dlat = p1[0] - p0[0], dlng = p1[1] - p0[1];
+    const len = Math.sqrt(dlat * dlat + dlng * dlng);
+    const scale = len * 0.25;
+    // Perpendicular unit vector: rotate 90° (swap, negate one)
+    const mid = [
+      (p0[0] + p1[0]) / 2 - (dlng / len) * scale,
+      (p0[1] + p1[1]) / 2 + (dlat / len) * scale,
+    ];
+    points = [p0, mid, p1];
+  }
   const out = [];
   for (let i = 0; i < points.length - 1; i++) {
     const p0 = points[i - 1] || points[i];
