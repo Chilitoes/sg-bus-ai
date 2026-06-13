@@ -40,7 +40,7 @@ const S = {
   acTmr: null,
   chartsDirty: false,
 };
-const charts = { service: null, hour: null, trend: null };
+const charts = { service: null, ontime: null, hour: null, trend: null };
 
 // Favourites require a logged-in account; scoped per username for caching.
 function favKey() { return `${FAV_KEY}_u_${S.username}`; }
@@ -494,13 +494,23 @@ function svcCard(svc) {
 
 function relLine(rel) {
   if (!rel) return "";
-  const d = rel.avg_delay_sec;
-  const habit = Math.abs(d) < 45 ? "usually on schedule"
-    : `usually ${Math.max(1, Math.round(Math.abs(d) / 60))} min ${d > 0 ? "late" : "early"}`;
+  const habit = delayHabit(rel.avg_delay_sec);
   return `<div class="svc-rel">
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
     ${rel.on_time_pct}% on time · ${habit} <span class="svc-rel-n">(${rel.samples} observations)</span>
   </div>`;
+}
+
+// Render an average delay (seconds) as a human phrase, keeping second-level
+// resolution so small but real deviations from the LTA timing stay visible.
+function delayHabit(secs) {
+  const d = Math.round(secs);
+  const ad = Math.abs(d);
+  if (ad < 5) return "usually right on the LTA timing";
+  const dir = d > 0 ? "late" : "early";
+  if (ad < 60) return `usually ${ad}s ${dir}`;
+  const m = Math.floor(ad / 60), s = ad % 60;
+  return `usually ${m} min ${s ? s + "s " : ""}${dir}`;
 }
 
 function renderArrivals(data) {
@@ -519,6 +529,7 @@ function renderArrivals(data) {
   $("updated-at").textContent = `Updated ${new Date().toLocaleTimeString("en-SG",
     { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore" })}`;
   startTicker();
+  updateStopMap(data);
 }
 
 $("rows").addEventListener("click", (e) => {
@@ -627,18 +638,35 @@ function renderCharts(stats) {
   S.chartsDirty = false;
   destroyCharts();
   if (!stats || stats.total_records === 0) {
-    show($("no-stats")); hide($("charts-wrap"));
+    show($("no-stats")); hide($("charts-wrap")); hide($("accuracy-scorecard"));
     return;
   }
   hide($("no-stats")); show($("charts-wrap"));
 
+  // ── Accuracy scorecard ──────────────────────────────────────────────
+  const acc = stats.accuracy;
+  if (acc && acc.samples >= 50) {
+    $("acc-lta").textContent = `${acc.lta_pct}%`;
+    $("acc-ai").textContent  = `${acc.ai_pct}%`;
+    const d = acc.delta_pct;
+    const sign = d >= 0 ? "+" : "";
+    $("acc-delta").textContent = `${sign}${d}% more accurate with AI`;
+    $("acc-delta").style.background = d >= 0 ? "" : "var(--bad-soft)";
+    $("acc-delta").style.color      = d >= 0 ? "" : "var(--bad)";
+    show($("accuracy-scorecard"));
+  } else {
+    hide($("accuracy-scorecard"));
+  }
+
   const css = getComputedStyle(document.documentElement);
+  const ink  = css.getPropertyValue("--ink").trim();
   const ink2 = css.getPropertyValue("--ink-2").trim();
   const ink3 = css.getPropertyValue("--ink-3").trim();
   const line = css.getPropertyValue("--line").trim();
   const accent = css.getPropertyValue("--accent").trim();
   const good = css.getPropertyValue("--good").trim();
   const warn = css.getPropertyValue("--warn").trim();
+  const bad  = css.getPropertyValue("--bad").trim();
 
   const fmtDelay = (v) => {
     if (v === null || v === undefined) return "no data";
@@ -648,64 +676,245 @@ function renderCharts(stats) {
     const t = m ? `${m}m ${s}s` : `${s}s`;
     return v > 0 ? `${t} late` : `${t} early`;
   };
-  const yScale = {
-    grid: { color: line }, border: { display: false },
-    ticks: { color: ink3, font: { size: 10 },
-      callback: (v) => (Math.round(v) === 0 ? "0" : `${v > 0 ? "+" : ""}${Math.round(v)}s`) },
+
+  // Shared scale/plugin factories
+  const yDelayScale = (extra = {}) => ({
+    grid: { color: line, drawTicks: false },
+    border: { display: false },
+    ticks: {
+      color: ink3, font: { size: 10 }, padding: 4,
+      callback: (v) => v === 0 ? "on time" : `${v > 0 ? "+" : ""}${Math.round(v)}s`,
+    },
+    ...extra,
+  });
+  const xScale = (extra = {}) => ({
+    grid: { display: false }, border: { display: false },
+    ticks: { color: ink3, font: { size: 10 }, padding: 2 },
+    ...extra,
+  });
+  const noLegend = { legend: { display: false } };
+  const delayTooltip = {
+    displayColors: false,
+    backgroundColor: "var(--surface)",
+    borderColor: line, borderWidth: 1,
+    titleColor: ink, bodyColor: ink2,
+    padding: 8, cornerRadius: 6,
+    callbacks: {
+      label: (i) => ` ${fmtDelay(i.raw)}`,
+      afterLabel: (i) => i.dataset.counts ? ` (${i.dataset.counts[i.dataIndex]} observations)` : "",
+    },
   };
-  const xScale = { grid: { display: false }, border: { display: false },
-    ticks: { color: ink3, font: { size: 10 } } };
   const base = {
     responsive: true, maintainAspectRatio: false,
-    animation: { duration: 400 },
-    plugins: { legend: { display: false },
-      tooltip: { displayColors: false, callbacks: { label: (i) => ` ${fmtDelay(i.raw)}` } } },
-    scales: { y: yScale, x: xScale },
+    animation: { duration: 350 },
+    plugins: { ...noLegend, tooltip: delayTooltip },
+    scales: { y: yDelayScale(), x: xScale() },
   };
 
+  // ── Chart 1: Average delay by route ─────────────────────────────────
   if (stats.by_service?.length) {
-    const sorted = [...stats.by_service].sort((a, b) => b.avg_delay_sec - a.avg_delay_sec);
+    // Sort by absolute delay so the most extreme routes (late AND early) rank high
+    const sorted = [...stats.by_service].sort((a, b) =>
+      Math.abs(b.avg_delay_sec) - Math.abs(a.avg_delay_sec));
+    const counts = sorted.map((s) => s.count);
+    const maxCount = Math.max(...counts, 1);
+
+    // Colour: shades of bad/good scaled by magnitude
+    const barColors = sorted.map((s) => {
+      const d = s.avg_delay_sec;
+      if (Math.abs(d) < 15) return ink3;
+      return d > 0 ? accent : good;
+    });
+
+    $("chart-service-hint").textContent =
+      `(${sorted.length} routes · ${stats.total_records.toLocaleString()} total observations)`;
+
+    // bar thickness proportional to observation count (min 40%, max 100%)
     charts.service = new Chart($("chart-service"), {
       type: "bar",
-      data: { labels: sorted.map((s) => s.service),
-        datasets: [{ data: sorted.map((s) => s.avg_delay_sec),
-          backgroundColor: sorted.map((s) => (s.avg_delay_sec >= 0 ? accent : good)),
-          borderRadius: 4 }] },
-      options: base,
+      data: {
+        labels: sorted.map((s) => s.service),
+        datasets: [{
+          data: sorted.map((s) => s.avg_delay_sec),
+          backgroundColor: barColors,
+          borderRadius: 5,
+          counts,
+        }],
+      },
+      options: {
+        ...base,
+        plugins: {
+          ...noLegend,
+          tooltip: {
+            ...delayTooltip,
+            callbacks: {
+              title: (items) => `Bus ${items[0].label}`,
+              label: (i) => ` Avg: ${fmtDelay(i.raw)}`,
+              afterLabel: (i) => {
+                const s = sorted[i.dataIndex];
+                return [
+                  ` Range: ${fmtDelay(s.min_delay_sec)} to ${fmtDelay(s.max_delay_sec)}`,
+                  ` On time: ${s.on_time_pct}%`,
+                  ` Observations: ${s.count}`,
+                ];
+              },
+            },
+          },
+        },
+        scales: {
+          y: yDelayScale({ title: { display: true, text: "seconds", color: ink3, font: { size: 9 } } }),
+          x: xScale(),
+        },
+      },
     });
   }
 
+  // ── Chart 2: On-time rate by route ───────────────────────────────────
+  if (stats.by_service?.length) {
+    const sorted = [...stats.by_service].sort((a, b) => b.on_time_pct - a.on_time_pct);
+    const barColors = sorted.map((s) =>
+      s.on_time_pct >= 80 ? good : s.on_time_pct >= 60 ? warn : bad);
+    charts.ontime = new Chart($("chart-ontime"), {
+      type: "bar",
+      data: {
+        labels: sorted.map((s) => s.service),
+        datasets: [{
+          data: sorted.map((s) => s.on_time_pct),
+          backgroundColor: barColors,
+          borderRadius: 5,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 350 },
+        plugins: {
+          ...noLegend,
+          tooltip: {
+            ...delayTooltip,
+            callbacks: {
+              title: (items) => `Bus ${items[0].label}`,
+              label: (i) => ` ${i.raw}% arrived within ±1 min`,
+              afterLabel: (i) => ` Observations: ${sorted[i.dataIndex].count}`,
+            },
+          },
+        },
+        scales: {
+          y: {
+            grid: { color: line, drawTicks: false }, border: { display: false },
+            min: 0, max: 100,
+            ticks: { color: ink3, font: { size: 10 }, padding: 4,
+              callback: (v) => `${v}%` },
+            title: { display: true, text: "% on time", color: ink3, font: { size: 9 } },
+          },
+          x: xScale(),
+        },
+      },
+    });
+  }
+
+  // ── Chart 3: Average delay by hour ───────────────────────────────────
   if (stats.by_hour) {
     const isPeak = (h) => (h >= 7 && h < 9) || (h >= 17 && h < 19);
-    const noBus = (h) => h >= 1 && h <= 4;
-    const hl = (h) => (h === 0 ? "12a" : h === 12 ? "12p" : h < 12 ? `${h}a` : `${h - 12}p`);
+    const noBus  = (h) => h >= 1 && h <= 5;
+    // Clean labels: midnight, 6am, noon, 6pm only; others abbreviated
+    const hl = (h) => {
+      if (h === 0)  return "Midnight";
+      if (h === 6)  return "6 am";
+      if (h === 12) return "Noon";
+      if (h === 18) return "6 pm";
+      return h < 12 ? `${h}am` : `${h - 12}pm`;
+    };
+    const vals = stats.by_hour.map((v, i) => (noBus(i) ? null : v));
     charts.hour = new Chart($("chart-hour"), {
       type: "bar",
-      data: { labels: Array.from({ length: 24 }, (_, i) => hl(i)),
-        datasets: [{ data: stats.by_hour.map((v, i) => (noBus(i) ? null : v)),
-          backgroundColor: Array.from({ length: 24 }, (_, i) => (isPeak(i) ? warn : ink2)),
-          borderRadius: 3 }] },
-      options: { ...base,
-        scales: { y: yScale, x: { ...xScale, ticks: { ...xScale.ticks, maxTicksLimit: 8 } } } },
+      data: {
+        labels: Array.from({ length: 24 }, (_, i) => hl(i)),
+        datasets: [{
+          data: vals,
+          backgroundColor: Array.from({ length: 24 }, (_, i) =>
+            noBus(i) ? "transparent" : isPeak(i) ? warn : ink2),
+          borderRadius: 3,
+        }],
+      },
+      options: {
+        ...base,
+        plugins: {
+          ...noLegend,
+          tooltip: {
+            ...delayTooltip,
+            callbacks: {
+              title: (items) => {
+                const h = items[0].dataIndex;
+                const next = (h + 1) % 24;
+                return `${hl(h)} – ${hl(next)}`;
+              },
+              label: (i) => i.raw === null ? " No service" : ` Avg: ${fmtDelay(i.raw)}`,
+              afterLabel: (i) => isPeak(i.dataIndex) ? " ⚡ Peak hour" : "",
+            },
+          },
+          annotation: undefined,
+        },
+        scales: {
+          y: yDelayScale({ title: { display: true, text: "seconds", color: ink3, font: { size: 9 } } }),
+          x: xScale({ ticks: { ...xScale().ticks, maxRotation: 0, maxTicksLimit: 8 } }),
+        },
+      },
     });
   }
 
+  // ── Chart 4: 14-day trend ────────────────────────────────────────────
   if (stats.trend?.length) {
     const vals = stats.trend.map((t) => t.avg_delay_sec).filter((v) => v !== null);
     if (vals.length >= 2) {
       const half = Math.ceil(vals.length / 2);
       const a = vals.slice(0, half).reduce((x, y) => x + y, 0) / half;
       const b = vals.slice(-half).reduce((x, y) => x + y, 0) / half;
-      $("trend-dir").textContent = b < a - 2 ? "(improving)" : b > a + 2 ? "(worsening)" : "(stable)";
+      const dir = b < a - 2 ? "↓ improving" : b > a + 2 ? "↑ worsening" : "→ stable";
+      $("trend-dir").textContent = `(${dir})`;
     }
+    const trendLabels = stats.trend.map((t) =>
+      new Date(t.date + "T00:00:00").toLocaleDateString("en-SG",
+        { day: "numeric", month: "short", timeZone: "Asia/Singapore" }));
+
+    // Gradient fill: red above 0, green below
+    const gradientFill = (ctx) => {
+      const grad = ctx.chart.ctx.createLinearGradient(0, 0, 0, ctx.chart.height);
+      grad.addColorStop(0, accent + "55");
+      grad.addColorStop(1, accent + "00");
+      return grad;
+    };
+
     charts.trend = new Chart($("chart-trend"), {
       type: "line",
-      data: { labels: stats.trend.map((t) =>
-          new Date(t.date + "T00:00:00").toLocaleDateString("en-SG", { day: "numeric", month: "short" })),
-        datasets: [{ data: stats.trend.map((t) => t.avg_delay_sec),
-          borderColor: accent, backgroundColor: "transparent",
-          tension: .35, borderWidth: 2, pointRadius: 3, pointBackgroundColor: accent }] },
-      options: base,
+      data: {
+        labels: trendLabels,
+        datasets: [{
+          data: stats.trend.map((t) => t.avg_delay_sec),
+          borderColor: accent,
+          backgroundColor: (ctx) => gradientFill(ctx),
+          fill: true,
+          tension: 0.4, borderWidth: 2,
+          pointRadius: 4, pointBackgroundColor: accent,
+          pointHoverRadius: 6,
+        }],
+      },
+      options: {
+        ...base,
+        plugins: {
+          ...noLegend,
+          tooltip: {
+            ...delayTooltip,
+            callbacks: {
+              title: (items) => trendLabels[items[0].dataIndex],
+              label: (i) => ` ${fmtDelay(i.raw)}`,
+            },
+          },
+        },
+        scales: {
+          y: yDelayScale({ title: { display: true, text: "seconds", color: ink3, font: { size: 9 } } }),
+          x: xScale({ ticks: { ...xScale().ticks, maxTicksLimit: 7 } }),
+        },
+      },
     });
   }
 }
@@ -1083,6 +1292,9 @@ $("plan-results").addEventListener("click", (e) => {
   const go = e.target.closest(".jcard-go");
   if (go) { go.closest(".journey-card").classList.toggle("open"); return; }
 
+  const shareBtn = e.target.closest(".jcard-share");
+  if (shareBtn) { shareCurrentJourney(); return; }
+
   const saveBtn = e.target.closest(".jcard-save");
   if (saveBtn) {
     if (!S.token) { toast("Log in to save routes"); openSheet(); return; }
@@ -1131,22 +1343,27 @@ async function doJourneyPlan() {
       if (s?.latitude) { tLat = planState.toLat = s.latitude; tLng = planState.toLng = s.longitude; }
     }
 
+    let planData = null;
     if (fLat !== null && tLat !== null) {
-      const data = await api(
+      planData = await api(
         `/api/journey/multimodal?from_lat=${fLat}&from_lng=${fLng}` +
         `&to_lat=${tLat}&to_lng=${tLng}` +
         `&from_name=${encodeURIComponent(fromName || "Origin")}` +
         `&to_name=${encodeURIComponent(toName || "Destination")}`
       );
-      res.innerHTML = renderMultimodalResult(data);
+      res.innerHTML = renderMultimodalResult(planData);
     } else if (fromCode && toCode) {
-      const data = await api(
+      planData = await api(
         `/api/journey/plan?from_code=${encodeURIComponent(fromCode)}&to_code=${encodeURIComponent(toCode)}`
       );
-      res.innerHTML = renderBusOnlyResult(data);
+      res.innerHTML = renderBusOnlyResult(planData);
     } else {
       err.textContent = "Couldn't resolve location. Try a more specific address or bus stop.";
       show(err);
+    }
+    if (planData) {
+      updatePlanMap(planData, { fLat, fLng, tLat, tLng, fromName, toName });
+      updateShareUrl();
     }
     updateJourneyCardSaveBtns();
     pushRecent();
@@ -1240,6 +1457,9 @@ function renderBusOnlyCard(opt) {
           <span class="jcard-type">${typeTxt}</span>
           <span class="jcard-subtext">${waitPart}~${opt.total_est_min} min${warnPart}</span>
         </div>
+        <button class="jcard-share" aria-label="Share this route" title="Copy shareable link">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
         <button class="jcard-save${saved ? " saved" : ""}" aria-label="${saved ? "Remove saved route" : "Save route"}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
@@ -1347,6 +1567,9 @@ function renderMultimodalCard(opt) {
           <span class="jcard-subtext">${waitPart}~${opt.total_est_min} min${warnPart}${alertPart}</span>
           ${catchHtml}
         </div>
+        <button class="jcard-share" aria-label="Share this route" title="Copy shareable link">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
         <button class="jcard-save${saved ? " saved" : ""}" aria-label="${saved ? "Remove saved route" : "Save route"}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
@@ -1493,6 +1716,273 @@ $("pw-change-btn")?.addEventListener("click", async () => {
   }
 });
 
+// ── Maps ──────────────────────────────────────────────────
+// Leaflet is loaded async (defer); guard every call with typeof L check.
+let _stopMap   = null;   // Leaflet instance for arrivals tab
+let _planMap   = null;   // Leaflet instance for plan tab
+
+function _leafletReady() { return typeof L !== "undefined"; }
+
+// Retry a map call once Leaflet has loaded (for hash/URL auto-loads that run before defer scripts)
+function _whenLeaflet(fn) {
+  if (_leafletReady()) { fn(); return; }
+  window.addEventListener("load", fn, { once: true });
+}
+
+function _sgTiles() {
+  return L.tileLayer(
+    "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png",
+    { maxZoom: 18, minZoom: 11, attribution: "" }
+  );
+}
+
+// Show/hide the stop map panel and render the stop pin + nearby pins.
+function updateStopMap(arrivals) {
+  if (!_leafletReady()) { _whenLeaflet(() => updateStopMap(arrivals)); return; }
+  const wrap = $("stop-map-wrap");
+  const lat = arrivals?.latitude, lng = arrivals?.longitude;
+  if (!lat || !lng) { hide(wrap); return; }
+  show(wrap);
+
+  const container = $("stop-map");
+  if (!_stopMap) {
+    _stopMap = L.map(container, { zoomControl: true, attributionControl: false }).setView([lat, lng], 16);
+    _sgTiles().addTo(_stopMap);
+  } else {
+    _stopMap.setView([lat, lng], 16);
+    _stopMap.eachLayer((l) => { if (l instanceof L.Marker || l instanceof L.CircleMarker) l.remove(); });
+  }
+
+  // Main stop pin
+  const stopIcon = L.divIcon({
+    className: "",
+    html: `<div style="width:14px;height:14px;border-radius:50%;background:var(--accent);border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
+    iconSize: [14, 14], iconAnchor: [7, 7],
+  });
+  L.marker([lat, lng], { icon: stopIcon })
+   .bindPopup(`<b>${esc(S.stopInfo?.description || arrivals.bus_stop_code)}</b><br>${esc(S.stopInfo?.road_name || "")}`)
+   .addTo(_stopMap);
+
+  // Nearby stop pins (nearby endpoint now returns lat/lng)
+  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=12`).then((d) => {
+    if (!_stopMap) return;
+    const nearIcon = L.divIcon({
+      className: "",
+      html: `<div style="width:9px;height:9px;border-radius:50%;background:var(--ink-3);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`,
+      iconSize: [9, 9], iconAnchor: [4, 4],
+    });
+    d.results?.forEach((s) => {
+      if (s.bus_stop_code === arrivals.bus_stop_code) return;
+      if (!s.latitude) return;
+      L.marker([s.latitude, s.longitude], { icon: nearIcon })
+       .bindPopup(`<b>${esc(s.description)}</b><br>${esc(s.road_name || "")} · ${s.bus_stop_code}`)
+       .on("click", () => loadStop(s.bus_stop_code))
+       .addTo(_stopMap);
+    });
+  }).catch(() => {});
+}
+
+// Wire the toggle button
+$("stop-map-toggle").addEventListener("click", () => {
+  const btn = $("stop-map-toggle");
+  const map = $("stop-map");
+  const open = btn.getAttribute("aria-expanded") === "true";
+  btn.setAttribute("aria-expanded", String(!open));
+  btn.textContent = "";
+  btn.innerHTML = `
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/></svg>
+    ${open ? "Show on map" : "Hide map"}
+    <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+  map.classList.toggle("open", !open);
+  if (!open && _stopMap) {
+    // Leaflet needs size invalidated after the container becomes visible
+    setTimeout(() => _stopMap.invalidateSize(), 230);
+  }
+});
+
+// Line colors for MRT (matches mrt_data.py line_color values)
+const MRT_COLORS = {
+  EWL: "#009645", NSL: "#d42e12", NEL: "#9900aa",
+  CCL: "#fa9e0d", DTL: "#005ec4", TEL: "#9D5B25",
+};
+
+// Colour for a journey leg polyline
+function _legColor(leg) {
+  if (leg.type === "walk") return "#888";
+  if (leg.type === "mrt") return leg.line_color || MRT_COLORS[leg.line] || "#555";
+  return "#e5282a"; // bus red
+}
+
+function updatePlanMap(data, coords) {
+  if (!_leafletReady()) { _whenLeaflet(() => updatePlanMap(data, coords)); return; }
+  let { fLat, fLng, tLat, tLng, fromName, toName } = coords;
+  const wrap = $("plan-map-wrap");
+  // Fall back to coords in the response (bus-only plan has them in data.from/to)
+  const rLat = fLat ?? data?.from?.lat, rLng = fLng ?? data?.from?.lng;
+  const dLat = tLat ?? data?.to?.lat,   dLng = tLng ?? data?.to?.lng;
+  fLat = rLat; fLng = rLng; tLat = dLat; tLng = dLng;
+  fromName = fromName || data?.from?.name || "Origin";
+  toName   = toName   || data?.to?.name   || "Destination";
+  if (!fLat || !tLat) { hide(wrap); return; }
+
+  show(wrap);
+  const container = $("plan-map");
+  if (!_planMap) {
+    _planMap = L.map(container, { zoomControl: true, attributionControl: false })
+               .setView([(fLat + tLat) / 2, (fLng + tLng) / 2], 13);
+    _sgTiles().addTo(_planMap);
+  } else {
+    _planMap.eachLayer((l) => { if (!(l instanceof L.TileLayer)) l.remove(); });
+  }
+
+  const bounds = [];
+
+  // Origin + destination pins
+  const pinIcon = (color, label) => L.divIcon({
+    className: "",
+    html: `<div style="width:30px;height:30px;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)">
+      <span style="display:block;transform:rotate(45deg);text-align:center;font-size:10px;font-weight:700;color:#fff;line-height:24px">${label}</span></div>`,
+    iconSize: [30, 30], iconAnchor: [15, 30],
+  });
+  L.marker([fLat, fLng], { icon: pinIcon("#3b82f6", "A") })
+   .bindPopup(`<b>From:</b> ${esc(fromName || "Origin")}`)
+   .addTo(_planMap);
+  bounds.push([fLat, fLng]);
+
+  L.marker([tLat, tLng], { icon: pinIcon("#e5282a", "B") })
+   .bindPopup(`<b>To:</b> ${esc(toName || "Destination")}`)
+   .addTo(_planMap);
+  bounds.push([tLat, tLng]);
+
+  // Draw the first available option's legs
+  const option = data.options?.[0];
+  if (option?.legs) {
+    option.legs.forEach((leg) => {
+      const color = _legColor(leg);
+      const dashArray = leg.type === "walk" ? "5,8" : null;
+      const points = _legPoints(leg, fLat, fLng, tLat, tLng);
+      if (points.length >= 2) {
+        L.polyline(points, { color, weight: leg.type === "walk" ? 3 : 5, opacity: .85, dashArray })
+         .addTo(_planMap);
+        points.forEach((p) => bounds.push(p));
+      }
+      // Stop markers for bus legs
+      if (leg.type === "bus") {
+        _busStopMarker(leg.board_stop, "#fff", color).addTo(_planMap);
+        _busStopMarker(leg.alight_stop, "#fff", color).addTo(_planMap);
+      }
+    });
+  }
+
+  if (bounds.length) _planMap.fitBounds(bounds, { padding: [32, 32] });
+  setTimeout(() => _planMap.invalidateSize(), 100);
+}
+
+function _legPoints(leg, fLat, fLng, tLat, tLng) {
+  if (leg.type === "walk") {
+    // Walk legs don't have coordinates in the response; approximate with origin/destination
+    // The real path isn't meaningful without routing, so just a straight line is fine.
+    const from = leg.from_lat != null ? [leg.from_lat, leg.from_lng] : null;
+    const to   = leg.to_lat   != null ? [leg.to_lat,   leg.to_lng]   : null;
+    if (from && to) return [from, to];
+    return [];
+  }
+  if (leg.type === "bus") {
+    const b = leg.board_stop, a = leg.alight_stop;
+    if (b?.lat && a?.lat) return [[b.lat, b.lng], [a.lat, a.lng]];
+    return [];
+  }
+  if (leg.type === "mrt") {
+    const pts = [];
+    if (leg.board_lat) pts.push([leg.board_lat, leg.board_lng]);
+    if (leg.alight_lat) pts.push([leg.alight_lat, leg.alight_lng]);
+    return pts;
+  }
+  return [];
+}
+
+function _busStopMarker(stop, fill, stroke) {
+  if (!stop?.lat) return L.layerGroup();
+  const icon = L.divIcon({
+    className: "",
+    html: `<div style="width:10px;height:10px;border-radius:50%;background:${fill};border:2.5px solid ${stroke};box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`,
+    iconSize: [10, 10], iconAnchor: [5, 5],
+  });
+  return L.marker([stop.lat, stop.lng], { icon }).bindPopup(`<b>${esc(stop.name || stop.code)}</b>`);
+}
+
+// ── Shareable journey URLs ────────────────────────────────
+function buildShareUrl() {
+  const { fromLat, fromLng, fromName, fromCode, toLat, toLng, toName, toCode } = planState;
+  if (!fromName || !toName) return null;
+  const p = new URLSearchParams();
+  if (fromLat != null) { p.set("fLat", fromLat.toFixed(6)); p.set("fLng", fromLng.toFixed(6)); }
+  if (fromName) p.set("fName", fromName);
+  if (fromCode) p.set("fCode", fromCode);
+  if (toLat != null) { p.set("tLat", toLat.toFixed(6)); p.set("tLng", toLng.toFixed(6)); }
+  if (toName) p.set("tName", toName);
+  if (toCode) p.set("tCode", toCode);
+  return `${location.origin}${location.pathname}?${p.toString()}#plan`;
+}
+
+function updateShareUrl() {
+  const url = buildShareUrl();
+  if (url) history.replaceState({}, "", url);
+}
+
+function shareCurrentJourney() {
+  const url = buildShareUrl();
+  if (!url) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(() => showShareToast()).catch(() => fallbackCopy(url));
+  } else {
+    fallbackCopy(url);
+  }
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); showShareToast(); } catch (_) {}
+  document.body.removeChild(ta);
+}
+
+let _toastTimer = null;
+function showShareToast() {
+  const el = $("share-toast");
+  el.classList.remove("hidden");
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.add("hidden"), 2200);
+}
+
+// Read URL params on load and auto-populate the plan form
+function bootFromUrl() {
+  const p = new URLSearchParams(location.search);
+  const fLat = p.get("fLat"), fLng = p.get("fLng"), fName = p.get("fName"), fCode = p.get("fCode");
+  const tLat = p.get("tLat"), tLng = p.get("tLng"), tName = p.get("tName"), tCode = p.get("tCode");
+  if (!fName || !tName) return;
+
+  // Restore plan state
+  planState.fromName = fName;
+  planState.fromLat  = fLat ? parseFloat(fLat) : null;
+  planState.fromLng  = fLng ? parseFloat(fLng) : null;
+  planState.fromCode = fCode || null;
+  planState.toName   = tName;
+  planState.toLat    = tLat ? parseFloat(tLat) : null;
+  planState.toLng    = tLng ? parseFloat(tLng) : null;
+  planState.toCode   = tCode || null;
+
+  $("plan-from-input").value = fName;
+  $("plan-to-input").value   = tName;
+  show($("plan-from-clear"));
+  show($("plan-to-clear"));
+
+  switchView("plan");
+  // Small delay so the view switch completes before planning
+  setTimeout(() => doJourneyPlan(), 300);
+}
+
 initTheme();
 syncAccountUI();
 afterFavsChanged();
@@ -1507,5 +1997,11 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
+// Boot: shared journey URL takes priority over stop hash
 const bootStop = location.hash.replace("#", "").trim();
-if (/^\d{5}$/.test(bootStop)) loadStop(bootStop);
+const hasShareParams = new URLSearchParams(location.search).get("fName");
+if (hasShareParams) {
+  bootFromUrl();
+} else if (/^\d{5}$/.test(bootStop)) {
+  loadStop(bootStop);
+}

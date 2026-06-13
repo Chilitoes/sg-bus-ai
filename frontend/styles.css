@@ -407,10 +407,49 @@ button { font-family: inherit; cursor: pointer; }
   font-size: .75rem; color: var(--ink-2); line-height: 1.75;
 }
 
-.chart-block { margin-top: 1rem; }
-.chart-title { font-size: .78rem; font-weight: 600; color: var(--ink-2); margin-bottom: .45rem; }
-.chart-hint { font-weight: 400; color: var(--ink-3); }
+.chart-block { margin-top: 1.1rem; }
+.chart-title { font-size: .8rem; font-weight: 700; color: var(--ink); margin-bottom: .18rem; }
+.chart-hint { font-weight: 400; color: var(--ink-3); font-size: .76rem; }
+.chart-sub { font-size: .71rem; color: var(--ink-3); margin-bottom: .45rem; line-height: 1.4; }
 .chart-box { position: relative; height: 190px; }
+.chart-box-tall { height: 240px; }
+
+/* ── AI accuracy scorecard ──────────────────────────────── */
+.accuracy-scorecard {
+  display: flex; align-items: center; gap: .6rem;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: .85rem 1rem;
+  margin-top: .75rem; flex-wrap: wrap;
+}
+.acc-col {
+  flex: 1; min-width: 90px;
+  display: flex; flex-direction: column; align-items: center;
+}
+.acc-col.ai .acc-pct { color: var(--good); }
+.acc-label {
+  font-size: .67rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--ink-3); margin-bottom: .18rem;
+}
+.acc-pct {
+  font-size: 1.8rem; font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.acc-sub {
+  font-size: .66rem; color: var(--ink-3); margin-top: .12rem;
+}
+.acc-vs {
+  font-size: .72rem; font-weight: 600; color: var(--ink-3);
+  flex-shrink: 0;
+}
+.acc-delta-wrap {
+  width: 100%; text-align: center; margin-top: .3rem;
+}
+.acc-delta {
+  font-size: .78rem; font-weight: 700;
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: 999px; padding: .2rem .7rem;
+  display: inline-block;
+}
 
 /* ── Saved view ──────────────────────────────────────── */
 .saved-list { display: flex; flex-direction: column; gap: .5rem; }
@@ -854,6 +893,75 @@ th.num, td.num { text-align: right; }
 .jcard-save.saved { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .jcard-save.saved svg { fill: currentColor; }
 .jcard-save:active { background: var(--surface-2); }
+
+/* ── Stop map (arrivals tab) ────────────────────────────── */
+.stop-map-wrap {
+  margin: .5rem 0 .2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+.stop-map-toggle {
+  display: flex; align-items: center; gap: .45rem;
+  width: 100%; padding: .55rem .85rem;
+  background: none; border: none; text-align: left;
+  font-size: .8rem; font-weight: 600; color: var(--ink-2);
+  cursor: pointer;
+}
+.stop-map-toggle:hover { background: var(--surface-2); }
+.stop-map-toggle .chev {
+  margin-left: auto;
+  transition: transform .18s;
+}
+.stop-map-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.stop-map {
+  height: 0; overflow: hidden;
+  transition: height .22s ease;
+}
+.stop-map.open { height: 220px; }
+.stop-map .leaflet-container { height: 220px; background: var(--surface); }
+
+/* ── Plan map (journey results) ─────────────────────────── */
+.plan-map-wrap {
+  margin-top: .8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+.plan-map { height: 260px; }
+.plan-map .leaflet-container { height: 260px; }
+.plan-map-attr {
+  padding: .3rem .7rem;
+  font-size: .66rem; color: var(--ink-3);
+  background: var(--surface-2);
+}
+.plan-map-attr a { color: var(--ink-3); }
+
+/* ── Share button on journey cards ─────────────────────── */
+.jcard-share {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--line); border-radius: 10px;
+  background: none; color: var(--ink-3);
+  width: 36px; height: 36px;
+  transition: background .12s, color .12s;
+}
+.jcard-share:active,
+.jcard-share:hover { background: var(--surface-2); color: var(--ink); }
+
+/* ── Share toast notification ───────────────────────────── */
+.share-toast {
+  position: fixed; bottom: calc(60px + env(safe-area-inset-bottom) + .8rem);
+  left: 50%; transform: translateX(-50%);
+  background: var(--ink); color: var(--bg);
+  border-radius: 999px; padding: .42rem 1.1rem;
+  font-size: .8rem; font-weight: 600;
+  pointer-events: none; z-index: 9999;
+  opacity: 1; transition: opacity .35s;
+}
+.share-toast.hidden { opacity: 0; pointer-events: none; }
 
 @media (min-width: 640px) {
   .stat-grid { grid-template-columns: repeat(3, 1fr); }
