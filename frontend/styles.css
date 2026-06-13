@@ -906,12 +906,6 @@ th.num, td.num { text-align: right; }
 }
 .nearby-map-btn:hover,
 .nearby-map-btn:active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
-/* tooltip for explore map */
-.explore-you-tip {
-  background: #3b82f6; color: #fff; border: none;
-  font-size: .72rem; font-weight: 700; border-radius: 6px; padding: 2px 6px;
-}
-
 /* ── Plan map (journey results) ─────────────────────────── */
 .plan-map-wrap {
   margin-top: .8rem;
