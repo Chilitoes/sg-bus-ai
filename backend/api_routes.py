@@ -893,6 +893,36 @@ async def plan_journey(
         brd = db.query(BusStop).filter_by(bus_stop_code=board).first()
         alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()
 
+        # Waypoints: all intermediate bus stops along the route so the map
+        # draws the actual path rather than a straight line.
+        waypoints: list[dict] = []
+        try:
+            board_seq = db.query(BusRoute.stop_sequence).filter_by(
+                service_no=svc, direction=leg["direction"], bus_stop_code=board
+            ).scalar()
+            alight_seq = db.query(BusRoute.stop_sequence).filter_by(
+                service_no=svc, direction=leg["direction"], bus_stop_code=alight
+            ).scalar()
+            if board_seq is not None and alight_seq is not None:
+                lo, hi = min(board_seq, alight_seq), max(board_seq, alight_seq)
+                wp_rows = (
+                    db.query(BusStop.latitude, BusStop.longitude)
+                    .join(BusRoute, BusRoute.bus_stop_code == BusStop.bus_stop_code)
+                    .filter(
+                        BusRoute.service_no == svc,
+                        BusRoute.direction == leg["direction"],
+                        BusRoute.stop_sequence.between(lo, hi),
+                    )
+                    .order_by(BusRoute.stop_sequence)
+                    .all()
+                )
+                waypoints = [
+                    {"lat": r.latitude, "lng": r.longitude}
+                    for r in wp_rows if r.latitude and r.longitude
+                ]
+        except Exception:
+            pass
+
         return {
             "service_no":        svc,
             "direction":         leg["direction"],
@@ -912,6 +942,7 @@ async def plan_journey(
             "is_last_bus_soon":  is_last_bus,
             "is_transfer_wait":  is_transfer_wait,
             "service_operating": service_operating,
+            "waypoints":         waypoints,
         }
 
     options = []
@@ -1166,6 +1197,35 @@ async def plan_multimodal(
 
         brd = db.query(BusStop).filter_by(bus_stop_code=board).first()
         alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()
+
+        waypoints: list[dict] = []
+        try:
+            board_seq = db.query(BusRoute.stop_sequence).filter_by(
+                service_no=svc, direction=raw_leg["direction"], bus_stop_code=board
+            ).scalar()
+            alight_seq = db.query(BusRoute.stop_sequence).filter_by(
+                service_no=svc, direction=raw_leg["direction"], bus_stop_code=alight
+            ).scalar()
+            if board_seq is not None and alight_seq is not None:
+                lo, hi = min(board_seq, alight_seq), max(board_seq, alight_seq)
+                wp_rows = (
+                    db.query(BusStop.latitude, BusStop.longitude)
+                    .join(BusRoute, BusRoute.bus_stop_code == BusStop.bus_stop_code)
+                    .filter(
+                        BusRoute.service_no == svc,
+                        BusRoute.direction == raw_leg["direction"],
+                        BusRoute.stop_sequence.between(lo, hi),
+                    )
+                    .order_by(BusRoute.stop_sequence)
+                    .all()
+                )
+                waypoints = [
+                    {"lat": r.latitude, "lng": r.longitude}
+                    for r in wp_rows if r.latitude and r.longitude
+                ]
+        except Exception:
+            pass
+
         return {
             "type": "bus",
             "service_no": svc, "direction": raw_leg["direction"],
@@ -1182,6 +1242,7 @@ async def plan_multimodal(
             "next_wait_min": next_wait_min,
             "is_transfer_wait": earliest_board is not None,
             "service_operating": service_operating,
+            "waypoints": waypoints,
         }
 
     def _catch_verdict(legs: list[dict]) -> dict | None:
