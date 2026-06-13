@@ -529,7 +529,6 @@ function renderArrivals(data) {
   $("updated-at").textContent = `Updated ${new Date().toLocaleTimeString("en-SG",
     { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore" })}`;
   startTicker();
-  updateStopMap(data);
 }
 
 $("rows").addEventListener("click", (e) => {
@@ -1718,7 +1717,8 @@ $("pw-change-btn")?.addEventListener("click", async () => {
 
 // ── Maps ──────────────────────────────────────────────────
 // Leaflet is loaded async (defer); guard every call with typeof L check.
-let _stopMap   = null;   // Leaflet instance for arrivals tab
+let _nearbyMap  = null;   // Leaflet instance for arrivals nearby-stops map
+let _nearbyMapOpen = false;
 let _planMap   = null;   // Leaflet instance for plan tab
 
 function _leafletReady() { return typeof L !== "undefined"; }
@@ -1729,76 +1729,77 @@ function _whenLeaflet(fn) {
   window.addEventListener("load", fn, { once: true });
 }
 
+function _isDark() {
+  const t = document.documentElement.dataset.theme;
+  return t === "dark" || (!t && window.matchMedia("(prefers-color-scheme: dark)").matches);
+}
+
 function _sgTiles() {
+  const style = _isDark() ? "Night" : "Default";
   return L.tileLayer(
-    "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png",
+    `https://www.onemap.gov.sg/maps/tiles/${style}/{z}/{x}/{y}.png`,
     { maxZoom: 18, minZoom: 11, attribution: "" }
   );
 }
 
-// Show/hide the stop map panel and render the stop pin + nearby pins.
-function updateStopMap(arrivals) {
-  if (!_leafletReady()) { _whenLeaflet(() => updateStopMap(arrivals)); return; }
-  const wrap = $("stop-map-wrap");
-  const lat = arrivals?.latitude, lng = arrivals?.longitude;
-  if (!lat || !lng) { hide(wrap); return; }
-  show(wrap);
+// ── Nearby stops map (arrivals tab) ─────────────────────────
+function toggleNearbyMap() {
+  if (!_leafletReady()) { _whenLeaflet(toggleNearbyMap); return; }
+  _nearbyMapOpen = !_nearbyMapOpen;
+  const wrap = $("nearby-map-wrap");
+  const btn  = $("nearby-map-btn");
+  btn.setAttribute("aria-expanded", String(_nearbyMapOpen));
+  $("nearby-map-label").textContent = _nearbyMapOpen ? "Hide map" : "Show map";
+  wrap.classList.toggle("open", _nearbyMapOpen);
 
-  const container = $("stop-map");
-  if (!_stopMap) {
-    _stopMap = L.map(container, { zoomControl: true, attributionControl: false }).setView([lat, lng], 16);
-    _sgTiles().addTo(_stopMap);
-  } else {
-    _stopMap.setView([lat, lng], 16);
-    _stopMap.eachLayer((l) => { if (l instanceof L.Marker || l instanceof L.CircleMarker) l.remove(); });
+  if (_nearbyMapOpen) {
+    if (!_nearbyMap) {
+      _nearbyMap = L.map($("nearby-map"), { zoomControl: true, attributionControl: false })
+                    .setView([1.3521, 103.8198], 15);
+      _sgTiles().addTo(_nearbyMap);
+    }
+    setTimeout(() => _nearbyMap.invalidateSize(), 230);
+    navigator.geolocation?.getCurrentPosition(
+      ({ coords: { latitude: lat, longitude: lng } }) => {
+        _nearbyMap.setView([lat, lng], 16);
+        // User dot
+        L.circleMarker([lat, lng], {
+          radius: 7, color: "#3b82f6", fillColor: "#3b82f6", fillOpacity: 0.9, weight: 3,
+        }).bindPopup("Your location").addTo(_nearbyMap);
+        _loadNearbyMapStops(lat, lng);
+      },
+      () => _loadNearbyMapStops(1.3521, 103.8198)
+    );
   }
+}
 
-  // Main stop pin
-  const stopIcon = L.divIcon({
+function _stopPinIcon(active) {
+  const bg = active ? "var(--accent)" : "#e5282a";
+  return L.divIcon({
     className: "",
-    html: `<div style="width:14px;height:14px;border-radius:50%;background:var(--accent);border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
-    iconSize: [14, 14], iconAnchor: [7, 7],
+    html: `<div style="width:28px;height:28px;border-radius:50%;background:${bg};border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 11h16" stroke="white" stroke-width="2" fill="none"/><circle cx="8" cy="15" r="1.2" fill="white"/><circle cx="16" cy="15" r="1.2" fill="white"/></svg>
+    </div>`,
+    iconSize: [28, 28], iconAnchor: [14, 14],
   });
-  L.marker([lat, lng], { icon: stopIcon })
-   .bindPopup(`<b>${esc(S.stopInfo?.description || arrivals.bus_stop_code)}</b><br>${esc(S.stopInfo?.road_name || "")}`)
-   .addTo(_stopMap);
+}
 
-  // Nearby stop pins (nearby endpoint now returns lat/lng)
-  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=12`).then((d) => {
-    if (!_stopMap) return;
-    const nearIcon = L.divIcon({
-      className: "",
-      html: `<div style="width:9px;height:9px;border-radius:50%;background:var(--ink-3);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`,
-      iconSize: [9, 9], iconAnchor: [4, 4],
-    });
+function _loadNearbyMapStops(lat, lng) {
+  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=25`).then((d) => {
+    if (!_nearbyMap) return;
     d.results?.forEach((s) => {
-      if (s.bus_stop_code === arrivals.bus_stop_code) return;
       if (!s.latitude) return;
-      L.marker([s.latitude, s.longitude], { icon: nearIcon })
-       .bindPopup(`<b>${esc(s.description)}</b><br>${esc(s.road_name || "")} · ${s.bus_stop_code}`)
-       .on("click", () => loadStop(s.bus_stop_code))
-       .addTo(_stopMap);
+      L.marker([s.latitude, s.longitude], { icon: _stopPinIcon(false) })
+       .bindPopup(`<b>${esc(s.description)}</b><br>${esc(s.road_name || "")} · ${s.bus_stop_code}<br><small>Tap marker to load arrivals</small>`)
+       .on("click", () => {
+         loadStop(s.bus_stop_code);
+       })
+       .addTo(_nearbyMap);
     });
   }).catch(() => {});
 }
 
-// Wire the toggle button
-$("stop-map-toggle").addEventListener("click", () => {
-  const btn = $("stop-map-toggle");
-  const map = $("stop-map");
-  const open = btn.getAttribute("aria-expanded") === "true";
-  btn.setAttribute("aria-expanded", String(!open));
-  btn.textContent = "";
-  btn.innerHTML = `
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/></svg>
-    ${open ? "Show on map" : "Hide map"}
-    <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
-  map.classList.toggle("open", !open);
-  if (!open && _stopMap) {
-    // Leaflet needs size invalidated after the container becomes visible
-    setTimeout(() => _stopMap.invalidateSize(), 230);
-  }
-});
+$("nearby-map-btn").addEventListener("click", toggleNearbyMap);
 
 // Line colors for MRT (matches mrt_data.py line_color values)
 const MRT_COLORS = {
@@ -1840,9 +1841,9 @@ function updatePlanMap(data, coords) {
   // Origin + destination pins
   const pinIcon = (color, label) => L.divIcon({
     className: "",
-    html: `<div style="width:30px;height:30px;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)">
-      <span style="display:block;transform:rotate(45deg);text-align:center;font-size:10px;font-weight:700;color:#fff;line-height:24px">${label}</span></div>`,
-    iconSize: [30, 30], iconAnchor: [15, 30],
+    html: `<div style="width:34px;height:34px;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 3px 8px rgba(0,0,0,.45)">
+      <span style="display:block;transform:rotate(45deg);text-align:center;font-size:11px;font-weight:800;color:#fff;line-height:28px">${label}</span></div>`,
+    iconSize: [34, 34], iconAnchor: [17, 34],
   });
   L.marker([fLat, fLng], { icon: pinIcon("#3b82f6", "A") })
    .bindPopup(`<b>From:</b> ${esc(fromName || "Origin")}`)
@@ -1859,22 +1860,52 @@ function updatePlanMap(data, coords) {
   if (option?.legs) {
     option.legs.forEach((leg) => {
       const color = _legColor(leg);
-      const dashArray = leg.type === "walk" ? "5,8" : null;
+      const isWalk = leg.type === "walk";
       const points = _legPoints(leg);
       if (points.length >= 2) {
-        L.polyline(points, { color, weight: leg.type === "walk" ? 3 : 5, opacity: .85, dashArray })
-         .addTo(_planMap);
+        // Subtle white halo under coloured line for readability
+        if (!isWalk) {
+          L.polyline(points, { color: "#fff", weight: 10, opacity: .5, lineCap: "round", lineJoin: "round" })
+           .addTo(_planMap);
+        }
+        L.polyline(points, {
+          color, opacity: .92,
+          weight: isWalk ? 3 : 7,
+          dashArray: isWalk ? "6,9" : null,
+          lineCap: "round", lineJoin: "round",
+        }).addTo(_planMap);
         points.forEach((p) => bounds.push(p));
+
+        // Route badge at midpoint
+        const mid = points[Math.floor(points.length / 2)];
+        let badge = "";
+        if (leg.type === "bus")  badge = leg.service_no || "Bus";
+        if (leg.type === "mrt")  badge = leg.line || "MRT";
+        if (badge) {
+          const dark = _isDark();
+          L.marker(mid, {
+            icon: L.divIcon({
+              className: "",
+              html: `<div style="background:${color};color:#fff;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 5px rgba(0,0,0,.35);border:1.5px solid rgba(255,255,255,.4)">${esc(badge)}</div>`,
+              iconAnchor: [0, 0],
+            }),
+            interactive: false,
+          }).addTo(_planMap);
+        }
       }
-      // Stop markers for bus legs
+      // Board / alight markers for bus and MRT
       if (leg.type === "bus") {
-        _busStopMarker(leg.board_stop, "#fff", color).addTo(_planMap);
-        _busStopMarker(leg.alight_stop, "#fff", color).addTo(_planMap);
+        _transitStopMarker(leg.board_stop, color, leg.service_no).addTo(_planMap);
+        _transitStopMarker(leg.alight_stop, color, leg.service_no).addTo(_planMap);
+      }
+      if (leg.type === "mrt") {
+        if (leg.board_lat) _transitStopMarker({ lat: leg.board_lat, lng: leg.board_lng, name: leg.board }, color).addTo(_planMap);
+        if (leg.alight_lat) _transitStopMarker({ lat: leg.alight_lat, lng: leg.alight_lng, name: leg.alight }, color).addTo(_planMap);
       }
     });
   }
 
-  if (bounds.length) _planMap.fitBounds(bounds, { padding: [32, 32] });
+  if (bounds.length) _planMap.fitBounds(bounds, { padding: [36, 36] });
   setTimeout(() => _planMap.invalidateSize(), 100);
 }
 
@@ -1904,14 +1935,16 @@ function _legPoints(leg) {
   return [];
 }
 
-function _busStopMarker(stop, fill, stroke) {
+function _transitStopMarker(stop, color, label) {
   if (!stop?.lat) return L.layerGroup();
   const icon = L.divIcon({
     className: "",
-    html: `<div style="width:10px;height:10px;border-radius:50%;background:${fill};border:2.5px solid ${stroke};box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`,
-    iconSize: [10, 10], iconAnchor: [5, 5],
+    html: `<div style="width:13px;height:13px;border-radius:50%;background:#fff;border:3px solid ${color};box-shadow:0 1px 4px rgba(0,0,0,.35)"></div>`,
+    iconSize: [13, 13], iconAnchor: [6, 6],
   });
-  return L.marker([stop.lat, stop.lng], { icon }).bindPopup(`<b>${esc(stop.name || stop.code)}</b>`);
+  const name = stop.name || stop.code || "";
+  return L.marker([stop.lat, stop.lng], { icon })
+    .bindPopup(`<b>${esc(name)}</b>${label ? `<br><small>${esc(label)}</small>` : ""}`);
 }
 
 // ── Shareable journey URLs ────────────────────────────────

@@ -11,7 +11,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=10" />
+  <link rel="stylesheet" href="styles.css?v=15" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -61,6 +61,15 @@
         </button>
       </div>
       <div id="autocomplete" class="autocomplete hidden"></div>
+      <button id="nearby-map-btn" class="nearby-map-btn" aria-expanded="false">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/></svg>
+        <span id="nearby-map-label">Show map</span>
+      </button>
+    </div>
+
+    <div id="nearby-map-wrap" class="nearby-map-wrap">
+      <div id="nearby-map" class="nearby-map"></div>
+      <div class="nearby-map-attr">Tap a stop to see arrivals · © <a href="https://www.onemap.gov.sg" target="_blank" rel="noopener">OneMap</a></div>
     </div>
 
     <div id="chips-area" class="chips-area"></div>
@@ -91,17 +100,7 @@
       </div>
     </div>
 
-    <!-- Collapsible map for the current stop -->
-    <div id="stop-map-wrap" class="stop-map-wrap hidden">
-      <button id="stop-map-toggle" class="stop-map-toggle" aria-expanded="false">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/></svg>
-        Show on map
-        <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-      </button>
-      <div id="stop-map" class="stop-map" aria-hidden="true"></div>
-    </div>
-
-    <div id="arrivals-error" class="error-note hidden"></div>
+<div id="arrivals-error" class="error-note hidden"></div>
 
     <div id="rows" class="rows"></div>
     <p id="no-services" class="empty hidden">No buses serving this stop right now.</p>
@@ -420,6 +419,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=14"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

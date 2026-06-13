@@ -894,33 +894,34 @@ th.num, td.num { text-align: right; }
 .jcard-save.saved svg { fill: currentColor; }
 .jcard-save:active { background: var(--surface-2); }
 
-/* ── Stop map (arrivals tab) ────────────────────────────── */
-.stop-map-wrap {
-  margin: .5rem 0 .2rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--surface);
+/* ── Nearby stops map (arrivals tab) ────────────────────── */
+.nearby-map-btn {
+  display: flex; align-items: center; gap: .4rem;
+  margin: .45rem 0 0;
+  padding: .38rem .8rem;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface-2); color: var(--ink-2);
+  font-size: .78rem; font-weight: 600;
+  cursor: pointer; transition: background .12s, color .12s;
 }
-.stop-map-toggle {
-  display: flex; align-items: center; gap: .45rem;
-  width: 100%; padding: .55rem .85rem;
-  background: none; border: none; text-align: left;
-  font-size: .8rem; font-weight: 600; color: var(--ink-2);
-  cursor: pointer;
-}
-.stop-map-toggle:hover { background: var(--surface-2); }
-.stop-map-toggle .chev {
-  margin-left: auto;
-  transition: transform .18s;
-}
-.stop-map-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
-.stop-map {
+.nearby-map-btn:hover,
+.nearby-map-btn[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.nearby-map-wrap {
   height: 0; overflow: hidden;
-  transition: height .22s ease;
+  transition: height .25s ease;
+  border-radius: var(--radius);
+  margin-top: .4rem;
 }
-.stop-map.open { height: 220px; }
-.stop-map .leaflet-container { height: 220px; background: var(--surface); }
+.nearby-map-wrap.open { height: 300px; }
+.nearby-map { height: 276px; }
+.nearby-map .leaflet-container { height: 276px; background: var(--surface); }
+.nearby-map-attr {
+  padding: .28rem .7rem;
+  font-size: .65rem; color: var(--ink-3);
+  background: var(--surface-2);
+  border-top: 1px solid var(--line);
+}
+.nearby-map-attr a { color: var(--ink-3); }
 
 /* ── Plan map (journey results) ─────────────────────────── */
 .plan-map-wrap {
@@ -930,12 +931,13 @@ th.num, td.num { text-align: right; }
   overflow: hidden;
   background: var(--surface);
 }
-.plan-map { height: 260px; }
-.plan-map .leaflet-container { height: 260px; }
+.plan-map { height: 320px; }
+.plan-map .leaflet-container { height: 320px; }
 .plan-map-attr {
   padding: .3rem .7rem;
   font-size: .66rem; color: var(--ink-3);
   background: var(--surface-2);
+  border-top: 1px solid var(--line);
 }
 .plan-map-attr a { color: var(--ink-3); }
 
