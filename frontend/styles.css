@@ -934,15 +934,19 @@ th.num, td.num { text-align: right; }
   background: var(--bg);
 }
 #map-tab-container { width: 100%; height: 100%; }
-/* HTML marker for tappable bus stops (reliable touch target on mobile) */
-.stop-pin { background: none; border: none; touch-action: manipulation; }
-.stop-pin span {
+/* HTML marker for tappable bus stops — button inside divIcon for iOS compat */
+.stop-pin { background: none; border: none; }
+.stop-pin-btn {
+  all: unset;
   display: block; width: 15px; height: 15px; margin: 3px auto;
   border-radius: 50%;
   background: #e5282a; border: 2.5px solid #fff;
   box-shadow: 0 1px 4px rgba(0,0,0,.55);
   cursor: pointer;
   touch-action: manipulation;
+  pointer-events: auto;
+  -webkit-appearance: none;
+  box-sizing: border-box;
 }
 /* Leaflet overrides inside map tab */
 #map-tab-container .leaflet-control-zoom { border: none !important; }

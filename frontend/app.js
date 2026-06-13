@@ -1816,10 +1816,12 @@ const _mapTabStopCodes = new Set();
 
 // HTML divIcon marker — taps fire reliably on iOS, unlike SVG circleMarkers
 // (Leaflet 1.7+ dropped its tap handler, so vector layers miss touch clicks).
-function _stopPinIcon() {
+function _stopPinIcon(label) {
   return L.divIcon({
     className: "stop-pin",
-    html: "<span></span>",
+    // Use a <button> so iOS Safari fires touch events without requiring
+    // cursor:pointer hacks — buttons are always interactive on all platforms.
+    html: `<button class="stop-pin-btn" aria-label="${esc(label || "")}"></button>`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   });
@@ -1865,29 +1867,19 @@ function _loadMapTabStops(lat, lng) {
       if (_mapTabStopCodes.has(s.bus_stop_code)) return;   // avoid duplicates
       _mapTabStopCodes.add(s.bus_stop_code);
       const handler = () => { switchView("arrivals"); loadStop(s.bus_stop_code); };
+      const label = s.description || s.bus_stop_code;
       const marker = L.marker([s.latitude, s.longitude], {
-        icon: _stopPinIcon(),
-        title: s.description || s.bus_stop_code,
+        icon: _stopPinIcon(label),
+        title: label,
       })
-      .on("click", handler)
       .addTo(_mapTabMap);
-      // iOS Safari: Leaflet's tooltip bindTooltip() intercepts the first tap to
-      // show the tooltip rather than firing click. Bypass by attaching a raw DOM
-      // touchend listener directly on the icon element.
-      if (marker._icon) {
-        let _tx = 0, _ty = 0;
-        marker._icon.addEventListener("touchstart", (e) => {
-          _tx = e.touches[0].clientX; _ty = e.touches[0].clientY;
-        }, { passive: true });
-        marker._icon.addEventListener("touchend", (e) => {
-          const dx = e.changedTouches[0].clientX - _tx;
-          const dy = e.changedTouches[0].clientY - _ty;
-          if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
-            e.preventDefault();
-            handler();
-          }
-        }, { passive: false });
-      }
+      // Attach click on the <button> inside the divIcon — buttons receive touch
+      // events on iOS Safari without any workarounds, unlike plain <div> elements.
+      // stopPropagation so the map's own click (pan gesture end) doesn't also fire.
+      marker._icon?.querySelector(".stop-pin-btn")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        handler();
+      });
     });
     // Markers added after the container was first sized can land with a stale
     // hit-test offset; nudge Leaflet to recompute pane positions.
