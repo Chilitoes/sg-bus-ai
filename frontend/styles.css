@@ -964,6 +964,11 @@ th.num, td.num { text-align: right; }
   pointer-events: none;
   line-height: 1.4;
 }
+/* Dim Voyager tiles in dark mode so the map doesn't look washed out */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .leaflet-tile-pane { filter: brightness(.72) saturate(.8); }
+}
+[data-theme="dark"] .leaflet-tile-pane { filter: brightness(.72) saturate(.8); }
 /* Leaflet overrides inside map tab */
 #map-tab-container .leaflet-control-zoom { border: none !important; }
 #map-tab-container .leaflet-control-zoom a {

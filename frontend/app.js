@@ -1802,13 +1802,11 @@ function _isDark() {
 }
 
 function _sgTiles() {
-  const url = _isDark()
-    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-    : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
-  return L.tileLayer(url, {
-    maxZoom: 19, subdomains: "abcd", detectRetina: true,
-    attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>',
-  });
+  return L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    { maxZoom: 19, subdomains: "abcd", detectRetina: true,
+      attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>' }
+  );
 }
 
 // ── Map tab ────────────────────────────────────────────────
@@ -2083,7 +2081,7 @@ function updatePlanMap(data, coords) {
   // Draw the first available option's legs
   const option = data.options?.[0];
   if (option?.legs) {
-    option.legs.forEach((leg) => {
+    option.legs.forEach((leg, li) => {
       const color = _legColor(leg);
       const isWalk = leg.type === "walk";
       const points = _legPoints(leg);
@@ -2127,6 +2125,21 @@ function updatePlanMap(data, coords) {
       if (leg.type === "mrt" && leg.board_lat) {
         L.circleMarker([leg.board_lat, leg.board_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
         L.circleMarker([leg.alight_lat, leg.alight_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
+      }
+      const nextLeg = option.legs[li + 1];
+      if ((leg.type === "bus" || leg.type === "mrt") &&
+          (nextLeg?.type === "bus" || nextLeg?.type === "mrt")) {
+        const endPt  = leg.type === "bus"
+          ? (leg.alight_stop?.lat ? [leg.alight_stop.lat, leg.alight_stop.lng] : null)
+          : (leg.alight_lat       ? [leg.alight_lat, leg.alight_lng]          : null);
+        const startPt = nextLeg.type === "bus"
+          ? (nextLeg.board_stop?.lat ? [nextLeg.board_stop.lat, nextLeg.board_stop.lng] : null)
+          : (nextLeg.board_lat       ? [nextLeg.board_lat, nextLeg.board_lng]           : null);
+        if (endPt && startPt) {
+          L.polyline([endPt, startPt], {
+            color: "#aaa", opacity: 0.7, weight: 2, dashArray: "3,6", lineCap: "round",
+          }).addTo(_planMap);
+        }
       }
     });
   }
