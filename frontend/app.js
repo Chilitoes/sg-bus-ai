@@ -1742,6 +1742,14 @@ function _sgTiles() {
 
 $("nearby-map-btn").addEventListener("click", () => window.open("map.html", "_blank"));
 
+$("plan-map-fs-btn").addEventListener("click", () => {
+  const wrap = $("plan-map-wrap");
+  const isFs = wrap.classList.toggle("fullscreen");
+  show(isFs ? $("plan-map-fs-collapse") : $("plan-map-fs-expand"));
+  hide(isFs ? $("plan-map-fs-expand")  : $("plan-map-fs-collapse"));
+  setTimeout(() => _planMap?.invalidateSize(), 50);
+});
+
 // Line colors for MRT (matches mrt_data.py line_color values)
 const MRT_COLORS = {
   EWL: "#009645", NSL: "#d42e12", NEL: "#9900aa",
