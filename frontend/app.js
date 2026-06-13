@@ -1802,11 +1802,13 @@ function _isDark() {
 }
 
 function _sgTiles() {
-  const style = _isDark() ? "Night" : "Default";
-  return L.tileLayer(
-    `https://www.onemap.gov.sg/maps/tiles/${style}/{z}/{x}/{y}.png`,
-    { maxZoom: 18, minZoom: 11, attribution: "" }
-  );
+  const url = _isDark()
+    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+    : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  return L.tileLayer(url, {
+    maxZoom: 19, subdomains: "abcd", detectRetina: true,
+    attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>',
+  });
 }
 
 // ── Map tab ────────────────────────────────────────────────
@@ -1971,6 +1973,65 @@ function _smoothLine(points, segments = 16) {
   return out;
 }
 
+const _mrtOsmCache = new Map();
+
+async function _osmMrtTrack(leg) {
+  const lat1 = leg.board_lat, lng1 = leg.board_lng;
+  const lat2 = leg.alight_lat, lng2 = leg.alight_lng;
+  if (!lat1 || !lat2) return null;
+  const key = `${leg.from_code}|${leg.to_code}`;
+  if (_mrtOsmCache.has(key)) return _mrtOsmCache.get(key);
+  const pad = 0.008;
+  const bbox = `${Math.min(lat1,lat2)-pad},${Math.min(lng1,lng2)-pad},${Math.max(lat1,lat2)+pad},${Math.max(lng1,lng2)+pad}`;
+  const q = `[out:json][timeout:10];way["railway"="subway"](${bbox});out geom;`;
+  try {
+    const r = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`,
+      { signal: AbortSignal.timeout(12000) });
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    const segs = (d.elements || [])
+      .filter(e => e.type === "way" && e.geometry?.length >= 2)
+      .map(e => e.geometry.map(n => [n.lat, n.lon]));
+    const track = segs.length ? _stitchWays(segs, [lat1, lng1], [lat2, lng2]) : null;
+    _mrtOsmCache.set(key, track);
+    return track;
+  } catch {
+    _mrtOsmCache.set(key, null);
+    return null;
+  }
+}
+
+function _stitchWays(segs, start, end) {
+  const d2 = (a, b) => (a[0]-b[0])**2 + (a[1]-b[1])**2;
+  const remaining = segs.map(s => [...s]);
+  let bestI = 0, bestD = Infinity;
+  remaining.forEach((s, i) => {
+    const d = Math.min(d2(s[0], start), d2(s[s.length-1], start));
+    if (d < bestD) { bestD = d; bestI = i; }
+  });
+  let seg = remaining.splice(bestI, 1)[0];
+  if (d2(seg[0], start) > d2(seg[seg.length-1], start)) seg = [...seg].reverse();
+  const chain = [...seg];
+  const EPS2 = 6e-8;
+  let changed = true;
+  while (remaining.length && changed) {
+    changed = false;
+    const tail = chain[chain.length - 1];
+    for (let i = 0; i < remaining.length; i++) {
+      const s = remaining[i];
+      if (d2(s[0], tail) < EPS2) {
+        chain.push(...s.slice(1)); remaining.splice(i, 1); changed = true; break;
+      }
+      if (d2(s[s.length - 1], tail) < EPS2) {
+        chain.push(...[...s].reverse().slice(1)); remaining.splice(i, 1); changed = true; break;
+      }
+    }
+  }
+  let endI = chain.length - 1, endD = Infinity;
+  chain.forEach((p, i) => { const d = d2(p, end); if (d < endD) { endD = d; endI = i; } });
+  return chain.slice(0, endI + 1);
+}
+
 // Colour for a journey leg polyline
 function _legColor(leg) {
   if (leg.type === "walk") return "#888";
@@ -2029,12 +2090,18 @@ function updatePlanMap(data, coords) {
       // MRT: curve the line through the stations so it follows the track shape.
       const drawPoints = leg.type === "mrt" ? _smoothLine(points) : points;
       if (points.length >= 2) {
-        L.polyline(drawPoints, {
+        const poly = L.polyline(drawPoints, {
           color, opacity: isWalk ? .55 : .9,
           weight: isWalk ? 2 : 5,
           dashArray: isWalk ? "4,7" : null,
           lineCap: "round", lineJoin: "round",
         }).addTo(_planMap);
+        if (leg.type === "mrt") {
+          const map = _planMap;
+          _osmMrtTrack(leg).then(track => {
+            if (track?.length > 2 && map === _planMap) poly.setLatLngs(track);
+          });
+        }
         points.forEach((p) => bounds.push(p));
 
         // Compact route badge at midpoint
