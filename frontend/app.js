@@ -1812,6 +1812,7 @@ function _sgTiles() {
 // ── Map tab ────────────────────────────────────────────────
 let _mapTabMap    = null;
 let _mapTabLoaded = false;
+const _mapTabStopCodes = new Set();
 
 function initMapView() {
   if (!_leafletReady()) { _whenLeaflet(initMapView); return; }
@@ -1823,10 +1824,14 @@ function initMapView() {
                   .setView([1.3521, 103.8198], 15);
     _sgTiles().addTo(_mapTabMap);
   }
-  setTimeout(() => _mapTabMap.invalidateSize(), 50);
+  setTimeout(() => _mapTabMap.invalidateSize(), 60);
   if (_mapTabLoaded) return;
   _mapTabLoaded = true;
 
+  // Always load stops for the current view straight away so there are dots to
+  // tap even if the user never answers the location prompt. Geolocation then
+  // recenters and loads stops near them (with a timeout so it can't hang).
+  _loadMapTabStops(1.3521, 103.8198);
   navigator.geolocation?.getCurrentPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
       _mapTabMap.setView([lat, lng], 16);
@@ -1836,7 +1841,8 @@ function initMapView() {
         .addTo(_mapTabMap);
       _loadMapTabStops(lat, lng);
     },
-    () => _loadMapTabStops(1.3521, 103.8198)
+    () => {},
+    { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
   );
 }
 
@@ -1845,13 +1851,19 @@ function _loadMapTabStops(lat, lng) {
     if (!_mapTabMap) return;
     d.results?.forEach((s) => {
       if (!s.latitude) return;
+      if (_mapTabStopCodes.has(s.bus_stop_code)) return;   // avoid duplicates
+      _mapTabStopCodes.add(s.bus_stop_code);
       L.circleMarker([s.latitude, s.longitude], {
-        radius: 8, color: "#fff", fillColor: "#e5282a", fillOpacity: 0.92, weight: 2,
+        radius: 9, color: "#fff", fillColor: "#e5282a", fillOpacity: 0.92, weight: 2,
+        bubblingMouseEvents: false,
       })
       .bindTooltip(s.description || s.bus_stop_code, { direction: "top", offset: [0, -8] })
       .on("click", () => { switchView("arrivals"); loadStop(s.bus_stop_code); })
       .addTo(_mapTabMap);
     });
+    // Markers added after the container was first sized can land with a stale
+    // hit-test offset; nudge Leaflet to recompute pane positions.
+    _mapTabMap.invalidateSize();
   }).catch(() => {});
 }
 
