@@ -569,6 +569,22 @@ th.num, td.num { text-align: right; }
   width: 38px; height: 4px; border-radius: 2px;
   background: var(--line); margin: .4rem auto 1rem;
 }
+/* Google sign-in */
+.google-signin-wrap { margin-bottom: 1.1rem; }
+#google-signin-btn {
+  display: flex; justify-content: center;
+  min-height: 40px;
+  color-scheme: light;   /* keep GSI iframe rendering predictable */
+}
+.auth-divider {
+  display: flex; align-items: center; gap: .7rem;
+  margin: 1rem 0 0; color: var(--ink-3);
+  font-size: .72rem; font-weight: 600; letter-spacing: .01em;
+}
+.auth-divider::before, .auth-divider::after {
+  content: ""; flex: 1; height: 1px; background: var(--line);
+}
+
 .seg {
   display: flex; background: var(--surface-2);
   border-radius: 11px; padding: 3px; margin-bottom: 1.1rem;

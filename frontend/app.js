@@ -6,6 +6,11 @@
 
 // ── Config ────────────────────────────────────────────────
 const API_BASE   = "";
+// Google OAuth client ID for "Sign in with Google" (public value, safe to ship).
+// Paste the same client ID you set as GOOGLE_CLIENT_ID on the backend. Leave
+// empty to hide the Google button. Create one at
+// https://console.cloud.google.com/apis/credentials → OAuth client → Web app.
+const GOOGLE_CLIENT_ID = "";
 const REFRESH_MS = 30_000;
 const DUE_SECS   = 45;
 const FAV_KEY    = "sgbus_favs";
@@ -163,15 +168,19 @@ function syncAccountUI() {
 function openSheet() {
   show($("sheet-backdrop")); show($("account-sheet"));
   hide($("auth-error"));
-  if (S.token)
-    api("/api/auth/me")
-      .then((me) => {
-        const since = new Date(me.created_at + "Z").toLocaleDateString("en-SG",
-          { day: "numeric", month: "short", year: "numeric" });
-        $("profile-meta").textContent =
-          `${me.favourite_count} stops · ${me.journey_count} routes · joined ${since}`;
-      })
-      .catch(() => {});
+  if (!S.token) { ensureGoogleSignIn(); return; }
+  api("/api/auth/me")
+    .then((me) => {
+      const since = new Date(me.created_at + "Z").toLocaleDateString("en-SG",
+        { day: "numeric", month: "short", year: "numeric" });
+      const via = me.auth_provider === "google" ? " · Google account" : "";
+      $("profile-meta").textContent =
+        `${me.favourite_count} stops · ${me.journey_count} routes · joined ${since}${via}`;
+      // Google accounts have no password to change.
+      document.querySelector(".pw-change")
+        ?.classList.toggle("hidden", me.auth_provider === "google");
+    })
+    .catch(() => {});
 }
 function closeSheet() { hide($("sheet-backdrop")); hide($("account-sheet")); }
 
@@ -190,6 +199,25 @@ function setAuthMode(mode) {
 $("seg-login").addEventListener("click", () => setAuthMode("login"));
 $("seg-register").addEventListener("click", () => setAuthMode("register"));
 
+// Shared post-login flow: store the token, pull the account's favourites /
+// journeys (server is source of truth), refresh the UI and close the sheet.
+async function completeLogin(res, welcomeMsg) {
+  setAuth(res.token, res.username);
+  try {
+    const [mine, journeys] = await Promise.all([
+      api("/api/favourites"),
+      api("/api/saved-journeys"),
+    ]);
+    S.favs = mine.favourites;
+    S.savedJourneys = journeys.journeys;
+    writeJSON(favKey(), S.favs);
+  } catch { S.favs = readJSON(favKey(), []); }
+  afterFavsChanged();
+  afterJourneysChanged();
+  closeSheet();
+  if (welcomeMsg) toast(welcomeMsg);
+}
+
 $("auth-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const username = $("auth-username").value.trim();
@@ -197,26 +225,11 @@ $("auth-form").addEventListener("submit", async (e) => {
   if (!username || !password) return;
   $("auth-submit").disabled = true;
   try {
-    const deviceFavs = S.favs;
     const res = await api(`/api/auth/${S.authMode}`, {
       method: "POST",
       body: JSON.stringify({ username, password }),
     });
-    setAuth(res.token, res.username);
-    try {
-      // On login, account list is source of truth (register: start fresh since login required to save).
-      const [mine, journeys] = await Promise.all([
-        api("/api/favourites"),
-        api("/api/saved-journeys"),
-      ]);
-      S.favs = mine.favourites;
-      S.savedJourneys = journeys.journeys;
-      writeJSON(favKey(), S.favs);
-    } catch { S.favs = readJSON(favKey(), []); }
-    afterFavsChanged();
-    afterJourneysChanged();
-    closeSheet();
-    toast(S.authMode === "login" ? `Welcome back, ${res.username}` : "Account created");
+    await completeLogin(res, S.authMode === "login" ? `Welcome back, ${res.username}` : "Account created");
     $("auth-password").value = "";
   } catch (err) {
     const el = $("auth-error");
@@ -227,6 +240,51 @@ $("auth-form").addEventListener("submit", async (e) => {
     $("auth-submit").disabled = false;
   }
 });
+
+// ── Google sign-in (Google Identity Services) ──────────────
+let _gsiInited = false;
+function _googleReady() { return !!(window.google && google.accounts && google.accounts.id); }
+
+function ensureGoogleSignIn() {
+  if (!GOOGLE_CLIENT_ID) return;            // not configured → no button
+  if (!_googleReady()) { setTimeout(ensureGoogleSignIn, 300); return; }
+  show($("google-signin-wrap"));
+  if (!_gsiInited) {
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: onGoogleCredential,
+    });
+    _gsiInited = true;
+  }
+  renderGoogleButton();
+}
+
+function renderGoogleButton() {
+  const el = $("google-signin-btn");
+  if (!el || !_googleReady()) return;
+  el.innerHTML = "";
+  const w = Math.min(360, Math.max(220, el.offsetWidth || 300));
+  google.accounts.id.renderButton(el, {
+    type: "standard", theme: _isDark() ? "filled_black" : "outline",
+    size: "large", text: "continue_with", shape: "pill",
+    logo_alignment: "center", width: w,
+  });
+}
+
+async function onGoogleCredential(response) {
+  try {
+    const res = await api("/api/auth/google", {
+      method: "POST",
+      body: JSON.stringify({ credential: response.credential }),
+    });
+    await completeLogin(res, `Welcome, ${res.username}`);
+  } catch (err) {
+    const el = $("auth-error");
+    el.textContent = err.message.startsWith("HTTP") || err.message.includes("fetch")
+      ? "Google sign-in unavailable right now." : err.message;
+    show(el);
+  }
+}
 
 $("logout-btn").addEventListener("click", async () => {
   try { await api("/api/auth/logout", { method: "POST" }); } catch {}
