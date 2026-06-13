@@ -407,10 +407,49 @@ button { font-family: inherit; cursor: pointer; }
   font-size: .75rem; color: var(--ink-2); line-height: 1.75;
 }
 
-.chart-block { margin-top: 1rem; }
-.chart-title { font-size: .78rem; font-weight: 600; color: var(--ink-2); margin-bottom: .45rem; }
-.chart-hint { font-weight: 400; color: var(--ink-3); }
+.chart-block { margin-top: 1.1rem; }
+.chart-title { font-size: .8rem; font-weight: 700; color: var(--ink); margin-bottom: .18rem; }
+.chart-hint { font-weight: 400; color: var(--ink-3); font-size: .76rem; }
+.chart-sub { font-size: .71rem; color: var(--ink-3); margin-bottom: .45rem; line-height: 1.4; }
 .chart-box { position: relative; height: 190px; }
+.chart-box-tall { height: 240px; }
+
+/* ── AI accuracy scorecard ──────────────────────────────── */
+.accuracy-scorecard {
+  display: flex; align-items: center; gap: .6rem;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: .85rem 1rem;
+  margin-top: .75rem; flex-wrap: wrap;
+}
+.acc-col {
+  flex: 1; min-width: 90px;
+  display: flex; flex-direction: column; align-items: center;
+}
+.acc-col.ai .acc-pct { color: var(--good); }
+.acc-label {
+  font-size: .67rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--ink-3); margin-bottom: .18rem;
+}
+.acc-pct {
+  font-size: 1.8rem; font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.acc-sub {
+  font-size: .66rem; color: var(--ink-3); margin-top: .12rem;
+}
+.acc-vs {
+  font-size: .72rem; font-weight: 600; color: var(--ink-3);
+  flex-shrink: 0;
+}
+.acc-delta-wrap {
+  width: 100%; text-align: center; margin-top: .3rem;
+}
+.acc-delta {
+  font-size: .78rem; font-weight: 700;
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: 999px; padding: .2rem .7rem;
+  display: inline-block;
+}
 
 /* ── Saved view ──────────────────────────────────────── */
 .saved-list { display: flex; flex-direction: column; gap: .5rem; }

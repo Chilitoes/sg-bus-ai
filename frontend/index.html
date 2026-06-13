@@ -115,17 +115,43 @@
       </summary>
       <div class="panel-body">
         <p id="no-stats" class="empty hidden">Not enough history for this stop yet — it builds automatically.</p>
+
+        <!-- AI vs LTA accuracy scorecard -->
+        <div id="accuracy-scorecard" class="accuracy-scorecard hidden">
+          <div class="acc-col">
+            <div class="acc-label">LTA timing</div>
+            <div class="acc-pct" id="acc-lta">–</div>
+            <div class="acc-sub">within ±1 min</div>
+          </div>
+          <div class="acc-vs">vs</div>
+          <div class="acc-col ai">
+            <div class="acc-label">AI-adjusted</div>
+            <div class="acc-pct" id="acc-ai">–</div>
+            <div class="acc-sub">within ±1 min</div>
+          </div>
+          <div class="acc-delta-wrap">
+            <span id="acc-delta" class="acc-delta"></span>
+          </div>
+        </div>
+
         <div id="charts-wrap">
           <div class="chart-block">
-            <div class="chart-title">Average delay by route</div>
-            <div class="chart-box"><canvas id="chart-service"></canvas></div>
+            <div class="chart-title">Average delay by route <span class="chart-hint" id="chart-service-hint"></span></div>
+            <div class="chart-sub">positive = late, negative = early · bar width = number of observations</div>
+            <div class="chart-box chart-box-tall"><canvas id="chart-service"></canvas></div>
           </div>
           <div class="chart-block">
-            <div class="chart-title">Average delay by hour <span class="chart-hint">(orange = peak)</span></div>
-            <div class="chart-box"><canvas id="chart-hour"></canvas></div>
+            <div class="chart-title">On-time rate by route <span class="chart-hint">(% arriving within ±1 min of LTA)</span></div>
+            <div class="chart-box"><canvas id="chart-ontime"></canvas></div>
+          </div>
+          <div class="chart-block">
+            <div class="chart-title">Average delay by hour <span class="chart-hint">(orange = peak hours)</span></div>
+            <div class="chart-sub">how late buses tend to run at each hour of the day</div>
+            <div class="chart-box chart-box-tall"><canvas id="chart-hour"></canvas></div>
           </div>
           <div class="chart-block">
             <div class="chart-title">Daily trend, last 14 days <span id="trend-dir" class="chart-hint"></span></div>
+            <div class="chart-sub">average delay per day — are buses getting better or worse?</div>
             <div class="chart-box"><canvas id="chart-trend"></canvas></div>
           </div>
         </div>
@@ -367,6 +393,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=12"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

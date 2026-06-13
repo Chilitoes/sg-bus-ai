@@ -273,6 +273,11 @@ def get_stats(stop_code: str, db: Session = Depends(get_db)) -> dict:
             BusArrivalRecord.bus_service,
             func.avg(BusArrivalRecord.delay_seconds).label("avg_delay"),
             func.count().label("count"),
+            func.avg(
+                case((func.abs(BusArrivalRecord.delay_seconds) <= 60, 1.0), else_=0.0)
+            ).label("on_time"),
+            func.max(BusArrivalRecord.delay_seconds).label("max_delay"),
+            func.min(BusArrivalRecord.delay_seconds).label("min_delay"),
         )
         .group_by(BusArrivalRecord.bus_service)
         .order_by(func.avg(BusArrivalRecord.delay_seconds).desc())
@@ -281,9 +286,12 @@ def get_stats(stop_code: str, db: Session = Depends(get_db)) -> dict:
     )
     by_service = [
         {
-            "service": r.bus_service,
+            "service":       r.bus_service,
             "avg_delay_sec": round(r.avg_delay, 1),
-            "count": r.count,
+            "max_delay_sec": round(r.max_delay, 1),
+            "min_delay_sec": round(r.min_delay, 1),
+            "on_time_pct":   round(r.on_time * 100),
+            "count":         r.count,
         }
         for r in by_service_q
     ]
@@ -317,12 +325,58 @@ def get_stats(stop_code: str, db: Session = Depends(get_db)) -> dict:
     )
     trend = [{"date": str(r.day), "avg_delay_sec": round(r.avg_delay, 1)} for r in trend_q]
 
+    # ── AI vs LTA accuracy ──────────────────────────────────────────────
+    # Retroactively apply the current model to historical records and compare
+    # against the raw LTA estimate.  Uses the same threshold (±60 s) for both.
+    accuracy = None
+    try:
+        labeled_rows = (
+            base_q
+            .with_entities(
+                BusArrivalRecord.bus_service,
+                BusArrivalRecord.bus_stop_code,
+                BusArrivalRecord.hour_of_day,
+                BusArrivalRecord.day_of_week,
+                BusArrivalRecord.bus_load,
+                BusArrivalRecord.bus_type,
+                BusArrivalRecord.delay_seconds,
+            )
+            .limit(2000)
+            .all()
+        )
+        if len(labeled_rows) >= 50:
+            lta_ok = ai_ok = 0
+            for row in labeled_rows:
+                d = row.delay_seconds
+                ai_adj = global_model.predict(
+                    hour=row.hour_of_day,
+                    day_of_week=row.day_of_week,
+                    bus_load=row.bus_load or "SEA",
+                    bus_type=row.bus_type or "SD",
+                    service_no=row.bus_service,
+                    stop_code=row.bus_stop_code,
+                )
+                if abs(d) <= 60:
+                    lta_ok += 1
+                if abs(d - ai_adj) <= 60:
+                    ai_ok += 1
+            n = len(labeled_rows)
+            accuracy = {
+                "samples":       n,
+                "lta_pct":       round(lta_ok / n * 100),
+                "ai_pct":        round(ai_ok  / n * 100),
+                "delta_pct":     round((ai_ok - lta_ok) / n * 100),
+            }
+    except Exception:
+        pass  # accuracy is a bonus, never break stats over it
+
     return {
         "bus_stop_code":  stop_code,
         "total_records":  total_rows,
         "by_service":     by_service,
         "by_hour":        by_hour_full,
         "trend":          trend,
+        "accuracy":       accuracy,
     }
 
 

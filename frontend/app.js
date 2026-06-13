@@ -40,7 +40,7 @@ const S = {
   acTmr: null,
   chartsDirty: false,
 };
-const charts = { service: null, hour: null, trend: null };
+const charts = { service: null, ontime: null, hour: null, trend: null };
 
 // Favourites require a logged-in account; scoped per username for caching.
 function favKey() { return `${FAV_KEY}_u_${S.username}`; }
@@ -638,18 +638,35 @@ function renderCharts(stats) {
   S.chartsDirty = false;
   destroyCharts();
   if (!stats || stats.total_records === 0) {
-    show($("no-stats")); hide($("charts-wrap"));
+    show($("no-stats")); hide($("charts-wrap")); hide($("accuracy-scorecard"));
     return;
   }
   hide($("no-stats")); show($("charts-wrap"));
 
+  // ── Accuracy scorecard ──────────────────────────────────────────────
+  const acc = stats.accuracy;
+  if (acc && acc.samples >= 50) {
+    $("acc-lta").textContent = `${acc.lta_pct}%`;
+    $("acc-ai").textContent  = `${acc.ai_pct}%`;
+    const d = acc.delta_pct;
+    const sign = d >= 0 ? "+" : "";
+    $("acc-delta").textContent = `${sign}${d}% more accurate with AI`;
+    $("acc-delta").style.background = d >= 0 ? "" : "var(--bad-soft)";
+    $("acc-delta").style.color      = d >= 0 ? "" : "var(--bad)";
+    show($("accuracy-scorecard"));
+  } else {
+    hide($("accuracy-scorecard"));
+  }
+
   const css = getComputedStyle(document.documentElement);
+  const ink  = css.getPropertyValue("--ink").trim();
   const ink2 = css.getPropertyValue("--ink-2").trim();
   const ink3 = css.getPropertyValue("--ink-3").trim();
   const line = css.getPropertyValue("--line").trim();
   const accent = css.getPropertyValue("--accent").trim();
   const good = css.getPropertyValue("--good").trim();
   const warn = css.getPropertyValue("--warn").trim();
+  const bad  = css.getPropertyValue("--bad").trim();
 
   const fmtDelay = (v) => {
     if (v === null || v === undefined) return "no data";
@@ -659,64 +676,245 @@ function renderCharts(stats) {
     const t = m ? `${m}m ${s}s` : `${s}s`;
     return v > 0 ? `${t} late` : `${t} early`;
   };
-  const yScale = {
-    grid: { color: line }, border: { display: false },
-    ticks: { color: ink3, font: { size: 10 },
-      callback: (v) => (Math.round(v) === 0 ? "0" : `${v > 0 ? "+" : ""}${Math.round(v)}s`) },
+
+  // Shared scale/plugin factories
+  const yDelayScale = (extra = {}) => ({
+    grid: { color: line, drawTicks: false },
+    border: { display: false },
+    ticks: {
+      color: ink3, font: { size: 10 }, padding: 4,
+      callback: (v) => v === 0 ? "on time" : `${v > 0 ? "+" : ""}${Math.round(v)}s`,
+    },
+    ...extra,
+  });
+  const xScale = (extra = {}) => ({
+    grid: { display: false }, border: { display: false },
+    ticks: { color: ink3, font: { size: 10 }, padding: 2 },
+    ...extra,
+  });
+  const noLegend = { legend: { display: false } };
+  const delayTooltip = {
+    displayColors: false,
+    backgroundColor: "var(--surface)",
+    borderColor: line, borderWidth: 1,
+    titleColor: ink, bodyColor: ink2,
+    padding: 8, cornerRadius: 6,
+    callbacks: {
+      label: (i) => ` ${fmtDelay(i.raw)}`,
+      afterLabel: (i) => i.dataset.counts ? ` (${i.dataset.counts[i.dataIndex]} observations)` : "",
+    },
   };
-  const xScale = { grid: { display: false }, border: { display: false },
-    ticks: { color: ink3, font: { size: 10 } } };
   const base = {
     responsive: true, maintainAspectRatio: false,
-    animation: { duration: 400 },
-    plugins: { legend: { display: false },
-      tooltip: { displayColors: false, callbacks: { label: (i) => ` ${fmtDelay(i.raw)}` } } },
-    scales: { y: yScale, x: xScale },
+    animation: { duration: 350 },
+    plugins: { ...noLegend, tooltip: delayTooltip },
+    scales: { y: yDelayScale(), x: xScale() },
   };
 
+  // ── Chart 1: Average delay by route ─────────────────────────────────
   if (stats.by_service?.length) {
-    const sorted = [...stats.by_service].sort((a, b) => b.avg_delay_sec - a.avg_delay_sec);
+    // Sort by absolute delay so the most extreme routes (late AND early) rank high
+    const sorted = [...stats.by_service].sort((a, b) =>
+      Math.abs(b.avg_delay_sec) - Math.abs(a.avg_delay_sec));
+    const counts = sorted.map((s) => s.count);
+    const maxCount = Math.max(...counts, 1);
+
+    // Colour: shades of bad/good scaled by magnitude
+    const barColors = sorted.map((s) => {
+      const d = s.avg_delay_sec;
+      if (Math.abs(d) < 15) return ink3;
+      return d > 0 ? accent : good;
+    });
+
+    $("chart-service-hint").textContent =
+      `(${sorted.length} routes · ${stats.total_records.toLocaleString()} total observations)`;
+
+    // bar thickness proportional to observation count (min 40%, max 100%)
     charts.service = new Chart($("chart-service"), {
       type: "bar",
-      data: { labels: sorted.map((s) => s.service),
-        datasets: [{ data: sorted.map((s) => s.avg_delay_sec),
-          backgroundColor: sorted.map((s) => (s.avg_delay_sec >= 0 ? accent : good)),
-          borderRadius: 4 }] },
-      options: base,
+      data: {
+        labels: sorted.map((s) => s.service),
+        datasets: [{
+          data: sorted.map((s) => s.avg_delay_sec),
+          backgroundColor: barColors,
+          borderRadius: 5,
+          counts,
+        }],
+      },
+      options: {
+        ...base,
+        plugins: {
+          ...noLegend,
+          tooltip: {
+            ...delayTooltip,
+            callbacks: {
+              title: (items) => `Bus ${items[0].label}`,
+              label: (i) => ` Avg: ${fmtDelay(i.raw)}`,
+              afterLabel: (i) => {
+                const s = sorted[i.dataIndex];
+                return [
+                  ` Range: ${fmtDelay(s.min_delay_sec)} to ${fmtDelay(s.max_delay_sec)}`,
+                  ` On time: ${s.on_time_pct}%`,
+                  ` Observations: ${s.count}`,
+                ];
+              },
+            },
+          },
+        },
+        scales: {
+          y: yDelayScale({ title: { display: true, text: "seconds", color: ink3, font: { size: 9 } } }),
+          x: xScale(),
+        },
+      },
     });
   }
 
+  // ── Chart 2: On-time rate by route ───────────────────────────────────
+  if (stats.by_service?.length) {
+    const sorted = [...stats.by_service].sort((a, b) => b.on_time_pct - a.on_time_pct);
+    const barColors = sorted.map((s) =>
+      s.on_time_pct >= 80 ? good : s.on_time_pct >= 60 ? warn : bad);
+    charts.ontime = new Chart($("chart-ontime"), {
+      type: "bar",
+      data: {
+        labels: sorted.map((s) => s.service),
+        datasets: [{
+          data: sorted.map((s) => s.on_time_pct),
+          backgroundColor: barColors,
+          borderRadius: 5,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 350 },
+        plugins: {
+          ...noLegend,
+          tooltip: {
+            ...delayTooltip,
+            callbacks: {
+              title: (items) => `Bus ${items[0].label}`,
+              label: (i) => ` ${i.raw}% arrived within ±1 min`,
+              afterLabel: (i) => ` Observations: ${sorted[i.dataIndex].count}`,
+            },
+          },
+        },
+        scales: {
+          y: {
+            grid: { color: line, drawTicks: false }, border: { display: false },
+            min: 0, max: 100,
+            ticks: { color: ink3, font: { size: 10 }, padding: 4,
+              callback: (v) => `${v}%` },
+            title: { display: true, text: "% on time", color: ink3, font: { size: 9 } },
+          },
+          x: xScale(),
+        },
+      },
+    });
+  }
+
+  // ── Chart 3: Average delay by hour ───────────────────────────────────
   if (stats.by_hour) {
     const isPeak = (h) => (h >= 7 && h < 9) || (h >= 17 && h < 19);
-    const noBus = (h) => h >= 1 && h <= 4;
-    const hl = (h) => (h === 0 ? "12a" : h === 12 ? "12p" : h < 12 ? `${h}a` : `${h - 12}p`);
+    const noBus  = (h) => h >= 1 && h <= 5;
+    // Clean labels: midnight, 6am, noon, 6pm only; others abbreviated
+    const hl = (h) => {
+      if (h === 0)  return "Midnight";
+      if (h === 6)  return "6 am";
+      if (h === 12) return "Noon";
+      if (h === 18) return "6 pm";
+      return h < 12 ? `${h}am` : `${h - 12}pm`;
+    };
+    const vals = stats.by_hour.map((v, i) => (noBus(i) ? null : v));
     charts.hour = new Chart($("chart-hour"), {
       type: "bar",
-      data: { labels: Array.from({ length: 24 }, (_, i) => hl(i)),
-        datasets: [{ data: stats.by_hour.map((v, i) => (noBus(i) ? null : v)),
-          backgroundColor: Array.from({ length: 24 }, (_, i) => (isPeak(i) ? warn : ink2)),
-          borderRadius: 3 }] },
-      options: { ...base,
-        scales: { y: yScale, x: { ...xScale, ticks: { ...xScale.ticks, maxTicksLimit: 8 } } } },
+      data: {
+        labels: Array.from({ length: 24 }, (_, i) => hl(i)),
+        datasets: [{
+          data: vals,
+          backgroundColor: Array.from({ length: 24 }, (_, i) =>
+            noBus(i) ? "transparent" : isPeak(i) ? warn : ink2),
+          borderRadius: 3,
+        }],
+      },
+      options: {
+        ...base,
+        plugins: {
+          ...noLegend,
+          tooltip: {
+            ...delayTooltip,
+            callbacks: {
+              title: (items) => {
+                const h = items[0].dataIndex;
+                const next = (h + 1) % 24;
+                return `${hl(h)} – ${hl(next)}`;
+              },
+              label: (i) => i.raw === null ? " No service" : ` Avg: ${fmtDelay(i.raw)}`,
+              afterLabel: (i) => isPeak(i.dataIndex) ? " ⚡ Peak hour" : "",
+            },
+          },
+          annotation: undefined,
+        },
+        scales: {
+          y: yDelayScale({ title: { display: true, text: "seconds", color: ink3, font: { size: 9 } } }),
+          x: xScale({ ticks: { ...xScale().ticks, maxRotation: 0, maxTicksLimit: 8 } }),
+        },
+      },
     });
   }
 
+  // ── Chart 4: 14-day trend ────────────────────────────────────────────
   if (stats.trend?.length) {
     const vals = stats.trend.map((t) => t.avg_delay_sec).filter((v) => v !== null);
     if (vals.length >= 2) {
       const half = Math.ceil(vals.length / 2);
       const a = vals.slice(0, half).reduce((x, y) => x + y, 0) / half;
       const b = vals.slice(-half).reduce((x, y) => x + y, 0) / half;
-      $("trend-dir").textContent = b < a - 2 ? "(improving)" : b > a + 2 ? "(worsening)" : "(stable)";
+      const dir = b < a - 2 ? "↓ improving" : b > a + 2 ? "↑ worsening" : "→ stable";
+      $("trend-dir").textContent = `(${dir})`;
     }
+    const trendLabels = stats.trend.map((t) =>
+      new Date(t.date + "T00:00:00").toLocaleDateString("en-SG",
+        { day: "numeric", month: "short", timeZone: "Asia/Singapore" }));
+
+    // Gradient fill: red above 0, green below
+    const gradientFill = (ctx) => {
+      const grad = ctx.chart.ctx.createLinearGradient(0, 0, 0, ctx.chart.height);
+      grad.addColorStop(0, accent + "55");
+      grad.addColorStop(1, accent + "00");
+      return grad;
+    };
+
     charts.trend = new Chart($("chart-trend"), {
       type: "line",
-      data: { labels: stats.trend.map((t) =>
-          new Date(t.date + "T00:00:00").toLocaleDateString("en-SG", { day: "numeric", month: "short" })),
-        datasets: [{ data: stats.trend.map((t) => t.avg_delay_sec),
-          borderColor: accent, backgroundColor: "transparent",
-          tension: .35, borderWidth: 2, pointRadius: 3, pointBackgroundColor: accent }] },
-      options: base,
+      data: {
+        labels: trendLabels,
+        datasets: [{
+          data: stats.trend.map((t) => t.avg_delay_sec),
+          borderColor: accent,
+          backgroundColor: (ctx) => gradientFill(ctx),
+          fill: true,
+          tension: 0.4, borderWidth: 2,
+          pointRadius: 4, pointBackgroundColor: accent,
+          pointHoverRadius: 6,
+        }],
+      },
+      options: {
+        ...base,
+        plugins: {
+          ...noLegend,
+          tooltip: {
+            ...delayTooltip,
+            callbacks: {
+              title: (items) => trendLabels[items[0].dataIndex],
+              label: (i) => ` ${fmtDelay(i.raw)}`,
+            },
+          },
+        },
+        scales: {
+          y: yDelayScale({ title: { display: true, text: "seconds", color: ink3, font: { size: 9 } } }),
+          x: xScale({ ticks: { ...xScale().ticks, maxTicksLimit: 7 } }),
+        },
+      },
     });
   }
 }
