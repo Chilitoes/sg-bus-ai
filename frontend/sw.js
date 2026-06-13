@@ -1,19 +1,22 @@
 /* SG Bus AI — service worker.
    Strategy: never touch API calls (live data must stay live); network-first
-   for navigations so deploys show up immediately; cache-first for static
-   assets (they're version-busted with ?v=N anyway). */
+   for everything same-origin (HTML, JS, CSS) so deploys ALWAYS take effect the
+   moment you're online. The cache is only an offline fallback. (A previous
+   cache-first strategy could serve stale app.js even after a version bump.) */
 
-const CACHE = "sgbus-shell-v1";
+const CACHE = "sgbus-shell-v2";
 
-self.addEventListener("install", (e) => {
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) =>
+        Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      )
+      .then(() => self.clients.claim())
   );
 });
 
@@ -25,29 +28,15 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.includes("/api/")) return;
 
-  // Navigations: network first, fall back to cached shell when offline.
-  if (e.request.mode === "navigate") {
-    e.respondWith(
-      fetch(e.request)
-        .then((r) => {
-          const copy = r.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
-          return r;
-        })
-        .catch(() => caches.match(e.request))
-    );
-    return;
-  }
-
-  // Static assets: cache first (urls carry ?v=N so updates bust naturally).
+  // Network-first for the app shell and static assets. Fresh code every load
+  // when online; fall back to the last cached copy only when the network fails.
   e.respondWith(
-    caches.match(e.request).then((hit) =>
-      hit ||
-      fetch(e.request).then((r) => {
+    fetch(e.request)
+      .then((r) => {
         const copy = r.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));
         return r;
       })
-    )
+      .catch(() => caches.match(e.request))
   );
 });
