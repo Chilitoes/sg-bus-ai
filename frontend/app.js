@@ -2179,7 +2179,13 @@ function updatePlanMap(data, coords, optIdx = 0) {
         if (leg.type === "mrt") {
           const map = _planMap;
           _osmMrtTrack(leg).then(track => {
-            if (track?.length > 2 && map === _planMap) poly.setLatLngs(track);
+            if (track?.length > 2 && map === _planMap) {
+              poly.setLatLngs([
+                [leg.board_lat, leg.board_lng],
+                ...track,
+                [leg.alight_lat, leg.alight_lng],
+              ]);
+            }
           });
         }
         points.forEach((p) => bounds.push(p));
