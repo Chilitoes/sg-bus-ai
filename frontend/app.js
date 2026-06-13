@@ -10,7 +10,7 @@ const API_BASE   = "";
 // Paste the same client ID you set as GOOGLE_CLIENT_ID on the backend. Leave
 // empty to hide the Google button. Create one at
 // https://console.cloud.google.com/apis/credentials → OAuth client → Web app.
-const GOOGLE_CLIENT_ID = "";
+const GOOGLE_CLIENT_ID = "362153323085-dlcbsnjvgb001b8cmnnc15e94egjc1ed.apps.googleusercontent.com";
 const REFRESH_MS = 30_000;
 const DUE_SECS   = 45;
 const FAV_KEY    = "sgbus_favs";
