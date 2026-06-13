@@ -2059,6 +2059,39 @@ async function _osmMrtTrack(leg) {
   }
 }
 
+const _busOsrmCache = new Map();
+
+async function _busOsrmTrack(leg) {
+  const b = leg.board_stop, a = leg.alight_stop;
+  if (!b?.lat || !a?.lat) return null;
+  const key = `${b.lat},${b.lng}|${a.lat},${a.lng}`;
+  if (_busOsrmCache.has(key)) return _busOsrmCache.get(key);
+  const wps = (leg.waypoints?.length >= 3)
+    ? leg.waypoints
+    : [{ lat: b.lat, lng: b.lng }, { lat: a.lat, lng: a.lng }];
+  const step = wps.length > 12 ? Math.ceil(wps.length / 12) : 1;
+  const sampled = [];
+  for (let i = 0; i < wps.length; i += step) sampled.push(wps[i]);
+  if (sampled[sampled.length - 1] !== wps[wps.length - 1]) sampled.push(wps[wps.length - 1]);
+  const coords = sampled.map(p => `${p.lng},${p.lat}`).join(';');
+  try {
+    const r = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&continue_straight=true`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!r.ok) throw 0;
+    const j = await r.json();
+    const geom = j.routes?.[0]?.geometry?.coordinates;
+    if (!geom?.length) throw 0;
+    const track = geom.map(([lng, lat]) => [lat, lng]);
+    _busOsrmCache.set(key, track);
+    return track;
+  } catch {
+    _busOsrmCache.set(key, null);
+    return null;
+  }
+}
+
 function _stitchWays(segs, start, end) {
   const d2 = (a, b) => (a[0]-b[0])**2 + (a[1]-b[1])**2;
   const remaining = segs.map(s => [...s]);
@@ -2184,6 +2217,18 @@ function updatePlanMap(data, coords, optIdx = 0) {
                 [leg.board_lat, leg.board_lng],
                 ...track,
                 [leg.alight_lat, leg.alight_lng],
+              ]);
+            }
+          });
+        }
+        if (leg.type === "bus") {
+          const map = _planMap, bl = leg.board_stop, al = leg.alight_stop;
+          _busOsrmTrack(leg).then(track => {
+            if (track?.length > 2 && map === _planMap) {
+              poly.setLatLngs([
+                [bl.lat, bl.lng],
+                ...track,
+                [al.lat, al.lng],
               ]);
             }
           });
