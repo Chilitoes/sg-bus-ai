@@ -683,6 +683,42 @@ th.num, td.num { text-align: right; }
   width: 30px; flex-shrink: 0; padding-top: .8rem; text-transform: uppercase; letter-spacing: .06em;
 }
 .plan-field-wrap { flex: 1; min-width: 0; position: relative; }
+/* Departure-time row */
+.plan-time-row { margin-top: .55rem; align-items: center; }
+.plan-time-row .plan-row-label { padding-top: 0; }
+.plan-time-wrap { flex: 1; display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.plan-time-input {
+  flex: 1; min-width: 0;
+  background: var(--surface-2); border: 1.5px solid var(--line);
+  border-radius: 10px; color: var(--ink);
+  padding: .5rem .6rem; font-size: .82rem; font-family: inherit;
+  -webkit-appearance: none; appearance: none;
+}
+.plan-time-input:focus { outline: none; border-color: var(--accent); }
+.plan-day-select {
+  flex-shrink: 0;
+  background: var(--surface-2); border: 1.5px solid var(--line);
+  border-radius: 10px; color: var(--ink);
+  padding: .5rem .55rem; font-size: .82rem; font-family: inherit;
+  -webkit-appearance: none; appearance: none;
+  cursor: pointer;
+}
+.plan-day-select:focus { outline: none; border-color: var(--accent); }
+.plan-time-now {
+  flex-shrink: 0; border: 1.5px solid var(--line); background: var(--surface-2);
+  color: var(--ink-2); border-radius: 10px; padding: .5rem .7rem;
+  font-size: .78rem; font-weight: 700;
+}
+.plan-time-now:active { background: var(--accent-soft); color: var(--accent); }
+/* Future-trip note above results */
+.plan-future-note {
+  display: flex; align-items: center; gap: .45rem;
+  background: var(--accent-soft); color: var(--ink-2);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: .6rem .75rem; margin-bottom: .65rem;
+  font-size: .76rem; line-height: 1.45;
+}
+.plan-future-note svg { flex-shrink: 0; color: var(--accent); }
 .plan-swap-row {
   display: flex; justify-content: flex-end;
   margin: .3rem 0;
@@ -934,15 +970,41 @@ th.num, td.num { text-align: right; }
   background: var(--bg);
 }
 #map-tab-container { width: 100%; height: 100%; }
-/* HTML marker for tappable bus stops (reliable touch target on mobile) */
-.stop-pin { background: none; border: none; }
-.stop-pin span {
+/* HTML marker for tappable bus stops — button inside divIcon for iOS compat */
+.stop-pin { background: none; border: none; overflow: visible; }
+.stop-pin-btn {
+  all: unset;
   display: block; width: 15px; height: 15px; margin: 3px auto;
   border-radius: 50%;
   background: #e5282a; border: 2.5px solid #fff;
   box-shadow: 0 1px 4px rgba(0,0,0,.55);
   cursor: pointer;
+  touch-action: manipulation;
+  pointer-events: auto;
+  -webkit-appearance: none;
+  box-sizing: border-box;
 }
+.stop-pin-label {
+  position: absolute;
+  top: 50%; left: 20px;
+  transform: translateY(-50%);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.01em;
+  color: #fff;
+  background: rgba(20,21,25,.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 2px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  line-height: 1.4;
+}
+/* Dim Voyager tiles in dark mode so the map doesn't look washed out */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .leaflet-tile-pane { filter: brightness(.72) saturate(.8); }
+}
+[data-theme="dark"] .leaflet-tile-pane { filter: brightness(.72) saturate(.8); }
 /* Leaflet overrides inside map tab */
 #map-tab-container .leaflet-control-zoom { border: none !important; }
 #map-tab-container .leaflet-control-zoom a {

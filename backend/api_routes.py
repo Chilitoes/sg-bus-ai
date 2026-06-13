@@ -62,6 +62,29 @@ def _sgt_iso(dt: datetime | None) -> str | None:
     return (dt + timedelta(hours=8)).isoformat() if dt else None
 
 
+def _resolve_plan_time(depart_at: str | None) -> tuple[datetime, datetime, bool, str | None]:
+    """Resolve the planning clock.
+
+    `depart_at` is an SGT wall-clock string 'YYYY-MM-DDTHH:MM' (from an
+    <input type="datetime-local">). When it is more than a few minutes in the
+    future, plan for that time so operating-hours and schedule estimates reflect
+    the future trip; otherwise fall back to the real current time.
+    Returns (now_utc, sgt, is_future, planned_for_sgt_iso).
+    """
+    actual_now = datetime.utcnow()
+    actual_sgt = actual_now + timedelta(hours=8)
+    if depart_at:
+        try:
+            planned_sgt = datetime.fromisoformat(depart_at)
+            if planned_sgt.tzinfo is not None:
+                planned_sgt = planned_sgt.replace(tzinfo=None)
+            if planned_sgt > actual_sgt + timedelta(minutes=3):
+                return planned_sgt - timedelta(hours=8), planned_sgt, True, planned_sgt.isoformat()
+        except (ValueError, TypeError):
+            pass
+    return actual_now, actual_sgt, False, None
+
+
 def _fmt_minutes(dt: datetime | None) -> str | None:
     """Return human-readable wait string, e.g. 'Arr', '3 min', '12 min'."""
     if dt is None:
@@ -759,6 +782,7 @@ async def sync_routes(admin: User = Depends(require_admin)) -> dict:
 async def plan_journey(
     from_code: str = Query(..., description="Origin bus stop code"),
     to_code: str = Query(..., description="Destination bus stop code"),
+    depart_at: str | None = Query(None, description="Plan for a future SGT time 'YYYY-MM-DDTHH:MM'"),
     db: Session = Depends(get_db),
 ) -> dict:
     """
@@ -798,8 +822,7 @@ async def plan_journey(
             "message": "No direct or 1-transfer route found. Try nearby stops.",
         }
 
-    now = datetime.utcnow()
-    sgt = now + timedelta(hours=8)
+    now, sgt, is_future, planned_for = _resolve_plan_time(depart_at)
 
     # Fetch live arrivals for all unique boarding stops (concurrent)
     unique_boards = {leg["from_stop"] for opt in raw_options[:3] for leg in opt["legs"]}
@@ -810,8 +833,12 @@ async def plan_journey(
         except Exception:
             return code, None
 
-    fetched = await asyncio.gather(*[_fetch(c) for c in unique_boards])
-    arrivals_cache: dict[str, dict | None] = dict(fetched)
+    # Live arrivals only exist for "now"; skip the fetch for future trips.
+    if is_future:
+        arrivals_cache: dict[str, dict | None] = {}
+    else:
+        fetched = await asyncio.gather(*[_fetch(c) for c in unique_boards])
+        arrivals_cache = dict(fetched)
 
     def enrich_leg(leg: dict, earliest_board: datetime | None = None) -> dict:
         svc      = leg["service"]
@@ -987,7 +1014,8 @@ async def plan_journey(
     if pruned:
         options = pruned
 
-    return {"from": from_info, "to": to_info, "options": options, "unavailable": unavailable[:3]}
+    return {"from": from_info, "to": to_info, "options": options, "unavailable": unavailable[:3],
+            "is_future": is_future, "planned_for": planned_for}
 
 
 # ── Multimodal journey planner ───────────────────────────────────────────────
@@ -1000,6 +1028,7 @@ async def plan_multimodal(
     to_lng:    float = Query(..., ge=-180,  le=180),
     from_name: str   = Query("Origin"),
     to_name:   str   = Query("Destination"),
+    depart_at: str | None = Query(None, description="Plan for a future SGT time 'YYYY-MM-DDTHH:MM'"),
     db: Session = Depends(get_db),
 ) -> dict:
     """
@@ -1050,8 +1079,7 @@ async def plan_multimodal(
             "to_lat":   to_lat,   "to_lng":   to_lng,
         }
 
-    now = datetime.utcnow()
-    sgt = now + timedelta(hours=8)
+    now, sgt, is_future, planned_for = _resolve_plan_time(depart_at)
     route_count = db.query(func.count(BusRoute.id)).scalar() or 0
 
     # ── Phase 1: collect raw route plans ─────────────────────
@@ -1134,7 +1162,9 @@ async def plan_multimodal(
         try: return c, await _call_lta(c)
         except: return c, None
 
-    arr_cache: dict[str, dict | None] = dict(
+    # Live arrivals only exist for "now" — for a future trip there is nothing to
+    # fetch, so leg waits degrade to schedule-based estimates (wait_min = None).
+    arr_cache: dict[str, dict | None] = {} if is_future else dict(
         await asyncio.gather(*[_fetch(c) for c in unique_boards])
     )
 
@@ -1476,6 +1506,8 @@ async def plan_multimodal(
         "to":   {"name": to_name,   "lat": to_lat,   "lng": to_lng},
         "options": options[:3],
         "unavailable": unavailable[:3],
+        "is_future": is_future,
+        "planned_for": planned_for,
     }
 
 

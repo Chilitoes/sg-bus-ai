@@ -1356,9 +1356,33 @@ $("plan-swap").addEventListener("click", () => {
 });
 
 $("plan-btn").addEventListener("click", doJourneyPlan);
+
+// Departure-time control: reveal a "Now" reset once a future time is picked.
+(() => {
+  const t = $("plan-time"), nowBtn = $("plan-time-now"), day = $("plan-day");
+  if (!t || !nowBtn) return;
+  const check = () => {
+    if (!t.value) { nowBtn.classList.add("hidden"); return; }
+    const off = parseInt(day?.value || "0", 10);
+    const [h, m] = t.value.split(":").map(Number);
+    const now = new Date();
+    const future = off > 0 || h > now.getHours() || (h === now.getHours() && m > now.getMinutes() + 3);
+    nowBtn.classList.toggle("hidden", !future);
+  };
+  t.addEventListener("input", check);
+  day?.addEventListener("change", check);
+  nowBtn.addEventListener("click", () => { t.value = ""; if (day) day.value = "0"; nowBtn.classList.add("hidden"); });
+})();
 $("plan-results").addEventListener("click", (e) => {
   const go = e.target.closest(".jcard-go");
-  if (go) { go.closest(".journey-card").classList.toggle("open"); return; }
+  if (go) {
+    const card = go.closest(".journey-card");
+    card.classList.toggle("open");
+    // Redraw the map to show this route option
+    const idx = parseInt(card.dataset.optIndex, 10);
+    if (!isNaN(idx) && _planData && _planCoords) updatePlanMap(_planData, _planCoords, idx);
+    return;
+  }
 
   const shareBtn = e.target.closest(".jcard-share");
   if (shareBtn) { shareCurrentJourney(); return; }
@@ -1382,6 +1406,36 @@ $("plan-results").addEventListener("click", (e) => {
     }
   }
 });
+
+// Build the &depart_at=… query suffix when a future time is set, else "".
+function _departQueryParam() {
+  const timeVal = $("plan-time")?.value; // "HH:MM" or ""
+  if (!timeVal) return "";
+  const dayOffset = parseInt($("plan-day")?.value || "0", 10);
+  const [h, m] = timeVal.split(":").map(Number);
+  const d = new Date();
+  d.setDate(d.getDate() + dayOffset);
+  d.setHours(h, m, 0, 0);
+  if (d.getTime() <= Date.now() + 3 * 60000) return "";
+  const pad = n => String(n).padStart(2, "0");
+  const iso = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(h)}:${pad(m)}`;
+  return `&depart_at=${encodeURIComponent(iso)}`;
+}
+
+// Banner shown above results when planning for a future time.
+function _futureBanner(d) {
+  if (!d?.is_future || !d.planned_for) return "";
+  let txt = d.planned_for;
+  try {
+    txt = new Date(d.planned_for).toLocaleString("en-SG", {
+      weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit",
+    });
+  } catch {}
+  return `<div class="plan-future-note">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Planned for <b>${esc(txt)}</b> · live bus waits aren't shown for future trips — times are schedule estimates
+    </div>`;
+}
 
 async function doJourneyPlan() {
   const { fromCode, fromLat, fromLng, fromName,
@@ -1411,20 +1465,23 @@ async function doJourneyPlan() {
       if (s?.latitude) { tLat = planState.toLat = s.latitude; tLng = planState.toLng = s.longitude; }
     }
 
+    const departParam = _departQueryParam();
     let planData = null;
     if (fLat !== null && tLat !== null) {
       planData = await api(
         `/api/journey/multimodal?from_lat=${fLat}&from_lng=${fLng}` +
         `&to_lat=${tLat}&to_lng=${tLng}` +
         `&from_name=${encodeURIComponent(fromName || "Origin")}` +
-        `&to_name=${encodeURIComponent(toName || "Destination")}`
+        `&to_name=${encodeURIComponent(toName || "Destination")}` +
+        departParam
       );
-      res.innerHTML = renderMultimodalResult(planData);
+      res.innerHTML = _futureBanner(planData) + renderMultimodalResult(planData);
     } else if (fromCode && toCode) {
       planData = await api(
-        `/api/journey/plan?from_code=${encodeURIComponent(fromCode)}&to_code=${encodeURIComponent(toCode)}`
+        `/api/journey/plan?from_code=${encodeURIComponent(fromCode)}&to_code=${encodeURIComponent(toCode)}` +
+        departParam
       );
-      res.innerHTML = renderBusOnlyResult(planData);
+      res.innerHTML = _futureBanner(planData) + renderBusOnlyResult(planData);
     } else {
       err.textContent = "Couldn't resolve location. Try a more specific address or bus stop.";
       show(err);
@@ -1490,7 +1547,7 @@ function renderBusOnlyResult(data) {
     + _unavailableSection(data);
 }
 
-function renderBusOnlyCard(opt) {
+function renderBusOnlyCard(opt, idx = 0) {
   const typeTxt = opt.transfers === 0 ? "Direct"
     : `${opt.transfers} transfer${opt.transfers > 1 ? "s" : ""}`;
   const badgesHtml = opt.legs.map((l, i, a) =>
@@ -1515,7 +1572,7 @@ function renderBusOnlyCard(opt) {
   const tLat = planState.toLat   ?? ""; const tLng = planState.toLng   ?? "";
   const saved = (fLat !== "" && tLat !== "") && isJourneySaved(parseFloat(fLat), parseFloat(fLng), parseFloat(tLat), parseFloat(tLng));
   return `
-    <div class="journey-card"
+    <div class="journey-card" data-opt-index="${idx}"
          data-from-lat="${fLat}" data-from-lng="${fLng}"
          data-to-lat="${tLat}" data-to-lng="${tLng}"
          data-from-name="${esc(planState.fromName || "")}" data-to-name="${esc(planState.toName || "")}">
@@ -1585,16 +1642,16 @@ function renderMultimodalResult(data) {
     + _unavailableSection(data);
 }
 
-function renderMultimodalCard(opt) {
+function renderMultimodalCard(opt, idx = 0) {
   const active = opt.legs.filter((l) => l.type !== "walk");
-  const badgesHtml = active.map((l, i, a) =>
-    (l.type === "mrt"
+  const badgesHtml = active.map((l, i, a) => {
+    const badge = l.type === "mrt"
       ? `<span class="jcard-badge mrt-badge" style="background:${esc(l.line_color)}">${esc(l.line)}</span>`
-      : `<span class="jcard-badge">${esc(l.service_no)}</span>`) +
-    (i < a.length - 1
+      : `<span class="jcard-badge">${esc(l.service_no)}</span>`;
+    return badge + (i < a.length - 1
       ? `<svg class="jcard-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`
-      : "")
-  ).join("") || `<span class="jcard-badge jcard-walk-only">Walk</span>`;
+      : "");
+  }).join("") || `<span class="jcard-badge jcard-walk-only">Walk</span>`;
 
   const firstActive = active[0];
   const fw = firstActive?.wait_min;
@@ -1624,7 +1681,7 @@ function renderMultimodalCard(opt) {
   const tLat = planState.toLat   ?? ""; const tLng = planState.toLng   ?? "";
   const saved = (fLat !== "" && tLat !== "") && isJourneySaved(parseFloat(fLat), parseFloat(fLng), parseFloat(tLat), parseFloat(tLng));
   return `
-    <div class="journey-card"
+    <div class="journey-card" data-opt-index="${idx}"
          data-from-lat="${fLat}" data-from-lng="${fLng}"
          data-to-lat="${tLat}" data-to-lng="${tLng}"
          data-from-name="${esc(planState.fromName || "")}" data-to-name="${esc(planState.toName || "")}">
@@ -1787,6 +1844,9 @@ $("pw-change-btn")?.addEventListener("click", async () => {
 // ── Maps ──────────────────────────────────────────────────
 // Leaflet is loaded async (defer); guard every call with typeof L check.
 let _planMap = null;   // Leaflet instance for plan tab
+let _planData = null;  // last plan response, for redrawing on route switch
+let _planCoords = null;
+let _planOptIdx = 0;   // which option is currently drawn on the map
 
 function _leafletReady() { return typeof L !== "undefined"; }
 
@@ -1802,10 +1862,10 @@ function _isDark() {
 }
 
 function _sgTiles() {
-  const style = _isDark() ? "Night" : "Default";
   return L.tileLayer(
-    `https://www.onemap.gov.sg/maps/tiles/${style}/{z}/{x}/{y}.png`,
-    { maxZoom: 18, minZoom: 11, attribution: "" }
+    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    { maxZoom: 19, subdomains: "abcd", detectRetina: true,
+      attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>' }
   );
 }
 
@@ -1816,10 +1876,12 @@ const _mapTabStopCodes = new Set();
 
 // HTML divIcon marker — taps fire reliably on iOS, unlike SVG circleMarkers
 // (Leaflet 1.7+ dropped its tap handler, so vector layers miss touch clicks).
-function _stopPinIcon() {
+function _stopPinIcon(label) {
   return L.divIcon({
     className: "stop-pin",
-    html: "<span></span>",
+    // Use a <button> so iOS Safari fires touch events without requiring
+    // cursor:pointer hacks — buttons are always interactive on all platforms.
+    html: `<button class="stop-pin-btn" aria-label="${esc(label || "")}"></button><span class="stop-pin-label">${esc(label || "")}</span>`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   });
@@ -1858,19 +1920,26 @@ function initMapView() {
 }
 
 function _loadMapTabStops(lat, lng) {
-  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=40`).then((d) => {
+  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=20`).then((d) => {
     if (!_mapTabMap) return;
     d.results?.forEach((s) => {
       if (!s.latitude) return;
       if (_mapTabStopCodes.has(s.bus_stop_code)) return;   // avoid duplicates
       _mapTabStopCodes.add(s.bus_stop_code);
-      L.marker([s.latitude, s.longitude], {
-        icon: _stopPinIcon(),
-        title: s.description || s.bus_stop_code,
+      const handler = () => { switchView("arrivals"); loadStop(s.bus_stop_code); };
+      const label = s.description || s.bus_stop_code;
+      const marker = L.marker([s.latitude, s.longitude], {
+        icon: _stopPinIcon(label),
+        title: label,
       })
-      .bindTooltip(s.description || s.bus_stop_code, { direction: "top", offset: [0, -12] })
-      .on("click", () => { switchView("arrivals"); loadStop(s.bus_stop_code); })
       .addTo(_mapTabMap);
+      // Attach click on the <button> inside the divIcon — buttons receive touch
+      // events on iOS Safari without any workarounds, unlike plain <div> elements.
+      // stopPropagation so the map's own click (pan gesture end) doesn't also fire.
+      marker._icon?.querySelector(".stop-pin-btn")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        handler();
+      });
     });
     // Markers added after the container was first sized can land with a stale
     // hit-test offset; nudge Leaflet to recompute pane positions.
@@ -1924,9 +1993,23 @@ function _mrtClientWaypoints(fromCode, toCode) {
 
 // Smooth a sparse point list (e.g. MRT station coords) into a curved path with
 // a Catmull-Rom spline so the line bends through the stations instead of
-// cutting straight across them. Returns the original list if too short.
+// cutting straight across them.
 function _smoothLine(points, segments = 16) {
-  if (!points || points.length < 3) return points;
+  if (!points || points.length < 2) return points;
+  // For a 2-point leg (adjacent stations), insert a midpoint offset slightly
+  // perpendicular to the segment so the spline can produce a visible arc.
+  if (points.length === 2) {
+    const [p0, p1] = points;
+    const dlat = p1[0] - p0[0], dlng = p1[1] - p0[1];
+    const len = Math.sqrt(dlat * dlat + dlng * dlng);
+    const scale = len * 0.25;
+    // Perpendicular unit vector: rotate 90° (swap, negate one)
+    const mid = [
+      (p0[0] + p1[0]) / 2 - (dlng / len) * scale,
+      (p0[1] + p1[1]) / 2 + (dlat / len) * scale,
+    ];
+    points = [p0, mid, p1];
+  }
   const out = [];
   for (let i = 0; i < points.length - 1; i++) {
     const p0 = points[i - 1] || points[i];
@@ -1948,15 +2031,79 @@ function _smoothLine(points, segments = 16) {
   return out;
 }
 
-// Colour for a journey leg polyline
-function _legColor(leg) {
-  if (leg.type === "walk") return "#888";
-  if (leg.type === "mrt") return leg.line_color || MRT_COLORS[leg.line] || "#555";
-  return "#e5282a"; // bus red
+const _mrtOsmCache = new Map();
+
+async function _osmMrtTrack(leg) {
+  const lat1 = leg.board_lat, lng1 = leg.board_lng;
+  const lat2 = leg.alight_lat, lng2 = leg.alight_lng;
+  if (!lat1 || !lat2) return null;
+  const key = `${leg.from_code}|${leg.to_code}`;
+  if (_mrtOsmCache.has(key)) return _mrtOsmCache.get(key);
+  const pad = 0.008;
+  const bbox = `${Math.min(lat1,lat2)-pad},${Math.min(lng1,lng2)-pad},${Math.max(lat1,lat2)+pad},${Math.max(lng1,lng2)+pad}`;
+  const q = `[out:json][timeout:10];way["railway"="subway"](${bbox});out geom;`;
+  try {
+    const r = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`,
+      { signal: AbortSignal.timeout(12000) });
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    const segs = (d.elements || [])
+      .filter(e => e.type === "way" && e.geometry?.length >= 2)
+      .map(e => e.geometry.map(n => [n.lat, n.lon]));
+    const track = segs.length ? _stitchWays(segs, [lat1, lng1], [lat2, lng2]) : null;
+    _mrtOsmCache.set(key, track);
+    return track;
+  } catch {
+    _mrtOsmCache.set(key, null);
+    return null;
+  }
 }
 
-function updatePlanMap(data, coords) {
-  if (!_leafletReady()) { _whenLeaflet(() => updatePlanMap(data, coords)); return; }
+function _stitchWays(segs, start, end) {
+  const d2 = (a, b) => (a[0]-b[0])**2 + (a[1]-b[1])**2;
+  const remaining = segs.map(s => [...s]);
+  let bestI = 0, bestD = Infinity;
+  remaining.forEach((s, i) => {
+    const d = Math.min(d2(s[0], start), d2(s[s.length-1], start));
+    if (d < bestD) { bestD = d; bestI = i; }
+  });
+  let seg = remaining.splice(bestI, 1)[0];
+  if (d2(seg[0], start) > d2(seg[seg.length-1], start)) seg = [...seg].reverse();
+  const chain = [...seg];
+  const EPS2 = 6e-8;
+  let changed = true;
+  while (remaining.length && changed) {
+    changed = false;
+    const tail = chain[chain.length - 1];
+    for (let i = 0; i < remaining.length; i++) {
+      const s = remaining[i];
+      if (d2(s[0], tail) < EPS2) {
+        chain.push(...s.slice(1)); remaining.splice(i, 1); changed = true; break;
+      }
+      if (d2(s[s.length - 1], tail) < EPS2) {
+        chain.push(...[...s].reverse().slice(1)); remaining.splice(i, 1); changed = true; break;
+      }
+    }
+  }
+  let endI = chain.length - 1, endD = Infinity;
+  chain.forEach((p, i) => { const d = d2(p, end); if (d < endD) { endD = d; endI = i; } });
+  return chain.slice(0, endI + 1);
+}
+
+// Colour for a journey leg polyline. MRT legs always use their official line
+// colour; buses use one consistent blue that isn't any MRT line colour so a
+// transfer reads clearly on the map.
+const BUS_COLORS      = ["#e91e8c", "#FF6E00"]; // pink (1st bus), orange (2nd bus)
+const BUS_TEXT_COLORS = ["#fff",    "#fff"]; // contrast text for badges
+function _legColor(leg, busIdx = 0) {
+  if (leg.type === "walk") return "#888";
+  if (leg.type === "mrt") return leg.line_color || MRT_COLORS[leg.line] || "#555";
+  return BUS_COLORS[Math.min(busIdx, BUS_COLORS.length - 1)];
+}
+
+function updatePlanMap(data, coords, optIdx = 0) {
+  if (!_leafletReady()) { _whenLeaflet(() => updatePlanMap(data, coords, optIdx)); return; }
+  _planData = data; _planCoords = coords; _planOptIdx = optIdx;
   let { fLat, fLng, tLat, tLng, fromName, toName } = coords;
   const wrap = $("plan-map-wrap");
   // Fall back to coords in the response (bus-only plan has them in data.from/to)
@@ -1996,22 +2143,31 @@ function updatePlanMap(data, coords) {
    .addTo(_planMap);
   bounds.push([tLat, tLng]);
 
-  // Draw the first available option's legs
-  const option = data.options?.[0];
+  // Draw the selected option's legs (defaults to the first/best option)
+  const safeIdx = Math.min(Math.max(0, optIdx), (data.options?.length || 1) - 1);
+  const option = data.options?.[safeIdx];
   if (option?.legs) {
-    option.legs.forEach((leg) => {
-      const color = _legColor(leg);
+    let _busIdx = 0;
+    option.legs.forEach((leg, li) => {
+      const busIdx = leg.type === "bus" ? _busIdx++ : 0;
+      const color = _legColor(leg, busIdx);
       const isWalk = leg.type === "walk";
       const points = _legPoints(leg);
       // MRT: curve the line through the stations so it follows the track shape.
       const drawPoints = leg.type === "mrt" ? _smoothLine(points) : points;
       if (points.length >= 2) {
-        L.polyline(drawPoints, {
+        const poly = L.polyline(drawPoints, {
           color, opacity: isWalk ? .55 : .9,
           weight: isWalk ? 2 : 5,
           dashArray: isWalk ? "4,7" : null,
           lineCap: "round", lineJoin: "round",
         }).addTo(_planMap);
+        if (leg.type === "mrt") {
+          const map = _planMap;
+          _osmMrtTrack(leg).then(track => {
+            if (track?.length > 2 && map === _planMap) poly.setLatLngs(track);
+          });
+        }
         points.forEach((p) => bounds.push(p));
 
         // Compact route badge at midpoint
@@ -2037,6 +2193,21 @@ function updatePlanMap(data, coords) {
       if (leg.type === "mrt" && leg.board_lat) {
         L.circleMarker([leg.board_lat, leg.board_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
         L.circleMarker([leg.alight_lat, leg.alight_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
+      }
+      const nextLeg = option.legs[li + 1];
+      if ((leg.type === "bus" || leg.type === "mrt") &&
+          (nextLeg?.type === "bus" || nextLeg?.type === "mrt")) {
+        const endPt  = leg.type === "bus"
+          ? (leg.alight_stop?.lat ? [leg.alight_stop.lat, leg.alight_stop.lng] : null)
+          : (leg.alight_lat       ? [leg.alight_lat, leg.alight_lng]          : null);
+        const startPt = nextLeg.type === "bus"
+          ? (nextLeg.board_stop?.lat ? [nextLeg.board_stop.lat, nextLeg.board_stop.lng] : null)
+          : (nextLeg.board_lat       ? [nextLeg.board_lat, nextLeg.board_lng]           : null);
+        if (endPt && startPt) {
+          L.polyline([endPt, startPt], {
+            color: "#aaa", opacity: 0.7, weight: 2, dashArray: "3,6", lineCap: "round",
+          }).addTo(_planMap);
+        }
       }
     });
   }
