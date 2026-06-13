@@ -916,6 +916,11 @@ async def plan_journey(
         # False only when the API responded and reported no buses for this service.
         api_responded = lta_data is not None
         service_operating = (not api_responded) or (buses_available > 0)
+        # Deep-night guard: most SG buses don't run ~1am–5am (first buses ~5:30am).
+        # For a live "now" query with no concrete arrival, don't optimistically
+        # assume the bus is running just because the API was silent/unreachable.
+        if not is_future and (1 <= sgt.hour < 5) and buses_available == 0:
+            service_operating = False
 
         brd = db.query(BusStop).filter_by(bus_stop_code=board).first()
         alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()
@@ -1224,6 +1229,11 @@ async def plan_multimodal(
 
         api_responded = lta_data is not None
         service_operating = (not api_responded) or (buses_avail > 0)
+        # Deep-night guard: most SG buses don't run ~1am–5am (first buses ~5:30am).
+        # For a live "now" query with no concrete arrival, don't optimistically
+        # assume the bus is running just because the API was silent/unreachable.
+        if not is_future and (1 <= sgt.hour < 5) and buses_avail == 0:
+            service_operating = False
 
         brd = db.query(BusStop).filter_by(bus_stop_code=board).first()
         alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()

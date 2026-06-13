@@ -2148,11 +2148,13 @@ function updatePlanMap(data, coords, optIdx = 0) {
   const option = data.options?.[safeIdx];
   if (option?.legs) {
     let _busIdx = 0;
+    const _legEnds = []; // ordered drawn-geometry of each leg, to stitch gaps
     option.legs.forEach((leg, li) => {
       const busIdx = leg.type === "bus" ? _busIdx++ : 0;
       const color = _legColor(leg, busIdx);
       const isWalk = leg.type === "walk";
       const points = _legPoints(leg);
+      if (points.length) _legEnds.push(points);
       // MRT: curve the line through the stations so it follows the track shape.
       const drawPoints = leg.type === "mrt" ? _smoothLine(points) : points;
       if (points.length >= 2) {
@@ -2194,22 +2196,20 @@ function updatePlanMap(data, coords, optIdx = 0) {
         L.circleMarker([leg.board_lat, leg.board_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
         L.circleMarker([leg.alight_lat, leg.alight_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
       }
-      const nextLeg = option.legs[li + 1];
-      if ((leg.type === "bus" || leg.type === "mrt") &&
-          (nextLeg?.type === "bus" || nextLeg?.type === "mrt")) {
-        const endPt  = leg.type === "bus"
-          ? (leg.alight_stop?.lat ? [leg.alight_stop.lat, leg.alight_stop.lng] : null)
-          : (leg.alight_lat       ? [leg.alight_lat, leg.alight_lng]          : null);
-        const startPt = nextLeg.type === "bus"
-          ? (nextLeg.board_stop?.lat ? [nextLeg.board_stop.lat, nextLeg.board_stop.lng] : null)
-          : (nextLeg.board_lat       ? [nextLeg.board_lat, nextLeg.board_lng]           : null);
-        if (endPt && startPt) {
-          L.polyline([endPt, startPt], {
-            color: "#aaa", opacity: 0.7, weight: 2, dashArray: "3,6", lineCap: "round",
-          }).addTo(_planMap);
-        }
-      }
     });
+
+    // Stitch any gap between consecutive legs: connect the last drawn point of
+    // one leg to the first of the next. Covers transfers and legs whose own
+    // geometry doesn't quite reach the next (so the route is never broken).
+    for (let i = 1; i < _legEnds.length; i++) {
+      const prev = _legEnds[i - 1], curr = _legEnds[i];
+      const a = prev[prev.length - 1], b = curr[0];
+      if (a && b && (Math.abs(a[0] - b[0]) > 5e-5 || Math.abs(a[1] - b[1]) > 5e-5)) {
+        L.polyline([a, b], {
+          color: "#aaa", opacity: 0.7, weight: 2, dashArray: "3,6", lineCap: "round",
+        }).addTo(_planMap);
+      }
+    }
   }
 
   if (bounds.length) _planMap.fitBounds(bounds, { padding: [36, 36] });
