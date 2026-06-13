@@ -25,6 +25,8 @@ import logging
 import re
 import secrets
 import time
+
+import httpx
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -240,23 +242,31 @@ def google_auth(body: GoogleAuthIn, request: Request, db: Session = Depends(get_
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google sign-in is not configured.")
 
-    # Verify the ID token: checks signature against Google's keys, audience
-    # (our client id), issuer and expiry. Raises on any failure.
-    # clock_skew_in_seconds gives a little tolerance for small clock drift.
+    # Verify the ID token via Google's tokeninfo endpoint. Google checks the
+    # signature and expiry server-side; we then validate the audience (our
+    # client id) and issuer ourselves. This avoids depending on the google-auth
+    # library being importable in the service environment.
     try:
-        from google.auth.transport import requests as google_requests
-        from google.oauth2 import id_token as google_id_token
-        info = google_id_token.verify_oauth2_token(
-            body.credential, google_requests.Request(), GOOGLE_CLIENT_ID,
-            clock_skew_in_seconds=10,
+        resp = httpx.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": body.credential},
+            timeout=10,
         )
     except Exception as e:
-        # Surface the underlying reason so misconfiguration (e.g. an audience
-        # mismatch between the frontend and backend client IDs) is diagnosable
-        # instead of hidden behind a generic message.
-        logger.warning("Google ID token verification failed: %s: %s", type(e).__name__, e)
-        raise HTTPException(status_code=401, detail=f"Google sign-in failed: {e}")
+        logger.warning("Google tokeninfo request failed: %s: %s", type(e).__name__, e)
+        raise HTTPException(status_code=503, detail="Could not reach Google to verify sign-in.")
 
+    if resp.status_code != 200:
+        logger.warning("Google rejected the ID token: %s %s", resp.status_code, resp.text[:200])
+        raise HTTPException(status_code=401, detail="Google sign-in failed: token rejected.")
+
+    info = resp.json()
+
+    # The audience check is the security-critical step: a token minted for a
+    # different app must not be accepted here.
+    if info.get("aud") != GOOGLE_CLIENT_ID:
+        logger.warning("Google token audience mismatch: got %r", info.get("aud"))
+        raise HTTPException(status_code=401, detail="Google sign-in failed: wrong audience.")
     if info.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
         raise HTTPException(status_code=401, detail="Invalid Google token issuer.")
 
@@ -264,7 +274,8 @@ def google_auth(body: GoogleAuthIn, request: Request, db: Session = Depends(get_
     if not sub:
         raise HTTPException(status_code=401, detail="Google token missing subject.")
     email = (info.get("email") or "").strip().lower()
-    email_verified = bool(info.get("email_verified"))
+    # tokeninfo returns email_verified as the string "true"/"false".
+    email_verified = str(info.get("email_verified", "")).lower() in ("true", "1")
     display = info.get("name") or (email.split("@")[0] if email else "user")
 
     # 1) Returning Google user
