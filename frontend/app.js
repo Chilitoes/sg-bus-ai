@@ -253,6 +253,8 @@ function ensureGoogleSignIn() {
     google.accounts.id.initialize({
       client_id: GOOGLE_CLIENT_ID,
       callback: onGoogleCredential,
+      use_fedcm_for_button: true,   // required so the button click reliably
+      auto_select: false,           // returns a credential in modern browsers
     });
     _gsiInited = true;
   }
@@ -272,6 +274,10 @@ function renderGoogleButton() {
 }
 
 async function onGoogleCredential(response) {
+  if (!response || !response.credential) {
+    toast("Google didn't complete sign-in. Please try again.");
+    return;
+  }
   try {
     const res = await api("/api/auth/google", {
       method: "POST",
@@ -279,10 +285,12 @@ async function onGoogleCredential(response) {
     });
     await completeLogin(res, `Welcome, ${res.username}`);
   } catch (err) {
-    const el = $("auth-error");
-    el.textContent = err.message.startsWith("HTTP") || err.message.includes("fetch")
+    console.error("Google sign-in failed:", err);
+    const msg = err.message.startsWith("HTTP") || err.message.includes("fetch")
       ? "Google sign-in unavailable right now." : err.message;
-    show(el);
+    const el = $("auth-error");
+    if (el) { el.textContent = msg; show(el); }
+    toast(msg);   // surface loudly — the inline error sits inside the form
   }
 }
 
