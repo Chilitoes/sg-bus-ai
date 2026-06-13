@@ -1860,7 +1860,7 @@ function updatePlanMap(data, coords) {
     option.legs.forEach((leg) => {
       const color = _legColor(leg);
       const dashArray = leg.type === "walk" ? "5,8" : null;
-      const points = _legPoints(leg, fLat, fLng, tLat, tLng);
+      const points = _legPoints(leg);
       if (points.length >= 2) {
         L.polyline(points, { color, weight: leg.type === "walk" ? 3 : 5, opacity: .85, dashArray })
          .addTo(_planMap);
@@ -1878,10 +1878,13 @@ function updatePlanMap(data, coords) {
   setTimeout(() => _planMap.invalidateSize(), 100);
 }
 
-function _legPoints(leg, fLat, fLng, tLat, tLng) {
+function _legPoints(leg) {
+  // Use the waypoints array when available — it follows the real route geometry.
+  if (leg.waypoints?.length >= 2) {
+    return leg.waypoints.map((w) => [w.lat, w.lng]);
+  }
+  // Fallbacks for walk legs (no geometry available) and legacy responses.
   if (leg.type === "walk") {
-    // Walk legs don't have coordinates in the response; approximate with origin/destination
-    // The real path isn't meaningful without routing, so just a straight line is fine.
     const from = leg.from_lat != null ? [leg.from_lat, leg.from_lng] : null;
     const to   = leg.to_lat   != null ? [leg.to_lat,   leg.to_lng]   : null;
     if (from && to) return [from, to];
@@ -1982,6 +1985,141 @@ function bootFromUrl() {
   // Small delay so the view switch completes before planning
   setTimeout(() => doJourneyPlan(), 300);
 }
+
+// ── Bus stop picker modal ─────────────────────────────────
+let _pickerMap    = null;
+let _pickerField  = null;   // "from" | "to"
+let _pickerStop   = null;   // currently highlighted stop object
+let _pickerLayers = [];     // all stop markers currently on the map
+
+const SG_CENTER = [1.3521, 103.8198];
+
+function openStopPicker(field) {
+  _pickerField  = field;
+  _pickerStop   = null;
+  $("stop-picker-selected").classList.add("hidden");
+  show($("stop-picker-modal"));
+  show($("stop-picker-backdrop"));
+  document.body.style.overflow = "hidden";
+
+  _whenLeaflet(() => {
+    const container = $("stop-picker-map");
+    if (!_pickerMap) {
+      // Start at Singapore centre; jump to user location if available
+      _pickerMap = L.map(container, { zoomControl: true, attributionControl: false })
+                   .setView(SG_CENTER, 15);
+      _sgTiles().addTo(_pickerMap);
+      _pickerMap.on("moveend", _onPickerMove);
+
+      // Try to centre on user GPS first
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            _pickerMap.setView([pos.coords.latitude, pos.coords.longitude], 16);
+            _loadPickerStops(pos.coords.latitude, pos.coords.longitude);
+          },
+          () => _loadPickerStops(...SG_CENTER),
+          { timeout: 4000 }
+        );
+      } else {
+        _loadPickerStops(...SG_CENTER);
+      }
+    } else {
+      setTimeout(() => _pickerMap.invalidateSize(), 100);
+      const c = _pickerMap.getCenter();
+      _loadPickerStops(c.lat, c.lng);
+    }
+  });
+}
+
+function closeStopPicker() {
+  hide($("stop-picker-modal"));
+  hide($("stop-picker-backdrop"));
+  document.body.style.overflow = "";
+  _pickerStop = null;
+}
+
+let _pickerMoveTimer = null;
+function _onPickerMove() {
+  clearTimeout(_pickerMoveTimer);
+  _pickerMoveTimer = setTimeout(() => {
+    const c = _pickerMap.getCenter();
+    _loadPickerStops(c.lat, c.lng);
+  }, 350);
+}
+
+function _loadPickerStops(lat, lng) {
+  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=25`).then((d) => {
+    if (!_pickerMap) return;
+    _pickerLayers.forEach((m) => m.remove());
+    _pickerLayers = [];
+
+    const stopIcon = L.divIcon({
+      className: "",
+      html: `<div style="width:12px;height:12px;border-radius:50%;background:var(--accent);border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)"></div>`,
+      iconSize: [12, 12], iconAnchor: [6, 6],
+    });
+    const stopIconSel = L.divIcon({
+      className: "",
+      html: `<div style="width:16px;height:16px;border-radius:50%;background:var(--accent);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.5)"></div>`,
+      iconSize: [16, 16], iconAnchor: [8, 8],
+    });
+
+    d.results?.forEach((s) => {
+      if (!s.latitude) return;
+      const isSelected = _pickerStop?.bus_stop_code === s.bus_stop_code;
+      const m = L.marker([s.latitude, s.longitude], { icon: isSelected ? stopIconSel : stopIcon })
+        .on("click", () => _selectPickerStop(s))
+        .addTo(_pickerMap);
+      // Simple tooltip on hover for desktop
+      m.bindTooltip(`<b>${esc(s.description)}</b><br><span style="font-size:.8em;color:#888">${s.bus_stop_code} · ${s.road_name || ""}</span>`,
+        { direction: "top", offset: [0, -8], opacity: 1 });
+      _pickerLayers.push(m);
+    });
+  }).catch(() => {});
+}
+
+function _selectPickerStop(stop) {
+  _pickerStop = stop;
+  $("stop-picker-sel-name").textContent = stop.description || stop.bus_stop_code;
+  $("stop-picker-sel-meta").textContent =
+    [stop.road_name, stop.bus_stop_code, stop.distance_m ? `${stop.distance_m} m away` : ""]
+    .filter(Boolean).join(" · ");
+  show($("stop-picker-selected"));
+  // Re-render markers so selected one uses bigger icon
+  if (_pickerMap) {
+    const c = _pickerMap.getCenter();
+    _loadPickerStops(c.lat, c.lng);
+  }
+}
+
+function _confirmPickerStop() {
+  if (!_pickerStop || !_pickerField) return;
+  const s = _pickerStop;
+  const name = s.description || s.bus_stop_code;
+  if (_pickerField === "from") {
+    planState.fromName = name;
+    planState.fromCode = s.bus_stop_code;
+    planState.fromLat  = s.latitude;
+    planState.fromLng  = s.longitude;
+    $("plan-from-input").value = name;
+    show($("plan-from-clear"));
+  } else {
+    planState.toName = name;
+    planState.toCode = s.bus_stop_code;
+    planState.toLat  = s.latitude;
+    planState.toLng  = s.longitude;
+    $("plan-to-input").value = name;
+    show($("plan-to-clear"));
+  }
+  closeStopPicker();
+}
+
+$("plan-from-pick").addEventListener("click", () => openStopPicker("from"));
+$("plan-to-pick").addEventListener("click",   () => openStopPicker("to"));
+$("stop-picker-close").addEventListener("click", closeStopPicker);
+$("stop-picker-backdrop").addEventListener("click", closeStopPicker);
+$("stop-picker-confirm").addEventListener("click", _confirmPickerStop);
 
 initTheme();
 syncAccountUI();

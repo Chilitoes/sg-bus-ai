@@ -350,6 +350,11 @@ def _make_leg(codes: list[str], line: str) -> dict:
         "alight_lng":      alight["lng"],
         "stations_count":  len(codes) - 1,
         "est_ride_min":    max(2, (len(codes) - 1) * 2),  # ~2 min/station
+        # All intermediate station coords so the map draws the real track.
+        "waypoints": [
+            {"lat": STATIONS[c]["lat"], "lng": STATIONS[c]["lng"]}
+            for c in codes if c in STATIONS
+        ],
     }
 
 
