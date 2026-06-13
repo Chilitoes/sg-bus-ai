@@ -5,7 +5,7 @@
    to the account (bearer token) when logged in. */
 
 // ── Config ────────────────────────────────────────────────
-const API_BASE   = "";
+const API_BASE   = "https://alston-b550mh.tail8c7cb3.ts.net";
 // Google OAuth client ID for "Sign in with Google" (public value, safe to ship).
 // Paste the same client ID you set as GOOGLE_CLIENT_ID on the backend. Leave
 // empty to hide the Google button. Create one at
@@ -1413,10 +1413,11 @@ function _departQueryParam() {
   if (!timeVal) return "";
   const dayOffset = parseInt($("plan-day")?.value || "0", 10);
   const [h, m] = timeVal.split(":").map(Number);
+  // Build local-time Date for today+offset at chosen time (local clock = SGT for SG)
   const d = new Date();
   d.setDate(d.getDate() + dayOffset);
   d.setHours(h, m, 0, 0);
-  if (d.getTime() <= Date.now() + 3 * 60000) return "";
+  if (d.getTime() <= Date.now() + 3 * 60000) return ""; // not meaningfully future
   const pad = n => String(n).padStart(2, "0");
   const iso = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(h)}:${pad(m)}`;
   return `&depart_at=${encodeURIComponent(iso)}`;
@@ -1738,7 +1739,7 @@ function renderMrtLeg(leg) {
     : leg.wait_min != null ? `Wait ~${leg.wait_min} min` : "—";
   const waitClass = leg.wait_min === 0 ? "due" : "";
   return `
-    <div class="journey-leg mrt-leg">
+    <div class="journey-leg mrt-leg" style="--leg-color:${esc(leg.line_color)}">
       <div class="leg-top">
         <span class="leg-route mrt-route" style="background:${esc(leg.line_color)};color:#fff">${esc(leg.line)}</span>
         <span class="leg-stops">${leg.stations_count} stops · ~${leg.est_ride_min} min</span>
@@ -1780,7 +1781,7 @@ function renderBusLeg(leg) {
   }
 
   return `
-    <div class="journey-leg">
+    <div class="journey-leg bus-leg">
       <div class="leg-top">
         <span class="leg-route">${esc(leg.service_no)}</span>
         <span class="leg-stops">${leg.stops_count} stops · ~${leg.est_ride_min} min</span>
@@ -1879,8 +1880,6 @@ const _mapTabStopCodes = new Set();
 function _stopPinIcon(label) {
   return L.divIcon({
     className: "stop-pin",
-    // Use a <button> so iOS Safari fires touch events without requiring
-    // cursor:pointer hacks — buttons are always interactive on all platforms.
     html: `<button class="stop-pin-btn" aria-label="${esc(label || "")}"></button><span class="stop-pin-label">${esc(label || "")}</span>`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
@@ -2031,6 +2030,8 @@ function _smoothLine(points, segments = 16) {
   return out;
 }
 
+// Fetch real MRT track geometry from OSM Overpass API so lines follow actual
+// rail curves instead of straight station-to-station segments.
 const _mrtOsmCache = new Map();
 
 async function _osmMrtTrack(leg) {
@@ -2059,6 +2060,9 @@ async function _osmMrtTrack(leg) {
   }
 }
 
+// Fetch road-following geometry for bus legs via OSRM (public routing engine).
+// Routes through a sampled set of DB waypoints (bus stops) so the line follows
+// actual roads between stops, not just straight stop-to-stop segments.
 const _busOsrmCache = new Map();
 
 async function _busOsrmTrack(leg) {
@@ -2066,6 +2070,9 @@ async function _busOsrmTrack(leg) {
   if (!b?.lat || !a?.lat) return null;
   const key = `${b.lat},${b.lng}|${a.lat},${a.lng}`;
   if (_busOsrmCache.has(key)) return _busOsrmCache.get(key);
+
+  // Build waypoint list: board + sampled intermediate stops + alight.
+  // Limit to ~12 points to keep the OSRM URL short.
   const wps = (leg.waypoints?.length >= 3)
     ? leg.waypoints
     : [{ lat: b.lat, lng: b.lng }, { lat: a.lat, lng: a.lng }];
@@ -2073,6 +2080,7 @@ async function _busOsrmTrack(leg) {
   const sampled = [];
   for (let i = 0; i < wps.length; i += step) sampled.push(wps[i]);
   if (sampled[sampled.length - 1] !== wps[wps.length - 1]) sampled.push(wps[wps.length - 1]);
+
   const coords = sampled.map(p => `${p.lng},${p.lat}`).join(';');
   try {
     const r = await fetch(
@@ -2095,6 +2103,7 @@ async function _busOsrmTrack(leg) {
 function _stitchWays(segs, start, end) {
   const d2 = (a, b) => (a[0]-b[0])**2 + (a[1]-b[1])**2;
   const remaining = segs.map(s => [...s]);
+  // Start from the segment whose nearest endpoint is closest to start
   let bestI = 0, bestD = Infinity;
   remaining.forEach((s, i) => {
     const d = Math.min(d2(s[0], start), d2(s[s.length-1], start));
@@ -2103,7 +2112,8 @@ function _stitchWays(segs, start, end) {
   let seg = remaining.splice(bestI, 1)[0];
   if (d2(seg[0], start) > d2(seg[seg.length-1], start)) seg = [...seg].reverse();
   const chain = [...seg];
-  const EPS2 = 6e-8;
+  // Greedily extend the chain by connecting adjacent segments
+  const EPS2 = 6e-8; // ~25 m tolerance
   let changed = true;
   while (remaining.length && changed) {
     changed = false;
@@ -2118,14 +2128,14 @@ function _stitchWays(segs, start, end) {
       }
     }
   }
+  // Trim to the node closest to end
   let endI = chain.length - 1, endD = Infinity;
   chain.forEach((p, i) => { const d = d2(p, end); if (d < endD) { endD = d; endI = i; } });
   return chain.slice(0, endI + 1);
 }
 
-// Colour for a journey leg polyline. MRT legs always use their official line
-// colour; buses use one consistent blue that isn't any MRT line colour so a
-// transfer reads clearly on the map.
+// Bus leg colours: pink for the first bus, bright yellow for the second.
+// Neither clashes with any MRT line colour so transfers read clearly on the map.
 const BUS_COLORS      = ["#e91e8c", "#FF6E00"]; // pink (1st bus), orange (2nd bus)
 const BUS_TEXT_COLORS = ["#fff",    "#fff"]; // contrast text for badges
 function _legColor(leg, busIdx = 0) {
@@ -2181,13 +2191,17 @@ function updatePlanMap(data, coords, optIdx = 0) {
   const option = data.options?.[safeIdx];
   if (option?.legs) {
     let _busIdx = 0;
-    const _legEdges = [];
+    // Track the explicit endpoint/startpoint of each leg (from leg fields, NOT
+    // from waypoint array — DB waypoints may exclude stops missing coordinates,
+    // so the array endpoint can be a mid-route stop rather than the real alight stop).
+    const _legEdges = []; // [{start:[lat,lng], end:[lat,lng]}]
     option.legs.forEach((leg, li) => {
       const busIdx = leg.type === "bus" ? _busIdx++ : 0;
       const color = _legColor(leg, busIdx);
       const isWalk = leg.type === "walk";
       const points = _legPoints(leg);
 
+      // Derive the explicit start/end from leg metadata (source of truth for stitching)
       let edgeStart = null, edgeEnd = null;
       if (leg.type === "bus") {
         edgeStart = leg.board_stop?.lat  ? [leg.board_stop.lat,  leg.board_stop.lng]  : points[0] ?? null;
@@ -2209,6 +2223,7 @@ function updatePlanMap(data, coords, optIdx = 0) {
           dashArray: isWalk ? "4,7" : null,
           lineCap: "round", lineJoin: "round",
         }).addTo(_planMap);
+        // Async-replace with real geometry so lines follow actual rail/road curves.
         if (leg.type === "mrt") {
           const map = _planMap;
           _osmMrtTrack(leg).then(track => {
@@ -2261,6 +2276,9 @@ function updatePlanMap(data, coords, optIdx = 0) {
       }
     });
 
+    // Stitch any gap between consecutive legs using the explicit alight/board
+    // coordinates (not waypoint array endpoints, which may skip stops that have
+    // no lat/lng in the DB, leaving the last waypoint short of the real alight stop).
     for (let i = 1; i < _legEdges.length; i++) {
       const a = _legEdges[i - 1].end, b = _legEdges[i].start;
       if (a && b && (Math.abs(a[0] - b[0]) > 5e-5 || Math.abs(a[1] - b[1]) > 5e-5)) {

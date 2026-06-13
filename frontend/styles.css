@@ -225,6 +225,8 @@ button { font-family: inherit; cursor: pointer; }
 .chips-row {
   display: flex; gap: .4rem; overflow-x: auto;
   padding-bottom: .2rem; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, black 88%, transparent 100%);
+  mask-image: linear-gradient(to right, black 88%, transparent 100%);
 }
 .chips-row::-webkit-scrollbar { display: none; }
 .chip {
@@ -326,11 +328,12 @@ button { font-family: inherit; cursor: pointer; }
   text-align: right; flex-shrink: 0;
 }
 .eta-now {
-  font-size: 1.55rem; font-weight: 800; line-height: 1;
+  font-size: 2rem; font-weight: 800; line-height: 1;
   font-variant-numeric: tabular-nums; letter-spacing: -.03em;
 }
-.eta-now .eta-unit { font-size: .68rem; font-weight: 600; color: var(--ink-3); margin-left: .12rem; letter-spacing: 0; }
-.eta-now.due { color: var(--good); }
+.eta-now .eta-unit { font-size: .65rem; font-weight: 600; color: var(--ink-3); margin-left: .1rem; letter-spacing: 0; vertical-align: .15rem; }
+.eta-now.due { color: var(--good); animation: pulse-arr 1.4s ease-in-out infinite; }
+@keyframes pulse-arr { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 .eta-ai {
   font-size: .76rem; font-weight: 600; color: var(--accent);
   margin-top: .22rem; font-variant-numeric: tabular-nums; white-space: nowrap;
@@ -534,9 +537,15 @@ th.num, td.num { text-align: right; }
   border: none; background: none; color: var(--ink-3);
   font-size: .65rem; font-weight: 600;
   padding: .4rem 0 .3rem; border-radius: 10px;
-  position: relative; transition: color .12s;
+  position: relative; transition: color .12s, background .12s;
 }
-.nav-item.active { color: var(--accent); }
+.nav-item::before {
+  content: ""; position: absolute; top: 0;
+  width: 22px; height: 3px; border-radius: 0 0 3px 3px;
+  background: transparent; transition: background .15s;
+}
+.nav-item.active { color: var(--accent); background: var(--accent-soft); }
+.nav-item.active::before { background: var(--accent); }
 .nav-item:active { background: var(--surface-2); }
 .nav-badge {
   position: absolute; top: 2px; right: calc(50% - 18px);
@@ -720,7 +729,8 @@ th.num, td.num { text-align: right; }
 }
 .plan-future-note svg { flex-shrink: 0; color: var(--accent); }
 .plan-swap-row {
-  display: flex; justify-content: flex-end;
+  display: flex; justify-content: flex-start;
+  padding-left: calc(30px + .55rem);
   margin: .3rem 0;
 }
 .plan-swap-btn {
@@ -840,9 +850,14 @@ th.num, td.num { text-align: right; }
 .pw-change .bigbtn { margin-top: .65rem; }
 
 .journey-leg {
-  padding: .7rem .9rem; border-bottom: 1px solid var(--line);
+  padding: .7rem .9rem .7rem calc(.9rem + 4px);
+  border-bottom: 1px solid var(--line);
+  border-left: 4px solid var(--line);
 }
 .journey-leg:last-child { border-bottom: none; }
+.bus-leg  { border-left-color: var(--ink); }
+.mrt-leg  { border-left-color: var(--leg-color, #888); }
+.walk-leg { border-left-color: var(--ink-3); }
 
 .leg-top {
   display: flex; align-items: center; gap: .5rem; margin-bottom: .42rem; flex-wrap: wrap;
@@ -886,10 +901,11 @@ th.num, td.num { text-align: right; }
 
 .journey-transfer {
   display: flex; align-items: center; gap: .45rem;
-  padding: .48rem .9rem;
+  padding: .48rem .9rem .48rem calc(.9rem + 4px);
   background: var(--surface-2);
   border-top: 1px dashed var(--line);
   border-bottom: 1px dashed var(--line);
+  border-left: 4px solid var(--line);
   font-size: .76rem; color: var(--ink-3); font-weight: 500;
 }
 
