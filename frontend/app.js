@@ -1551,7 +1551,7 @@ function renderBusOnlyCard(opt, idx = 0) {
   const typeTxt = opt.transfers === 0 ? "Direct"
     : `${opt.transfers} transfer${opt.transfers > 1 ? "s" : ""}`;
   const badgesHtml = opt.legs.map((l, i, a) =>
-    `<span class="jcard-badge" style="background:${BUS_COLORS[Math.min(i, BUS_COLORS.length-1)]};color:${BUS_TEXT_COLORS[Math.min(i, BUS_TEXT_COLORS.length-1)]}">${esc(l.service_no)}</span>` +
+    `<span class="jcard-badge">${esc(l.service_no)}</span>` +
     (i < a.length - 1
       ? `<svg class="jcard-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`
       : "")
@@ -1644,12 +1644,10 @@ function renderMultimodalResult(data) {
 
 function renderMultimodalCard(opt, idx = 0) {
   const active = opt.legs.filter((l) => l.type !== "walk");
-  let _bc = 0;
   const badgesHtml = active.map((l, i, a) => {
-    const bi = l.type === "bus" ? _bc++ : -1;
     const badge = l.type === "mrt"
       ? `<span class="jcard-badge mrt-badge" style="background:${esc(l.line_color)}">${esc(l.line)}</span>`
-      : `<span class="jcard-badge" style="background:${BUS_COLORS[Math.min(bi, BUS_COLORS.length-1)]};color:${BUS_TEXT_COLORS[Math.min(bi, BUS_TEXT_COLORS.length-1)]}">${esc(l.service_no)}</span>`;
+      : `<span class="jcard-badge">${esc(l.service_no)}</span>`;
     return badge + (i < a.length - 1
       ? `<svg class="jcard-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`
       : "");
@@ -2095,7 +2093,7 @@ function _stitchWays(segs, start, end) {
 // Colour for a journey leg polyline. MRT legs always use their official line
 // colour; buses use one consistent blue that isn't any MRT line colour so a
 // transfer reads clearly on the map.
-const BUS_COLORS      = ["#e91e8c", "#888"]; // pink (1st bus), grey (2nd bus)
+const BUS_COLORS      = ["#e91e8c", "#FF6E00"]; // pink (1st bus), orange (2nd bus)
 const BUS_TEXT_COLORS = ["#fff",    "#fff"]; // contrast text for badges
 function _legColor(leg, busIdx = 0) {
   if (leg.type === "walk") return "#888";
