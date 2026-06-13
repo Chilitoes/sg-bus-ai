@@ -10,6 +10,11 @@ LTA_STOPS_ENDPOINT: str = f"{LTA_BASE_URL}/BusStops"
 
 DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./bus_data.db")
 
+# Google OAuth client ID (for "Sign in with Google"). Same value the frontend
+# uses. Leave empty to disable Google sign-in. Create one at
+# https://console.cloud.google.com/apis/credentials (OAuth client → Web app).
+GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+
 COLLECTION_INTERVAL_MINUTES: int = int(os.getenv("COLLECTION_INTERVAL_MINUTES", "5"))
 MODEL_RETRAIN_INTERVAL_HOURS: float = float(os.getenv("MODEL_RETRAIN_INTERVAL_HOURS", "0.5"))
 

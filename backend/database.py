@@ -22,6 +22,8 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     create_engine,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -142,13 +144,24 @@ class BusRoute(Base):
 
 
 class User(Base):
-    """Registered account. Passwords are stored as salted PBKDF2 hashes."""
+    """Registered account.
+
+    Two ways to sign in:
+    - Password accounts: ``password_hash`` is a salted PBKDF2 hash.
+    - Google accounts: ``google_sub`` is the Google subject id; ``password_hash``
+      holds an unusable random hash so password login can never succeed.
+    """
     __tablename__ = "users"
 
     id            = Column(Integer, primary_key=True)
     username      = Column(String(30), unique=True, index=True, nullable=False)
     password_hash = Column(String(200), nullable=False)
     created_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # OAuth / profile (nullable: password-only accounts leave these empty)
+    email         = Column(String(255), index=True, nullable=True)
+    google_sub    = Column(String(64), unique=True, index=True, nullable=True)
+    auth_provider = Column(String(20), default="password", nullable=True)
 
 
 class UserSession(Base):
@@ -206,9 +219,37 @@ def get_db():
         db.close()
 
 
+def _migrate_user_columns() -> None:
+    """Add the OAuth columns to a pre-existing ``users`` table.
+
+    ``create_all`` only creates *missing tables*, never missing columns, so an
+    older database that predates Google sign-in needs the new columns added by
+    hand. Portable across SQLite and PostgreSQL.
+    """
+    insp = inspect(engine)
+    if "users" not in insp.get_table_names():
+        return
+    existing = {c["name"] for c in insp.get_columns("users")}
+    additions = {
+        "email": "VARCHAR(255)",
+        "google_sub": "VARCHAR(64)",
+        "auth_provider": "VARCHAR(20) DEFAULT 'password'",
+    }
+    with engine.begin() as conn:
+        for name, ddl in additions.items():
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {name} {ddl}"))
+        # Unique index on google_sub (NULLs are allowed to repeat on both engines)
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub "
+            "ON users (google_sub)"
+        ))
+
+
 def init_db(seed_stops: list[str] | None = None) -> None:
     """Create all tables and optionally seed the monitored-stops list."""
     Base.metadata.create_all(bind=engine)
+    _migrate_user_columns()
     if seed_stops:
         db = SessionLocal()
         try:

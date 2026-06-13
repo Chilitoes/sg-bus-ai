@@ -32,6 +32,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from config import GOOGLE_CLIENT_ID
 from database import User, UserFavourite, UserSession, MonitoredStop, SavedJourney, get_db
 
 router = APIRouter()
@@ -70,6 +71,15 @@ def verify_password(password: str, stored: str) -> bool:
         return hmac.compare_digest(dk.hex(), dk_hex)
     except Exception:
         return False
+
+
+def unusable_password_hash() -> str:
+    """A valid-looking hash of an unknowable secret — for OAuth-only accounts.
+
+    Stored so the NOT NULL ``password_hash`` column is satisfied; password login
+    against it can never succeed because nobody knows the underlying password.
+    """
+    return hash_password(secrets.token_hex(32))
 
 
 def _client_ip(request: Request) -> str:
@@ -198,6 +208,85 @@ def login(creds: Credentials, request: Request, db: Session = Depends(get_db)) -
     return {"token": _issue_token(db, user.id), "username": user.username}
 
 
+# ── Google OAuth ──────────────────────────────────────────────────────────────
+
+class GoogleAuthIn(BaseModel):
+    credential: str   # the ID token (JWT) returned by Google Identity Services
+
+
+def _unique_username(db: Session, base: str) -> str:
+    """Derive a valid, unused username from a Google display name / email."""
+    cleaned = re.sub(r"[^A-Za-z0-9_]", "", base or "")
+    if len(cleaned) < 3:
+        cleaned = (cleaned + "user")
+    cleaned = cleaned[:20]
+    candidate = cleaned
+    n = 0
+    while (
+        candidate.lower() == "admin"
+        or db.query(User).filter(func.lower(User.username) == candidate.lower()).first()
+    ):
+        n += 1
+        suffix = str(n)
+        candidate = cleaned[: 20 - len(suffix)] + suffix
+    return candidate
+
+
+@router.post("/auth/google")
+def google_auth(body: GoogleAuthIn, request: Request, db: Session = Depends(get_db)) -> dict:
+    _throttle(request, "google")
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured.")
+
+    # Verify the ID token: checks signature against Google's keys, audience
+    # (our client id), issuer and expiry. Raises on any failure.
+    try:
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token as google_id_token
+        info = google_id_token.verify_oauth2_token(
+            body.credential, google_requests.Request(), GOOGLE_CLIENT_ID
+        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="Google sign-in failed. Please try again.")
+
+    if info.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+        raise HTTPException(status_code=401, detail="Invalid Google token issuer.")
+
+    sub = info.get("sub")
+    if not sub:
+        raise HTTPException(status_code=401, detail="Google token missing subject.")
+    email = (info.get("email") or "").strip().lower()
+    email_verified = bool(info.get("email_verified"))
+    display = info.get("name") or (email.split("@")[0] if email else "user")
+
+    # 1) Returning Google user
+    user = db.query(User).filter_by(google_sub=sub).first()
+
+    # 2) Link to an existing account that shares this verified email
+    if user is None and email and email_verified:
+        user = db.query(User).filter(func.lower(User.email) == email).first()
+        if user is not None:
+            user.google_sub = sub
+
+    # 3) Brand-new account
+    if user is None:
+        user = User(
+            username=_unique_username(db, display),
+            password_hash=unusable_password_hash(),
+            email=email or None,
+            google_sub=sub,
+            auth_provider="google",
+        )
+        db.add(user)
+    else:
+        if email and not user.email:
+            user.email = email
+
+    db.commit()
+    db.refresh(user)
+    return {"token": _issue_token(db, user.id), "username": user.username}
+
+
 @router.post("/auth/logout")
 def logout(
     authorization: str | None = Header(default=None),
@@ -248,6 +337,8 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) ->
         "favourite_count": fav_count,
         "journey_count": journey_count,
         "is_admin": user.username.lower() == "admin",
+        "email": user.email,
+        "auth_provider": user.auth_provider or "password",
     }
 
 

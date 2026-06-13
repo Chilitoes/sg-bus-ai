@@ -11,10 +11,11 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=19" />
+  <link rel="stylesheet" href="styles.css?v=20" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
@@ -369,6 +370,10 @@
 
   <!-- logged out -->
   <div id="auth-forms">
+    <div id="google-signin-wrap" class="google-signin-wrap hidden">
+      <div id="google-signin-btn"></div>
+      <div class="auth-divider"><span>or use a username</span></div>
+    </div>
     <div class="seg">
       <button id="seg-login" class="seg-btn active">Log in</button>
       <button id="seg-register" class="seg-btn">Create account</button>
@@ -423,6 +428,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=19"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>
