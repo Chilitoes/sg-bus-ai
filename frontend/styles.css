@@ -549,14 +549,14 @@ th.num, td.num { text-align: right; }
 
 /* ── Sheet (account) ─────────────────────────────────── */
 .sheet-backdrop {
-  position: fixed; inset: 0; z-index: 80;
+  position: fixed; inset: 0; z-index: 1000;
   background: rgba(0,0,0,.45);
   backdrop-filter: blur(2px);
   animation: fade .18s ease;
 }
 @keyframes fade { from { opacity: 0; } }
 .sheet {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 1001;
   max-width: 480px; margin: 0 auto;
   background: var(--surface);
   border: 1px solid var(--line); border-bottom: none;
