@@ -310,11 +310,11 @@ button { font-family: inherit; cursor: pointer; }
   font-variant-numeric: tabular-nums;
 }
 .svc-mid { flex: 1; min-width: 0; }
-.svc-op { font-size: .72rem; color: var(--ink-3); }
-.svc-tags { display: flex; gap: .3rem; margin-top: .18rem; align-items: center; }
+.svc-op { font-size: .78rem; color: var(--ink-3); }
+.svc-tags { display: flex; gap: .3rem; margin-top: .2rem; align-items: center; }
 .tag {
-  font-size: .64rem; font-weight: 600; color: var(--ink-2);
-  border: 1px solid var(--line); border-radius: 4px; padding: 0 .3rem;
+  font-size: .7rem; font-weight: 600; color: var(--ink-2);
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 .32rem;
 }
 .load-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .load-dot.SEA { background: var(--good); }
@@ -332,10 +332,10 @@ button { font-family: inherit; cursor: pointer; }
 .eta-now .eta-unit { font-size: .68rem; font-weight: 600; color: var(--ink-3); margin-left: .12rem; letter-spacing: 0; }
 .eta-now.due { color: var(--good); }
 .eta-ai {
-  font-size: .7rem; font-weight: 600; color: var(--accent);
+  font-size: .76rem; font-weight: 600; color: var(--accent);
   margin-top: .22rem; font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-.eta-next { font-size: .7rem; color: var(--ink-3); margin-top: .12rem; font-variant-numeric: tabular-nums; }
+.eta-next { font-size: .76rem; color: var(--ink-3); margin-top: .12rem; font-variant-numeric: tabular-nums; }
 
 .svc .chev { color: var(--ink-3); transition: transform .2s; flex-shrink: 0; }
 .svc.open .chev { transform: rotate(180deg); }
@@ -349,10 +349,10 @@ button { font-family: inherit; cursor: pointer; }
   border-top: 1px solid var(--line);
   font-size: .8rem;
 }
-.bus-line .slot { color: var(--ink-3); font-size: .7rem; width: 34px; flex-shrink: 0; font-weight: 500; }
+.bus-line .slot { color: var(--ink-3); font-size: .75rem; width: 34px; flex-shrink: 0; font-weight: 500; }
 .bus-main { flex: 1; min-width: 0; }
 .bus-lta { display: flex; align-items: center; gap: .4rem; }
-.bus-lta b { font-weight: 700; font-variant-numeric: tabular-nums; font-size: .92rem; }
+.bus-lta b { font-weight: 700; font-variant-numeric: tabular-nums; font-size: .97rem; }
 .lta-tag {
   font-size: .58rem; font-weight: 700; letter-spacing: .06em;
   color: var(--ink-3); border: 1px solid var(--line);
@@ -362,7 +362,7 @@ button { font-family: inherit; cursor: pointer; }
   display: block; font-size: .72rem; font-weight: 600;
   color: var(--accent); margin-top: .12rem; font-variant-numeric: tabular-nums;
 }
-.adj { font-size: .67rem; font-weight: 600; border-radius: 5px; padding: .08rem .38rem; }
+.adj { font-size: .73rem; font-weight: 600; border-radius: 5px; padding: .08rem .38rem; }
 .adj.late   { color: var(--bad);  background: var(--bad-soft); }
 .adj.early  { color: var(--good); background: var(--good-soft); }
 .adj.ontime { color: var(--ink-3); background: var(--surface-2); }
@@ -894,34 +894,23 @@ th.num, td.num { text-align: right; }
 .jcard-save.saved svg { fill: currentColor; }
 .jcard-save:active { background: var(--surface-2); }
 
-/* ── Nearby stops map (arrivals tab) ────────────────────── */
+/* ── Nearby stops map button (arrivals tab) ─────────────── */
 .nearby-map-btn {
-  display: flex; align-items: center; gap: .4rem;
-  margin: .45rem 0 0;
-  padding: .38rem .8rem;
-  border: 1px solid var(--line); border-radius: 999px;
-  background: var(--surface-2); color: var(--ink-2);
-  font-size: .78rem; font-weight: 600;
-  cursor: pointer; transition: background .12s, color .12s;
+  display: inline-flex; align-items: center; gap: .4rem;
+  margin: .5rem 0 0;
+  padding: .4rem .9rem;
+  border: 1.5px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--ink-2);
+  font-size: .8rem; font-weight: 600;
+  cursor: pointer; transition: background .12s, color .12s, border-color .12s;
 }
 .nearby-map-btn:hover,
-.nearby-map-btn[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
-.nearby-map-wrap {
-  height: 0; overflow: hidden;
-  transition: height .25s ease;
-  border-radius: var(--radius);
-  margin-top: .4rem;
+.nearby-map-btn:active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+/* tooltip for explore map */
+.explore-you-tip {
+  background: #3b82f6; color: #fff; border: none;
+  font-size: .72rem; font-weight: 700; border-radius: 6px; padding: 2px 6px;
 }
-.nearby-map-wrap.open { height: 300px; }
-.nearby-map { height: 276px; }
-.nearby-map .leaflet-container { height: 276px; background: var(--surface); }
-.nearby-map-attr {
-  padding: .28rem .7rem;
-  font-size: .65rem; color: var(--ink-3);
-  background: var(--surface-2);
-  border-top: 1px solid var(--line);
-}
-.nearby-map-attr a { color: var(--ink-3); }
 
 /* ── Plan map (journey results) ─────────────────────────── */
 .plan-map-wrap {
