@@ -1359,10 +1359,19 @@ $("plan-btn").addEventListener("click", doJourneyPlan);
 
 // Departure-time control: reveal a "Now" reset once a future time is picked.
 (() => {
-  const t = $("plan-time"), nowBtn = $("plan-time-now");
+  const t = $("plan-time"), nowBtn = $("plan-time-now"), day = $("plan-day");
   if (!t || !nowBtn) return;
-  t.addEventListener("input", () => nowBtn.classList.toggle("hidden", !t.value));
-  nowBtn.addEventListener("click", () => { t.value = ""; nowBtn.classList.add("hidden"); });
+  const check = () => {
+    if (!t.value) { nowBtn.classList.add("hidden"); return; }
+    const off = parseInt(day?.value || "0", 10);
+    const [h, m] = t.value.split(":").map(Number);
+    const now = new Date();
+    const future = off > 0 || h > now.getHours() || (h === now.getHours() && m > now.getMinutes() + 3);
+    nowBtn.classList.toggle("hidden", !future);
+  };
+  t.addEventListener("input", check);
+  day?.addEventListener("change", check);
+  nowBtn.addEventListener("click", () => { t.value = ""; if (day) day.value = "0"; nowBtn.classList.add("hidden"); });
 })();
 $("plan-results").addEventListener("click", (e) => {
   const go = e.target.closest(".jcard-go");
@@ -1400,11 +1409,17 @@ $("plan-results").addEventListener("click", (e) => {
 
 // Build the &depart_at=… query suffix when a future time is set, else "".
 function _departQueryParam() {
-  const v = $("plan-time")?.value;
-  if (!v) return "";
-  const planned = new Date(v); // datetime-local is local wall-clock (SGT for SG users)
-  if (isNaN(planned) || planned.getTime() <= Date.now() + 3 * 60000) return "";
-  return `&depart_at=${encodeURIComponent(v)}`;
+  const timeVal = $("plan-time")?.value; // "HH:MM" or ""
+  if (!timeVal) return "";
+  const dayOffset = parseInt($("plan-day")?.value || "0", 10);
+  const [h, m] = timeVal.split(":").map(Number);
+  const d = new Date();
+  d.setDate(d.getDate() + dayOffset);
+  d.setHours(h, m, 0, 0);
+  if (d.getTime() <= Date.now() + 3 * 60000) return "";
+  const pad = n => String(n).padStart(2, "0");
+  const iso = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(h)}:${pad(m)}`;
+  return `&depart_at=${encodeURIComponent(iso)}`;
 }
 
 // Banner shown above results when planning for a future time.
@@ -1536,7 +1551,7 @@ function renderBusOnlyCard(opt, idx = 0) {
   const typeTxt = opt.transfers === 0 ? "Direct"
     : `${opt.transfers} transfer${opt.transfers > 1 ? "s" : ""}`;
   const badgesHtml = opt.legs.map((l, i, a) =>
-    `<span class="jcard-badge">${esc(l.service_no)}</span>` +
+    `<span class="jcard-badge" style="background:${BUS_COLORS[Math.min(i, BUS_COLORS.length-1)]};color:${BUS_TEXT_COLORS[Math.min(i, BUS_TEXT_COLORS.length-1)]}">${esc(l.service_no)}</span>` +
     (i < a.length - 1
       ? `<svg class="jcard-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`
       : "")
@@ -1629,14 +1644,16 @@ function renderMultimodalResult(data) {
 
 function renderMultimodalCard(opt, idx = 0) {
   const active = opt.legs.filter((l) => l.type !== "walk");
-  const badgesHtml = active.map((l, i, a) =>
-    (l.type === "mrt"
+  let _bc = 0;
+  const badgesHtml = active.map((l, i, a) => {
+    const bi = l.type === "bus" ? _bc++ : -1;
+    const badge = l.type === "mrt"
       ? `<span class="jcard-badge mrt-badge" style="background:${esc(l.line_color)}">${esc(l.line)}</span>`
-      : `<span class="jcard-badge">${esc(l.service_no)}</span>`) +
-    (i < a.length - 1
+      : `<span class="jcard-badge" style="background:${BUS_COLORS[Math.min(bi, BUS_COLORS.length-1)]};color:${BUS_TEXT_COLORS[Math.min(bi, BUS_TEXT_COLORS.length-1)]}">${esc(l.service_no)}</span>`;
+    return badge + (i < a.length - 1
       ? `<svg class="jcard-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`
-      : "")
-  ).join("") || `<span class="jcard-badge jcard-walk-only">Walk</span>`;
+      : "");
+  }).join("") || `<span class="jcard-badge jcard-walk-only">Walk</span>`;
 
   const firstActive = active[0];
   const fw = firstActive?.wait_min;
@@ -2078,11 +2095,12 @@ function _stitchWays(segs, start, end) {
 // Colour for a journey leg polyline. MRT legs always use their official line
 // colour; buses use one consistent blue that isn't any MRT line colour so a
 // transfer reads clearly on the map.
-const BUS_COLOR = "#1e88e5";
-function _legColor(leg) {
+const BUS_COLORS      = ["#e91e8c", "#888"]; // pink (1st bus), grey (2nd bus)
+const BUS_TEXT_COLORS = ["#fff",    "#fff"]; // contrast text for badges
+function _legColor(leg, busIdx = 0) {
   if (leg.type === "walk") return "#888";
   if (leg.type === "mrt") return leg.line_color || MRT_COLORS[leg.line] || "#555";
-  return BUS_COLOR;
+  return BUS_COLORS[Math.min(busIdx, BUS_COLORS.length - 1)];
 }
 
 function updatePlanMap(data, coords, optIdx = 0) {
@@ -2131,8 +2149,10 @@ function updatePlanMap(data, coords, optIdx = 0) {
   const safeIdx = Math.min(Math.max(0, optIdx), (data.options?.length || 1) - 1);
   const option = data.options?.[safeIdx];
   if (option?.legs) {
+    let _busIdx = 0;
     option.legs.forEach((leg, li) => {
-      const color = _legColor(leg);
+      const busIdx = leg.type === "bus" ? _busIdx++ : 0;
+      const color = _legColor(leg, busIdx);
       const isWalk = leg.type === "walk";
       const points = _legPoints(leg);
       // MRT: curve the line through the stations so it follows the track shape.

@@ -695,6 +695,15 @@ th.num, td.num { text-align: right; }
   -webkit-appearance: none; appearance: none;
 }
 .plan-time-input:focus { outline: none; border-color: var(--accent); }
+.plan-day-select {
+  flex-shrink: 0;
+  background: var(--surface-2); border: 1.5px solid var(--line);
+  border-radius: 10px; color: var(--ink);
+  padding: .5rem .55rem; font-size: .82rem; font-family: inherit;
+  -webkit-appearance: none; appearance: none;
+  cursor: pointer;
+}
+.plan-day-select:focus { outline: none; border-color: var(--accent); }
 .plan-time-now {
   flex-shrink: 0; border: 1.5px solid var(--line); background: var(--surface-2);
   color: var(--ink-2); border-radius: 10px; padding: .5rem .7rem;
