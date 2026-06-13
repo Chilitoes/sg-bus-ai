@@ -1814,6 +1814,17 @@ let _mapTabMap    = null;
 let _mapTabLoaded = false;
 const _mapTabStopCodes = new Set();
 
+// HTML divIcon marker — taps fire reliably on iOS, unlike SVG circleMarkers
+// (Leaflet 1.7+ dropped its tap handler, so vector layers miss touch clicks).
+function _stopPinIcon() {
+  return L.divIcon({
+    className: "stop-pin",
+    html: "<span></span>",
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  });
+}
+
 function initMapView() {
   if (!_leafletReady()) { _whenLeaflet(initMapView); return; }
   const topbarH = document.querySelector(".topbar")?.offsetHeight ?? 60;
@@ -1853,11 +1864,11 @@ function _loadMapTabStops(lat, lng) {
       if (!s.latitude) return;
       if (_mapTabStopCodes.has(s.bus_stop_code)) return;   // avoid duplicates
       _mapTabStopCodes.add(s.bus_stop_code);
-      L.circleMarker([s.latitude, s.longitude], {
-        radius: 9, color: "#fff", fillColor: "#e5282a", fillOpacity: 0.92, weight: 2,
-        bubblingMouseEvents: false,
+      L.marker([s.latitude, s.longitude], {
+        icon: _stopPinIcon(),
+        title: s.description || s.bus_stop_code,
       })
-      .bindTooltip(s.description || s.bus_stop_code, { direction: "top", offset: [0, -8] })
+      .bindTooltip(s.description || s.bus_stop_code, { direction: "top", offset: [0, -12] })
       .on("click", () => { switchView("arrivals"); loadStop(s.bus_stop_code); })
       .addTo(_mapTabMap);
     });
@@ -1909,6 +1920,32 @@ function _mrtClientWaypoints(fromCode, toCode) {
     return slice.map((c) => _MRT_COORDS[c]).filter(Boolean);
   }
   return null;
+}
+
+// Smooth a sparse point list (e.g. MRT station coords) into a curved path with
+// a Catmull-Rom spline so the line bends through the stations instead of
+// cutting straight across them. Returns the original list if too short.
+function _smoothLine(points, segments = 16) {
+  if (!points || points.length < 3) return points;
+  const out = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i - 1] || points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] || p2;
+    for (let t = 0; t < segments; t++) {
+      const s = t / segments, s2 = s * s, s3 = s2 * s;
+      const lat = 0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * s +
+        (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * s2 +
+        (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * s3);
+      const lng = 0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * s +
+        (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * s2 +
+        (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * s3);
+      out.push([lat, lng]);
+    }
+  }
+  out.push(points[points.length - 1]);
+  return out;
 }
 
 // Colour for a journey leg polyline
@@ -1966,8 +2003,10 @@ function updatePlanMap(data, coords) {
       const color = _legColor(leg);
       const isWalk = leg.type === "walk";
       const points = _legPoints(leg);
+      // MRT: curve the line through the stations so it follows the track shape.
+      const drawPoints = leg.type === "mrt" ? _smoothLine(points) : points;
       if (points.length >= 2) {
-        L.polyline(points, {
+        L.polyline(drawPoints, {
           color, opacity: isWalk ? .55 : .9,
           weight: isWalk ? 2 : 5,
           dashArray: isWalk ? "4,7" : null,
