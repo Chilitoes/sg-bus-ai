@@ -21,6 +21,7 @@ POST /api/favourites/sync      (auth) merge a local list into the account,
 
 import hashlib
 import hmac
+import logging
 import re
 import secrets
 import time
@@ -36,6 +37,7 @@ from config import GOOGLE_CLIENT_ID
 from database import User, UserFavourite, UserSession, MonitoredStop, SavedJourney, get_db
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 PBKDF2_ITERATIONS = 200_000
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,20}$")
@@ -240,14 +242,20 @@ def google_auth(body: GoogleAuthIn, request: Request, db: Session = Depends(get_
 
     # Verify the ID token: checks signature against Google's keys, audience
     # (our client id), issuer and expiry. Raises on any failure.
+    # clock_skew_in_seconds gives a little tolerance for small clock drift.
     try:
         from google.auth.transport import requests as google_requests
         from google.oauth2 import id_token as google_id_token
         info = google_id_token.verify_oauth2_token(
-            body.credential, google_requests.Request(), GOOGLE_CLIENT_ID
+            body.credential, google_requests.Request(), GOOGLE_CLIENT_ID,
+            clock_skew_in_seconds=10,
         )
-    except Exception:
-        raise HTTPException(status_code=401, detail="Google sign-in failed. Please try again.")
+    except Exception as e:
+        # Surface the underlying reason so misconfiguration (e.g. an audience
+        # mismatch between the frontend and backend client IDs) is diagnosable
+        # instead of hidden behind a generic message.
+        logger.warning("Google ID token verification failed: %s: %s", type(e).__name__, e)
+        raise HTTPException(status_code=401, detail=f"Google sign-in failed: {e}")
 
     if info.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
         raise HTTPException(status_code=401, detail="Invalid Google token issuer.")
