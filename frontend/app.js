@@ -330,10 +330,13 @@ $("chips-area").addEventListener("click", (e) => {
 function switchView(name) {
   if (name === "data" && !isAdmin()) name = "arrivals";
   S.view = name;
+  const isMap = name === "map";
   document.querySelectorAll(".nav-item").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === name));
   document.querySelectorAll(".view").forEach((v) =>
     v.classList.toggle("active", v.id === `view-${name}`));
+  if (isMap) { show($("view-map")); initMapView(); }
+  else hide($("view-map"));
   if (name === "saved") renderSaved();
   if (name === "data") loadData();
 }
@@ -1740,7 +1743,51 @@ function _sgTiles() {
   );
 }
 
-$("nearby-map-btn").addEventListener("click", () => window.open("map.html", "_blank"));
+// ── Map tab ────────────────────────────────────────────────
+let _mapTabMap    = null;
+let _mapTabLoaded = false;
+
+function initMapView() {
+  if (!_leafletReady()) { _whenLeaflet(initMapView); return; }
+  const topbarH = document.querySelector(".topbar")?.offsetHeight ?? 60;
+  document.documentElement.style.setProperty("--topbar-h", topbarH + "px");
+
+  if (!_mapTabMap) {
+    _mapTabMap = L.map($("map-tab-container"), { zoomControl: true, attributionControl: false })
+                  .setView([1.3521, 103.8198], 15);
+    _sgTiles().addTo(_mapTabMap);
+  }
+  setTimeout(() => _mapTabMap.invalidateSize(), 50);
+  if (_mapTabLoaded) return;
+  _mapTabLoaded = true;
+
+  navigator.geolocation?.getCurrentPosition(
+    ({ coords: { latitude: lat, longitude: lng } }) => {
+      _mapTabMap.setView([lat, lng], 16);
+      L.circleMarker([lat, lng], {
+        radius: 9, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
+      }).bindTooltip("You", { permanent: true, direction: "top", offset: [0, -12] })
+        .addTo(_mapTabMap);
+      _loadMapTabStops(lat, lng);
+    },
+    () => _loadMapTabStops(1.3521, 103.8198)
+  );
+}
+
+function _loadMapTabStops(lat, lng) {
+  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=40`).then((d) => {
+    if (!_mapTabMap) return;
+    d.results?.forEach((s) => {
+      if (!s.latitude) return;
+      L.circleMarker([s.latitude, s.longitude], {
+        radius: 8, color: "#fff", fillColor: "#e5282a", fillOpacity: 0.92, weight: 2,
+      })
+      .bindTooltip(s.description || s.bus_stop_code, { direction: "top", offset: [0, -8] })
+      .on("click", () => { switchView("arrivals"); loadStop(s.bus_stop_code); })
+      .addTo(_mapTabMap);
+    });
+  }).catch(() => {});
+}
 
 $("plan-map-fs-btn").addEventListener("click", () => {
   const wrap = $("plan-map-wrap");

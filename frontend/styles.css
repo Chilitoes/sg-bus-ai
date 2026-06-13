@@ -894,18 +894,35 @@ th.num, td.num { text-align: right; }
 .jcard-save.saved svg { fill: currentColor; }
 .jcard-save:active { background: var(--surface-2); }
 
-/* ── Nearby stops map button (arrivals tab) ─────────────── */
-.nearby-map-btn {
-  display: inline-flex; align-items: center; gap: .4rem;
-  margin: .5rem 0 0;
-  padding: .4rem .9rem;
-  border: 1.5px solid var(--line); border-radius: 999px;
-  background: var(--surface); color: var(--ink-2);
-  font-size: .8rem; font-weight: 600;
-  cursor: pointer; transition: background .12s, color .12s, border-color .12s;
+/* ── Map tab view ──────────────────────────────────────── */
+.map-view-outer {
+  position: fixed;
+  top: var(--topbar-h, 60px);
+  left: 0; right: 0;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  z-index: 5;
+  background: var(--bg);
 }
-.nearby-map-btn:hover,
-.nearby-map-btn:active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+#map-tab-container { width: 100%; height: 100%; }
+/* Leaflet overrides inside map tab */
+#map-tab-container .leaflet-control-zoom { border: none !important; }
+#map-tab-container .leaflet-control-zoom a {
+  background: rgba(13,14,16,.88) !important;
+  color: #eceef2 !important;
+  border-color: rgba(255,255,255,.14) !important;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) #map-tab-container .leaflet-control-zoom a {
+    background: rgba(255,255,255,.9) !important;
+    color: #1a1b1e !important;
+    border-color: rgba(0,0,0,.12) !important;
+  }
+}
+[data-theme="light"] #map-tab-container .leaflet-control-zoom a {
+  background: rgba(255,255,255,.9) !important;
+  color: #1a1b1e !important;
+  border-color: rgba(0,0,0,.12) !important;
+}
 /* ── Plan map (journey results) ─────────────────────────── */
 .plan-map-wrap {
   margin-top: .8rem;
