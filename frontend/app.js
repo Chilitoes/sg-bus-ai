@@ -1821,7 +1821,7 @@ function _stopPinIcon(label) {
     className: "stop-pin",
     // Use a <button> so iOS Safari fires touch events without requiring
     // cursor:pointer hacks — buttons are always interactive on all platforms.
-    html: `<button class="stop-pin-btn" aria-label="${esc(label || "")}"></button>`,
+    html: `<button class="stop-pin-btn" aria-label="${esc(label || "")}"></button><span class="stop-pin-label">${esc(label || "")}</span>`,
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   });

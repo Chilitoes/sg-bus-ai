@@ -935,7 +935,7 @@ th.num, td.num { text-align: right; }
 }
 #map-tab-container { width: 100%; height: 100%; }
 /* HTML marker for tappable bus stops — button inside divIcon for iOS compat */
-.stop-pin { background: none; border: none; }
+.stop-pin { background: none; border: none; overflow: visible; }
 .stop-pin-btn {
   all: unset;
   display: block; width: 15px; height: 15px; margin: 3px auto;
@@ -947,6 +947,22 @@ th.num, td.num { text-align: right; }
   pointer-events: auto;
   -webkit-appearance: none;
   box-sizing: border-box;
+}
+.stop-pin-label {
+  position: absolute;
+  top: 50%; left: 20px;
+  transform: translateY(-50%);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.01em;
+  color: #fff;
+  background: rgba(20,21,25,.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 2px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  line-height: 1.4;
 }
 /* Leaflet overrides inside map tab */
 #map-tab-container .leaflet-control-zoom { border: none !important; }
