@@ -855,6 +855,75 @@ th.num, td.num { text-align: right; }
 .jcard-save.saved svg { fill: currentColor; }
 .jcard-save:active { background: var(--surface-2); }
 
+/* ── Stop map (arrivals tab) ────────────────────────────── */
+.stop-map-wrap {
+  margin: .5rem 0 .2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+.stop-map-toggle {
+  display: flex; align-items: center; gap: .45rem;
+  width: 100%; padding: .55rem .85rem;
+  background: none; border: none; text-align: left;
+  font-size: .8rem; font-weight: 600; color: var(--ink-2);
+  cursor: pointer;
+}
+.stop-map-toggle:hover { background: var(--surface-2); }
+.stop-map-toggle .chev {
+  margin-left: auto;
+  transition: transform .18s;
+}
+.stop-map-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.stop-map {
+  height: 0; overflow: hidden;
+  transition: height .22s ease;
+}
+.stop-map.open { height: 220px; }
+.stop-map .leaflet-container { height: 220px; background: var(--surface); }
+
+/* ── Plan map (journey results) ─────────────────────────── */
+.plan-map-wrap {
+  margin-top: .8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+.plan-map { height: 260px; }
+.plan-map .leaflet-container { height: 260px; }
+.plan-map-attr {
+  padding: .3rem .7rem;
+  font-size: .66rem; color: var(--ink-3);
+  background: var(--surface-2);
+}
+.plan-map-attr a { color: var(--ink-3); }
+
+/* ── Share button on journey cards ─────────────────────── */
+.jcard-share {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--line); border-radius: 10px;
+  background: none; color: var(--ink-3);
+  width: 36px; height: 36px;
+  transition: background .12s, color .12s;
+}
+.jcard-share:active,
+.jcard-share:hover { background: var(--surface-2); color: var(--ink); }
+
+/* ── Share toast notification ───────────────────────────── */
+.share-toast {
+  position: fixed; bottom: calc(60px + env(safe-area-inset-bottom) + .8rem);
+  left: 50%; transform: translateX(-50%);
+  background: var(--ink); color: var(--bg);
+  border-radius: 999px; padding: .42rem 1.1rem;
+  font-size: .8rem; font-weight: 600;
+  pointer-events: none; z-index: 9999;
+  opacity: 1; transition: opacity .35s;
+}
+.share-toast.hidden { opacity: 0; pointer-events: none; }
+
 @media (min-width: 640px) {
   .stat-grid { grid-template-columns: repeat(3, 1fr); }
   .chart-box { height: 220px; }

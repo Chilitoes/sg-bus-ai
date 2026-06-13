@@ -529,6 +529,7 @@ function renderArrivals(data) {
   $("updated-at").textContent = `Updated ${new Date().toLocaleTimeString("en-SG",
     { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore" })}`;
   startTicker();
+  updateStopMap(data);
 }
 
 $("rows").addEventListener("click", (e) => {
@@ -1093,6 +1094,9 @@ $("plan-results").addEventListener("click", (e) => {
   const go = e.target.closest(".jcard-go");
   if (go) { go.closest(".journey-card").classList.toggle("open"); return; }
 
+  const shareBtn = e.target.closest(".jcard-share");
+  if (shareBtn) { shareCurrentJourney(); return; }
+
   const saveBtn = e.target.closest(".jcard-save");
   if (saveBtn) {
     if (!S.token) { toast("Log in to save routes"); openSheet(); return; }
@@ -1141,22 +1145,27 @@ async function doJourneyPlan() {
       if (s?.latitude) { tLat = planState.toLat = s.latitude; tLng = planState.toLng = s.longitude; }
     }
 
+    let planData = null;
     if (fLat !== null && tLat !== null) {
-      const data = await api(
+      planData = await api(
         `/api/journey/multimodal?from_lat=${fLat}&from_lng=${fLng}` +
         `&to_lat=${tLat}&to_lng=${tLng}` +
         `&from_name=${encodeURIComponent(fromName || "Origin")}` +
         `&to_name=${encodeURIComponent(toName || "Destination")}`
       );
-      res.innerHTML = renderMultimodalResult(data);
+      res.innerHTML = renderMultimodalResult(planData);
     } else if (fromCode && toCode) {
-      const data = await api(
+      planData = await api(
         `/api/journey/plan?from_code=${encodeURIComponent(fromCode)}&to_code=${encodeURIComponent(toCode)}`
       );
-      res.innerHTML = renderBusOnlyResult(data);
+      res.innerHTML = renderBusOnlyResult(planData);
     } else {
       err.textContent = "Couldn't resolve location. Try a more specific address or bus stop.";
       show(err);
+    }
+    if (planData) {
+      updatePlanMap(planData, { fLat, fLng, tLat, tLng, fromName, toName });
+      updateShareUrl();
     }
     updateJourneyCardSaveBtns();
     pushRecent();
@@ -1250,6 +1259,9 @@ function renderBusOnlyCard(opt) {
           <span class="jcard-type">${typeTxt}</span>
           <span class="jcard-subtext">${waitPart}~${opt.total_est_min} min${warnPart}</span>
         </div>
+        <button class="jcard-share" aria-label="Share this route" title="Copy shareable link">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
         <button class="jcard-save${saved ? " saved" : ""}" aria-label="${saved ? "Remove saved route" : "Save route"}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
@@ -1357,6 +1369,9 @@ function renderMultimodalCard(opt) {
           <span class="jcard-subtext">${waitPart}~${opt.total_est_min} min${warnPart}${alertPart}</span>
           ${catchHtml}
         </div>
+        <button class="jcard-share" aria-label="Share this route" title="Copy shareable link">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
         <button class="jcard-save${saved ? " saved" : ""}" aria-label="${saved ? "Remove saved route" : "Save route"}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
@@ -1503,6 +1518,273 @@ $("pw-change-btn")?.addEventListener("click", async () => {
   }
 });
 
+// ── Maps ──────────────────────────────────────────────────
+// Leaflet is loaded async (defer); guard every call with typeof L check.
+let _stopMap   = null;   // Leaflet instance for arrivals tab
+let _planMap   = null;   // Leaflet instance for plan tab
+
+function _leafletReady() { return typeof L !== "undefined"; }
+
+// Retry a map call once Leaflet has loaded (for hash/URL auto-loads that run before defer scripts)
+function _whenLeaflet(fn) {
+  if (_leafletReady()) { fn(); return; }
+  window.addEventListener("load", fn, { once: true });
+}
+
+function _sgTiles() {
+  return L.tileLayer(
+    "https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png",
+    { maxZoom: 18, minZoom: 11, attribution: "" }
+  );
+}
+
+// Show/hide the stop map panel and render the stop pin + nearby pins.
+function updateStopMap(arrivals) {
+  if (!_leafletReady()) { _whenLeaflet(() => updateStopMap(arrivals)); return; }
+  const wrap = $("stop-map-wrap");
+  const lat = arrivals?.latitude, lng = arrivals?.longitude;
+  if (!lat || !lng) { hide(wrap); return; }
+  show(wrap);
+
+  const container = $("stop-map");
+  if (!_stopMap) {
+    _stopMap = L.map(container, { zoomControl: true, attributionControl: false }).setView([lat, lng], 16);
+    _sgTiles().addTo(_stopMap);
+  } else {
+    _stopMap.setView([lat, lng], 16);
+    _stopMap.eachLayer((l) => { if (l instanceof L.Marker || l instanceof L.CircleMarker) l.remove(); });
+  }
+
+  // Main stop pin
+  const stopIcon = L.divIcon({
+    className: "",
+    html: `<div style="width:14px;height:14px;border-radius:50%;background:var(--accent);border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
+    iconSize: [14, 14], iconAnchor: [7, 7],
+  });
+  L.marker([lat, lng], { icon: stopIcon })
+   .bindPopup(`<b>${esc(S.stopInfo?.description || arrivals.bus_stop_code)}</b><br>${esc(S.stopInfo?.road_name || "")}`)
+   .addTo(_stopMap);
+
+  // Nearby stop pins (nearby endpoint now returns lat/lng)
+  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=12`).then((d) => {
+    if (!_stopMap) return;
+    const nearIcon = L.divIcon({
+      className: "",
+      html: `<div style="width:9px;height:9px;border-radius:50%;background:var(--ink-3);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`,
+      iconSize: [9, 9], iconAnchor: [4, 4],
+    });
+    d.results?.forEach((s) => {
+      if (s.bus_stop_code === arrivals.bus_stop_code) return;
+      if (!s.latitude) return;
+      L.marker([s.latitude, s.longitude], { icon: nearIcon })
+       .bindPopup(`<b>${esc(s.description)}</b><br>${esc(s.road_name || "")} · ${s.bus_stop_code}`)
+       .on("click", () => loadStop(s.bus_stop_code))
+       .addTo(_stopMap);
+    });
+  }).catch(() => {});
+}
+
+// Wire the toggle button
+$("stop-map-toggle").addEventListener("click", () => {
+  const btn = $("stop-map-toggle");
+  const map = $("stop-map");
+  const open = btn.getAttribute("aria-expanded") === "true";
+  btn.setAttribute("aria-expanded", String(!open));
+  btn.textContent = "";
+  btn.innerHTML = `
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/></svg>
+    ${open ? "Show on map" : "Hide map"}
+    <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+  map.classList.toggle("open", !open);
+  if (!open && _stopMap) {
+    // Leaflet needs size invalidated after the container becomes visible
+    setTimeout(() => _stopMap.invalidateSize(), 230);
+  }
+});
+
+// Line colors for MRT (matches mrt_data.py line_color values)
+const MRT_COLORS = {
+  EWL: "#009645", NSL: "#d42e12", NEL: "#9900aa",
+  CCL: "#fa9e0d", DTL: "#005ec4", TEL: "#9D5B25",
+};
+
+// Colour for a journey leg polyline
+function _legColor(leg) {
+  if (leg.type === "walk") return "#888";
+  if (leg.type === "mrt") return leg.line_color || MRT_COLORS[leg.line] || "#555";
+  return "#e5282a"; // bus red
+}
+
+function updatePlanMap(data, coords) {
+  if (!_leafletReady()) { _whenLeaflet(() => updatePlanMap(data, coords)); return; }
+  let { fLat, fLng, tLat, tLng, fromName, toName } = coords;
+  const wrap = $("plan-map-wrap");
+  // Fall back to coords in the response (bus-only plan has them in data.from/to)
+  const rLat = fLat ?? data?.from?.lat, rLng = fLng ?? data?.from?.lng;
+  const dLat = tLat ?? data?.to?.lat,   dLng = tLng ?? data?.to?.lng;
+  fLat = rLat; fLng = rLng; tLat = dLat; tLng = dLng;
+  fromName = fromName || data?.from?.name || "Origin";
+  toName   = toName   || data?.to?.name   || "Destination";
+  if (!fLat || !tLat) { hide(wrap); return; }
+
+  show(wrap);
+  const container = $("plan-map");
+  if (!_planMap) {
+    _planMap = L.map(container, { zoomControl: true, attributionControl: false })
+               .setView([(fLat + tLat) / 2, (fLng + tLng) / 2], 13);
+    _sgTiles().addTo(_planMap);
+  } else {
+    _planMap.eachLayer((l) => { if (!(l instanceof L.TileLayer)) l.remove(); });
+  }
+
+  const bounds = [];
+
+  // Origin + destination pins
+  const pinIcon = (color, label) => L.divIcon({
+    className: "",
+    html: `<div style="width:30px;height:30px;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)">
+      <span style="display:block;transform:rotate(45deg);text-align:center;font-size:10px;font-weight:700;color:#fff;line-height:24px">${label}</span></div>`,
+    iconSize: [30, 30], iconAnchor: [15, 30],
+  });
+  L.marker([fLat, fLng], { icon: pinIcon("#3b82f6", "A") })
+   .bindPopup(`<b>From:</b> ${esc(fromName || "Origin")}`)
+   .addTo(_planMap);
+  bounds.push([fLat, fLng]);
+
+  L.marker([tLat, tLng], { icon: pinIcon("#e5282a", "B") })
+   .bindPopup(`<b>To:</b> ${esc(toName || "Destination")}`)
+   .addTo(_planMap);
+  bounds.push([tLat, tLng]);
+
+  // Draw the first available option's legs
+  const option = data.options?.[0];
+  if (option?.legs) {
+    option.legs.forEach((leg) => {
+      const color = _legColor(leg);
+      const dashArray = leg.type === "walk" ? "5,8" : null;
+      const points = _legPoints(leg, fLat, fLng, tLat, tLng);
+      if (points.length >= 2) {
+        L.polyline(points, { color, weight: leg.type === "walk" ? 3 : 5, opacity: .85, dashArray })
+         .addTo(_planMap);
+        points.forEach((p) => bounds.push(p));
+      }
+      // Stop markers for bus legs
+      if (leg.type === "bus") {
+        _busStopMarker(leg.board_stop, "#fff", color).addTo(_planMap);
+        _busStopMarker(leg.alight_stop, "#fff", color).addTo(_planMap);
+      }
+    });
+  }
+
+  if (bounds.length) _planMap.fitBounds(bounds, { padding: [32, 32] });
+  setTimeout(() => _planMap.invalidateSize(), 100);
+}
+
+function _legPoints(leg, fLat, fLng, tLat, tLng) {
+  if (leg.type === "walk") {
+    // Walk legs don't have coordinates in the response; approximate with origin/destination
+    // The real path isn't meaningful without routing, so just a straight line is fine.
+    const from = leg.from_lat != null ? [leg.from_lat, leg.from_lng] : null;
+    const to   = leg.to_lat   != null ? [leg.to_lat,   leg.to_lng]   : null;
+    if (from && to) return [from, to];
+    return [];
+  }
+  if (leg.type === "bus") {
+    const b = leg.board_stop, a = leg.alight_stop;
+    if (b?.lat && a?.lat) return [[b.lat, b.lng], [a.lat, a.lng]];
+    return [];
+  }
+  if (leg.type === "mrt") {
+    const pts = [];
+    if (leg.board_lat) pts.push([leg.board_lat, leg.board_lng]);
+    if (leg.alight_lat) pts.push([leg.alight_lat, leg.alight_lng]);
+    return pts;
+  }
+  return [];
+}
+
+function _busStopMarker(stop, fill, stroke) {
+  if (!stop?.lat) return L.layerGroup();
+  const icon = L.divIcon({
+    className: "",
+    html: `<div style="width:10px;height:10px;border-radius:50%;background:${fill};border:2.5px solid ${stroke};box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`,
+    iconSize: [10, 10], iconAnchor: [5, 5],
+  });
+  return L.marker([stop.lat, stop.lng], { icon }).bindPopup(`<b>${esc(stop.name || stop.code)}</b>`);
+}
+
+// ── Shareable journey URLs ────────────────────────────────
+function buildShareUrl() {
+  const { fromLat, fromLng, fromName, fromCode, toLat, toLng, toName, toCode } = planState;
+  if (!fromName || !toName) return null;
+  const p = new URLSearchParams();
+  if (fromLat != null) { p.set("fLat", fromLat.toFixed(6)); p.set("fLng", fromLng.toFixed(6)); }
+  if (fromName) p.set("fName", fromName);
+  if (fromCode) p.set("fCode", fromCode);
+  if (toLat != null) { p.set("tLat", toLat.toFixed(6)); p.set("tLng", toLng.toFixed(6)); }
+  if (toName) p.set("tName", toName);
+  if (toCode) p.set("tCode", toCode);
+  return `${location.origin}${location.pathname}?${p.toString()}#plan`;
+}
+
+function updateShareUrl() {
+  const url = buildShareUrl();
+  if (url) history.replaceState({}, "", url);
+}
+
+function shareCurrentJourney() {
+  const url = buildShareUrl();
+  if (!url) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(() => showShareToast()).catch(() => fallbackCopy(url));
+  } else {
+    fallbackCopy(url);
+  }
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); showShareToast(); } catch (_) {}
+  document.body.removeChild(ta);
+}
+
+let _toastTimer = null;
+function showShareToast() {
+  const el = $("share-toast");
+  el.classList.remove("hidden");
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.add("hidden"), 2200);
+}
+
+// Read URL params on load and auto-populate the plan form
+function bootFromUrl() {
+  const p = new URLSearchParams(location.search);
+  const fLat = p.get("fLat"), fLng = p.get("fLng"), fName = p.get("fName"), fCode = p.get("fCode");
+  const tLat = p.get("tLat"), tLng = p.get("tLng"), tName = p.get("tName"), tCode = p.get("tCode");
+  if (!fName || !tName) return;
+
+  // Restore plan state
+  planState.fromName = fName;
+  planState.fromLat  = fLat ? parseFloat(fLat) : null;
+  planState.fromLng  = fLng ? parseFloat(fLng) : null;
+  planState.fromCode = fCode || null;
+  planState.toName   = tName;
+  planState.toLat    = tLat ? parseFloat(tLat) : null;
+  planState.toLng    = tLng ? parseFloat(tLng) : null;
+  planState.toCode   = tCode || null;
+
+  $("plan-from-input").value = fName;
+  $("plan-to-input").value   = tName;
+  show($("plan-from-clear"));
+  show($("plan-to-clear"));
+
+  switchView("plan");
+  // Small delay so the view switch completes before planning
+  setTimeout(() => doJourneyPlan(), 300);
+}
+
 initTheme();
 syncAccountUI();
 afterFavsChanged();
@@ -1517,5 +1799,11 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
+// Boot: shared journey URL takes priority over stop hash
 const bootStop = location.hash.replace("#", "").trim();
-if (/^\d{5}$/.test(bootStop)) loadStop(bootStop);
+const hasShareParams = new URLSearchParams(location.search).get("fName");
+if (hasShareParams) {
+  bootFromUrl();
+} else if (/^\d{5}$/.test(bootStop)) {
+  loadStop(bootStop);
+}

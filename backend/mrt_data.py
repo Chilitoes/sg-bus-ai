@@ -333,15 +333,21 @@ def _path_to_legs(path: list[str]) -> list[dict]:
 
 
 def _make_leg(codes: list[str], line: str) -> dict:
+    board  = STATIONS[codes[0]]
+    alight = STATIONS[codes[-1]]
     return {
         "type":            "mrt",
         "line":            line,
         "line_name":       LINE_DISPLAY.get(line, {}).get("name", line),
         "line_color":      LINE_DISPLAY.get(line, {}).get("color", "#888"),
         "from_code":       codes[0],
-        "from_station":    STATIONS[codes[0]]["name"],
+        "from_station":    board["name"],
+        "board_lat":       board["lat"],
+        "board_lng":       board["lng"],
         "to_code":         codes[-1],
-        "to_station":      STATIONS[codes[-1]]["name"],
+        "to_station":      alight["name"],
+        "alight_lat":      alight["lat"],
+        "alight_lng":      alight["lng"],
         "stations_count":  len(codes) - 1,
         "est_ride_min":    max(2, (len(codes) - 1) * 2),  # ~2 min/station
     }

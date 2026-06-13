@@ -234,10 +234,13 @@ async def get_arrivals(
                 "buses":       buses,
             })
 
+    stop_row = db.query(BusStop).filter_by(bus_stop_code=stop_code).first()
     return {
         "bus_stop_code":  stop_code,
         "fetched_at":     now.isoformat(),
         "fetched_at_sgt": _sgt_iso(now),
+        "latitude":       stop_row.latitude  if stop_row else None,
+        "longitude":      stop_row.longitude if stop_row else None,
         "services":       result_services,
     }
 
@@ -430,6 +433,8 @@ def nearby_stops(
                 "description":   s.description,
                 "road_name":     s.road_name,
                 "distance_m":    round(dist),
+                "latitude":      s.latitude,
+                "longitude":     s.longitude,
             }
             for dist, s in ranked
         ],
@@ -725,6 +730,8 @@ async def plan_journey(
             "code": code,
             "name": s.description if s else code,
             "road": s.road_name if s else "",
+            "lat":  s.latitude  if s else None,
+            "lng":  s.longitude if s else None,
         }
 
     from_info = stop_info(from_code)
@@ -835,8 +842,10 @@ async def plan_journey(
         return {
             "service_no":        svc,
             "direction":         leg["direction"],
-            "board_stop":        {"code": board,  "name": brd.description if brd else board,  "road": brd.road_name if brd else ""},
-            "alight_stop":       {"code": alight, "name": alt.description if alt else alight, "road": alt.road_name if alt else ""},
+            "board_stop":        {"code": board,  "name": brd.description if brd else board,  "road": brd.road_name if brd else "",
+                                  "lat": brd.latitude  if brd else None, "lng": brd.longitude if brd else None},
+            "alight_stop":       {"code": alight, "name": alt.description if alt else alight, "road": alt.road_name if alt else "",
+                                  "lat": alt.latitude  if alt else None, "lng": alt.longitude if alt else None},
             "stops_count":       sc,
             "est_ride_min":      est_ride,
             "wait_min":          wait_min,
@@ -944,13 +953,16 @@ async def plan_multimodal(
         )
         return [(s, d) for s, d in scored if d <= max_m][:limit]
 
-    def _walk_leg(from_n: str, to_n: str, dist_m: float) -> dict:
+    def _walk_leg(from_n: str, to_n: str, dist_m: float,
+                  from_lat=None, from_lng=None, to_lat=None, to_lng=None) -> dict:
         return {
             "type": "walk",
             "from_name":  from_n,
             "to_name":    to_n,
             "distance_m": round(dist_m),
             "walk_min":   max(1, round(dist_m / WALK_MPS)),
+            "from_lat": from_lat, "from_lng": from_lng,
+            "to_lat":   to_lat,   "to_lng":   to_lng,
         }
 
     now = datetime.utcnow()
@@ -1103,8 +1115,10 @@ async def plan_multimodal(
         return {
             "type": "bus",
             "service_no": svc, "direction": raw_leg["direction"],
-            "board_stop":  {"code": board,  "name": brd.description if brd else board},
-            "alight_stop": {"code": alight, "name": alt.description if alt else alight},
+            "board_stop":  {"code": board,  "name": brd.description if brd else board,
+                            "lat": brd.latitude  if brd else None, "lng": brd.longitude if brd else None},
+            "alight_stop": {"code": alight, "name": alt.description if alt else alight,
+                            "lat": alt.latitude  if alt else None, "lng": alt.longitude if alt else None},
             "stops_count": sc, "est_ride_min": max(2, sc * 2),
             "wait_min": wait_min, "lta_arrival": lta_arr,
             "lta_arrival_sgt": lta_arr_sgt,
@@ -1145,8 +1159,12 @@ async def plan_multimodal(
 
     # Bus options (up to 3)
     for raw, o_stop, o_dist, d_stop, d_dist in raw_bus_plans[:4]:
-        walk_in  = _walk_leg(from_name, o_stop.description or o_stop.bus_stop_code, o_dist)
-        walk_out = _walk_leg(d_stop.description or d_stop.bus_stop_code, to_name, d_dist)
+        walk_in  = _walk_leg(from_name, o_stop.description or o_stop.bus_stop_code, o_dist,
+                              from_lat=from_lat, from_lng=from_lng,
+                              to_lat=o_stop.latitude, to_lng=o_stop.longitude)
+        walk_out = _walk_leg(d_stop.description or d_stop.bus_stop_code, to_name, d_dist,
+                              from_lat=d_stop.latitude, from_lng=d_stop.longitude,
+                              to_lat=to_lat, to_lng=to_lng)
         legs: list[dict] = [walk_in]
         cum = walk_in["walk_min"]
         for i, rl in enumerate(raw["legs"]):
@@ -1239,7 +1257,9 @@ async def plan_multimodal(
                     in_legs = [walk_in_f] + feeder_legs + [walk_xfr]
                     in_xfers = len(feeder_legs)
             if not in_legs:
-                in_legs = [_walk_leg(from_name, f"{STATIONS[o_code]['name']} MRT", o_dist_mrt)]
+                in_legs = [_walk_leg(from_name, f"{STATIONS[o_code]['name']} MRT", o_dist_mrt,
+                                     from_lat=from_lat, from_lng=from_lng,
+                                     to_lat=STATIONS[o_code]["lat"], to_lng=STATIONS[o_code]["lng"])]
 
             # ── Destination side: MRT → bus feeder → destination, or a walk ──
             out_legs: list[dict] = []
@@ -1265,7 +1285,9 @@ async def plan_multimodal(
                     out_xfers = len(dfeeder_legs)
                     out_walk_m = max(g_board_walk, g_d_walk)
             if not out_legs:
-                out_legs = [_walk_leg(f"{STATIONS[d_code]['name']} MRT", to_name, d_dist_mrt)]
+                out_legs = [_walk_leg(f"{STATIONS[d_code]['name']} MRT", to_name, d_dist_mrt,
+                                      from_lat=STATIONS[d_code]["lat"], from_lng=STATIONS[d_code]["lng"],
+                                      to_lat=to_lat, to_lng=to_lng)]
 
             all_legs = in_legs + enriched_mrt + out_legs
             total = (
