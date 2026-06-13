@@ -11,7 +11,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=20" />
+  <link rel="stylesheet" href="styles.css?v=21" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -370,9 +370,13 @@
 
   <!-- logged out -->
   <div id="auth-forms">
+    <div class="sheet-header">
+      <div class="sheet-title">Sign in to SG Bus</div>
+      <div class="sheet-sub">Save stops, sync across devices, sharper predictions</div>
+    </div>
     <div id="google-signin-wrap" class="google-signin-wrap hidden">
       <div id="google-signin-btn"></div>
-      <div class="auth-divider"><span>or use a username</span></div>
+      <div class="auth-divider"><span>or</span></div>
     </div>
     <div class="seg">
       <button id="seg-login" class="seg-btn active">Log in</button>
@@ -389,21 +393,18 @@
       </label>
       <p id="auth-error" class="error-note hidden"></p>
       <button id="auth-submit" type="submit" class="bigbtn">Log in</button>
-      <p class="sheet-hint">An account keeps your saved stops on any device — and saved stops are
-      monitored round the clock, so their arrival predictions keep getting more accurate. No email needed.</p>
     </form>
   </div>
 
   <!-- logged in -->
   <div id="auth-profile" class="hidden">
-    <div class="profile-row">
+    <div class="profile-card">
       <div class="profile-avatar" id="profile-avatar"></div>
-      <div>
+      <div class="profile-info">
         <div id="profile-name" class="profile-name"></div>
         <div id="profile-meta" class="profile-meta"></div>
       </div>
     </div>
-    <p class="sheet-hint">Saved stops sync to this account automatically.</p>
 
     <details class="pw-change">
       <summary>Change password</summary>
@@ -428,6 +429,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>

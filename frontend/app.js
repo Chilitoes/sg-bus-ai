@@ -263,11 +263,11 @@ function renderGoogleButton() {
   const el = $("google-signin-btn");
   if (!el || !_googleReady()) return;
   el.innerHTML = "";
-  const w = Math.min(360, Math.max(220, el.offsetWidth || 300));
+  const w = Math.min(400, Math.max(260, el.offsetWidth || 340));
   google.accounts.id.renderButton(el, {
     type: "standard", theme: _isDark() ? "filled_black" : "outline",
-    size: "large", text: "continue_with", shape: "pill",
-    logo_alignment: "center", width: w,
+    size: "large", text: "continue_with", shape: "rectangular",
+    logo_alignment: "left", width: w,
   });
 }
 
