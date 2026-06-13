@@ -1717,8 +1717,7 @@ $("pw-change-btn")?.addEventListener("click", async () => {
 
 // ── Maps ──────────────────────────────────────────────────
 // Leaflet is loaded async (defer); guard every call with typeof L check.
-let _exploreMap = null;   // Full-screen nearby-stops map (arrivals tab)
-let _planMap    = null;   // Leaflet instance for plan tab
+let _planMap = null;   // Leaflet instance for plan tab
 
 function _leafletReady() { return typeof L !== "undefined"; }
 
@@ -1741,60 +1740,15 @@ function _sgTiles() {
   );
 }
 
-// ── Explore stops full-screen map (arrivals tab) ─────────────
-function openExploreMap() {
-  if (!_leafletReady()) { _whenLeaflet(openExploreMap); return; }
-  show($("explore-map-modal"));
-  show($("explore-map-backdrop"));
-  document.body.style.overflow = "hidden";
+$("nearby-map-btn").addEventListener("click", () => window.open("map.html", "_blank"));
 
-  if (!_exploreMap) {
-    _exploreMap = L.map($("explore-map"), { zoomControl: true, attributionControl: false })
-                   .setView([1.3521, 103.8198], 15);
-    _sgTiles().addTo(_exploreMap);
-  }
-  setTimeout(() => _exploreMap.invalidateSize(), 200);
-
-  navigator.geolocation?.getCurrentPosition(
-    ({ coords: { latitude: lat, longitude: lng } }) => {
-      _exploreMap.setView([lat, lng], 16);
-      L.circleMarker([lat, lng], {
-        radius: 9, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
-      }).bindTooltip("You", { permanent: true, direction: "top", className: "explore-you-tip", offset: [0, -8] })
-        .addTo(_exploreMap);
-      _loadExploreStops(lat, lng);
-    },
-    () => _loadExploreStops(1.3521, 103.8198)
-  );
-}
-
-function closeExploreMap() {
-  hide($("explore-map-modal"));
-  hide($("explore-map-backdrop"));
-  document.body.style.overflow = "";
-}
-
-function _loadExploreStops(lat, lng) {
-  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=40`).then((d) => {
-    if (!_exploreMap) return;
-    d.results?.forEach((s) => {
-      if (!s.latitude) return;
-      L.circleMarker([s.latitude, s.longitude], {
-        radius: 8, color: "#fff", fillColor: "#e5282a", fillOpacity: 0.92, weight: 2,
-      })
-      .bindTooltip(s.description || s.bus_stop_code, { direction: "top", offset: [0, -8] })
-      .on("click", () => {
-        loadStop(s.bus_stop_code);
-        closeExploreMap();
-      })
-      .addTo(_exploreMap);
-    });
-  }).catch(() => {});
-}
-
-$("nearby-map-btn").addEventListener("click", openExploreMap);
-$("explore-map-close").addEventListener("click", closeExploreMap);
-$("explore-map-backdrop").addEventListener("click", closeExploreMap);
+$("plan-map-fs-btn").addEventListener("click", () => {
+  const wrap = $("plan-map-wrap");
+  const isFs = wrap.classList.toggle("fullscreen");
+  show(isFs ? $("plan-map-fs-collapse") : $("plan-map-fs-expand"));
+  hide(isFs ? $("plan-map-fs-expand")  : $("plan-map-fs-collapse"));
+  setTimeout(() => _planMap?.invalidateSize(), 50);
+});
 
 // Line colors for MRT (matches mrt_data.py line_color values)
 const MRT_COLORS = {
@@ -2178,11 +2132,16 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
-// Boot: shared journey URL takes priority over stop hash
+// Boot: shared journey URL takes priority; map.html posts ?loadStop=CODE; stop hash last
 const bootStop = location.hash.replace("#", "").trim();
-const hasShareParams = new URLSearchParams(location.search).get("fName");
+const _bootParams = new URLSearchParams(location.search);
+const hasShareParams = _bootParams.get("fName");
+const hasLoadStop   = _bootParams.get("loadStop");
 if (hasShareParams) {
   bootFromUrl();
+} else if (hasLoadStop && /^\d{5}$/.test(hasLoadStop)) {
+  loadStop(hasLoadStop);
+  history.replaceState(null, "", location.pathname);
 } else if (/^\d{5}$/.test(bootStop)) {
   loadStop(bootStop);
 }

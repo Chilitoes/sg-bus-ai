@@ -906,12 +906,6 @@ th.num, td.num { text-align: right; }
 }
 .nearby-map-btn:hover,
 .nearby-map-btn:active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
-/* tooltip for explore map */
-.explore-you-tip {
-  background: #3b82f6; color: #fff; border: none;
-  font-size: .72rem; font-weight: 700; border-radius: 6px; padding: 2px 6px;
-}
-
 /* ── Plan map (journey results) ─────────────────────────── */
 .plan-map-wrap {
   margin-top: .8rem;
@@ -919,6 +913,19 @@ th.num, td.num { text-align: right; }
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface);
+  position: relative;
+}
+.plan-map-wrap.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+}
+.plan-map-wrap.fullscreen .plan-map,
+.plan-map-wrap.fullscreen .plan-map .leaflet-container {
+  height: calc(100dvh - 32px);
 }
 .plan-map { height: 320px; }
 .plan-map .leaflet-container { height: 320px; }
@@ -929,6 +936,32 @@ th.num, td.num { text-align: right; }
   border-top: 1px solid var(--line);
 }
 .plan-map-attr a { color: var(--ink-3); }
+.plan-map-fs-btn {
+  position: absolute;
+  top: 10px; right: 10px;
+  z-index: 800;
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  background: rgba(13,14,16,.82);
+  border: 1px solid rgba(255,255,255,.15);
+  color: #eceef2;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background .12s;
+}
+.plan-map-fs-btn:active { background: rgba(40,42,50,.95); }
+@media (prefers-color-scheme: light) {
+  .plan-map-fs-btn {
+    background: rgba(255,255,255,.88);
+    border-color: rgba(0,0,0,.12);
+    color: #1a1b1e;
+  }
+}
+[data-theme="light"] .plan-map-fs-btn {
+  background: rgba(255,255,255,.88);
+  border-color: rgba(0,0,0,.12);
+  color: #1a1b1e;
+}
 
 /* ── Share button on journey cards ─────────────────────── */
 .jcard-share {
