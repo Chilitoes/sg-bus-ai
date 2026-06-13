@@ -1717,9 +1717,8 @@ $("pw-change-btn")?.addEventListener("click", async () => {
 
 // ── Maps ──────────────────────────────────────────────────
 // Leaflet is loaded async (defer); guard every call with typeof L check.
-let _nearbyMap  = null;   // Leaflet instance for arrivals nearby-stops map
-let _nearbyMapOpen = false;
-let _planMap   = null;   // Leaflet instance for plan tab
+let _exploreMap = null;   // Full-screen nearby-stops map (arrivals tab)
+let _planMap    = null;   // Leaflet instance for plan tab
 
 function _leafletReady() { return typeof L !== "undefined"; }
 
@@ -1742,56 +1741,60 @@ function _sgTiles() {
   );
 }
 
-// ── Nearby stops map (arrivals tab) ─────────────────────────
-function toggleNearbyMap() {
-  if (!_leafletReady()) { _whenLeaflet(toggleNearbyMap); return; }
-  _nearbyMapOpen = !_nearbyMapOpen;
-  const wrap = $("nearby-map-wrap");
-  const btn  = $("nearby-map-btn");
-  btn.setAttribute("aria-expanded", String(_nearbyMapOpen));
-  $("nearby-map-label").textContent = _nearbyMapOpen ? "Hide map" : "Show map";
-  wrap.classList.toggle("open", _nearbyMapOpen);
+// ── Explore stops full-screen map (arrivals tab) ─────────────
+function openExploreMap() {
+  if (!_leafletReady()) { _whenLeaflet(openExploreMap); return; }
+  show($("explore-map-modal"));
+  show($("explore-map-backdrop"));
+  document.body.style.overflow = "hidden";
 
-  if (_nearbyMapOpen) {
-    if (!_nearbyMap) {
-      _nearbyMap = L.map($("nearby-map"), { zoomControl: true, attributionControl: false })
-                    .setView([1.3521, 103.8198], 15);
-      _sgTiles().addTo(_nearbyMap);
-    }
-    setTimeout(() => _nearbyMap.invalidateSize(), 230);
-    navigator.geolocation?.getCurrentPosition(
-      ({ coords: { latitude: lat, longitude: lng } }) => {
-        _nearbyMap.setView([lat, lng], 16);
-        // User dot
-        L.circleMarker([lat, lng], {
-          radius: 7, color: "#3b82f6", fillColor: "#3b82f6", fillOpacity: 0.9, weight: 3,
-        }).bindPopup("Your location").addTo(_nearbyMap);
-        _loadNearbyMapStops(lat, lng);
-      },
-      () => _loadNearbyMapStops(1.3521, 103.8198)
-    );
+  if (!_exploreMap) {
+    _exploreMap = L.map($("explore-map"), { zoomControl: true, attributionControl: false })
+                   .setView([1.3521, 103.8198], 15);
+    _sgTiles().addTo(_exploreMap);
   }
+  setTimeout(() => _exploreMap.invalidateSize(), 200);
+
+  navigator.geolocation?.getCurrentPosition(
+    ({ coords: { latitude: lat, longitude: lng } }) => {
+      _exploreMap.setView([lat, lng], 16);
+      L.circleMarker([lat, lng], {
+        radius: 9, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
+      }).bindTooltip("You", { permanent: true, direction: "top", className: "explore-you-tip", offset: [0, -8] })
+        .addTo(_exploreMap);
+      _loadExploreStops(lat, lng);
+    },
+    () => _loadExploreStops(1.3521, 103.8198)
+  );
 }
 
-function _loadNearbyMapStops(lat, lng) {
-  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=30`).then((d) => {
-    if (!_nearbyMap) return;
+function closeExploreMap() {
+  hide($("explore-map-modal"));
+  hide($("explore-map-backdrop"));
+  document.body.style.overflow = "";
+}
+
+function _loadExploreStops(lat, lng) {
+  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=40`).then((d) => {
+    if (!_exploreMap) return;
     d.results?.forEach((s) => {
       if (!s.latitude) return;
       L.circleMarker([s.latitude, s.longitude], {
-        radius: 7, color: "#fff", fillColor: "#e5282a",
-        fillOpacity: 0.92, weight: 2,
+        radius: 8, color: "#fff", fillColor: "#e5282a", fillOpacity: 0.92, weight: 2,
       })
+      .bindTooltip(s.description || s.bus_stop_code, { direction: "top", offset: [0, -8] })
       .on("click", () => {
         loadStop(s.bus_stop_code);
-        toast(s.description || s.bus_stop_code);
+        closeExploreMap();
       })
-      .addTo(_nearbyMap);
+      .addTo(_exploreMap);
     });
   }).catch(() => {});
 }
 
-$("nearby-map-btn").addEventListener("click", toggleNearbyMap);
+$("nearby-map-btn").addEventListener("click", openExploreMap);
+$("explore-map-close").addEventListener("click", closeExploreMap);
+$("explore-map-backdrop").addEventListener("click", closeExploreMap);
 
 // Line colors for MRT (matches mrt_data.py line_color values)
 const MRT_COLORS = {
@@ -1925,7 +1928,17 @@ function updatePlanMap(data, coords) {
 }
 
 function _legPoints(leg) {
-  // Use the backend waypoints array when available — follows real route geometry.
+  // MRT: always use client-side station sequence — backend may only have 2 points.
+  if (leg.type === "mrt") {
+    const pts = _mrtClientWaypoints(leg.from_code, leg.to_code);
+    if (pts?.length >= 2) return pts;
+    if (leg.waypoints?.length >= 2) return leg.waypoints.map((w) => [w.lat, w.lng]);
+    const r = [];
+    if (leg.board_lat) r.push([leg.board_lat, leg.board_lng]);
+    if (leg.alight_lat) r.push([leg.alight_lat, leg.alight_lng]);
+    return r;
+  }
+  // Bus: prefer backend waypoints (real route geometry from DB).
   if (leg.waypoints?.length >= 2) {
     return leg.waypoints.map((w) => [w.lat, w.lng]);
   }
@@ -1939,15 +1952,6 @@ function _legPoints(leg) {
     const b = leg.board_stop, a = leg.alight_stop;
     if (b?.lat && a?.lat) return [[b.lat, b.lng], [a.lat, a.lng]];
     return [];
-  }
-  if (leg.type === "mrt") {
-    // Use client-side station sequence for accurate MRT track geometry.
-    const pts = _mrtClientWaypoints(leg.from_code, leg.to_code);
-    if (pts?.length >= 2) return pts;
-    const r = [];
-    if (leg.board_lat) r.push([leg.board_lat, leg.board_lng]);
-    if (leg.alight_lat) r.push([leg.alight_lat, leg.alight_lng]);
-    return r;
   }
   return [];
 }
