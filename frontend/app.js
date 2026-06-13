@@ -1773,28 +1773,20 @@ function toggleNearbyMap() {
   }
 }
 
-function _stopPinIcon(active) {
-  const bg = active ? "var(--accent)" : "#e5282a";
-  return L.divIcon({
-    className: "",
-    html: `<div style="width:28px;height:28px;border-radius:50%;background:${bg};border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 11h16" stroke="white" stroke-width="2" fill="none"/><circle cx="8" cy="15" r="1.2" fill="white"/><circle cx="16" cy="15" r="1.2" fill="white"/></svg>
-    </div>`,
-    iconSize: [28, 28], iconAnchor: [14, 14],
-  });
-}
-
 function _loadNearbyMapStops(lat, lng) {
-  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=25`).then((d) => {
+  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=30`).then((d) => {
     if (!_nearbyMap) return;
     d.results?.forEach((s) => {
       if (!s.latitude) return;
-      L.marker([s.latitude, s.longitude], { icon: _stopPinIcon(false) })
-       .bindPopup(`<b>${esc(s.description)}</b><br>${esc(s.road_name || "")} · ${s.bus_stop_code}<br><small>Tap marker to load arrivals</small>`)
-       .on("click", () => {
-         loadStop(s.bus_stop_code);
-       })
-       .addTo(_nearbyMap);
+      L.circleMarker([s.latitude, s.longitude], {
+        radius: 7, color: "#fff", fillColor: "#e5282a",
+        fillOpacity: 0.92, weight: 2,
+      })
+      .on("click", () => {
+        loadStop(s.bus_stop_code);
+        toast(s.description || s.bus_stop_code);
+      })
+      .addTo(_nearbyMap);
     });
   }).catch(() => {});
 }
@@ -1806,6 +1798,36 @@ const MRT_COLORS = {
   EWL: "#009645", NSL: "#d42e12", NEL: "#9900aa",
   CCL: "#fa9e0d", DTL: "#005ec4", TEL: "#9D5B25",
 };
+
+// Client-side MRT station coords + line sequences for waypoint fallback
+const _MRT_COORDS = {
+  EW1:[1.3731,103.9496],EW2:[1.3530,103.9450],EW3:[1.3432,103.9530],EW4:[1.3273,103.9463],EW5:[1.3240,103.9300],EW6:[1.3208,103.9132],EW7:[1.3196,103.9030],EW8:[1.3180,103.8924],EW9:[1.3163,103.8828],EW10:[1.3115,103.8711],EW11:[1.3073,103.8634],EW12:[1.3008,103.8565],EW13:[1.2930,103.8520],EW14:[1.2840,103.8516],EW15:[1.2765,103.8454],EW16:[1.2803,103.8394],EW17:[1.2863,103.8270],EW18:[1.2894,103.8165],EW19:[1.2944,103.8061],EW20:[1.3022,103.7984],EW21:[1.3073,103.7898],EW22:[1.3111,103.7787],EW23:[1.3151,103.7651],EW24:[1.3331,103.7422],EW25:[1.3424,103.7323],EW26:[1.3441,103.7213],EW27:[1.3386,103.7060],EW28:[1.3378,103.6968],EW29:[1.3278,103.6784],EW30:[1.3195,103.6609],EW31:[1.3209,103.6488],EW32:[1.3300,103.6393],EW33:[1.3407,103.6366],
+  NS1:[1.3331,103.7422],NS2:[1.3492,103.7496],NS3:[1.3589,103.7516],NS4:[1.3854,103.7448],NS5:[1.3970,103.7473],NS7:[1.4253,103.7621],NS8:[1.4326,103.7746],NS9:[1.4369,103.7864],NS10:[1.4408,103.8010],NS11:[1.4489,103.8198],NS12:[1.4432,103.8299],NS13:[1.4294,103.8353],NS14:[1.4172,103.8330],NS15:[1.3817,103.8449],NS16:[1.3700,103.8496],NS17:[1.3510,103.8484],NS18:[1.3404,103.8470],NS19:[1.3326,103.8473],NS20:[1.3203,103.8438],NS21:[1.3124,103.8382],NS22:[1.3041,103.8322],NS23:[1.3006,103.8388],NS24:[1.2990,103.8455],NS25:[1.2930,103.8520],NS26:[1.2840,103.8516],NS27:[1.2765,103.8543],NS28:[1.2706,103.8633],
+  NE1:[1.2654,103.8204],NE3:[1.2803,103.8394],NE4:[1.2845,103.8445],NE5:[1.2884,103.8462],NE6:[1.2990,103.8455],NE7:[1.3065,103.8517],NE8:[1.3124,103.8544],NE9:[1.3198,103.8611],NE10:[1.3316,103.8686],NE11:[1.3394,103.8704],NE12:[1.3499,103.8730],NE13:[1.3600,103.8852],NE14:[1.3712,103.8924],NE15:[1.3829,103.8925],NE16:[1.3917,103.8954],NE17:[1.4051,103.9022],
+  CC1:[1.2990,103.8455],CC2:[1.2965,103.8502],CC3:[1.2934,103.8554],CC4:[1.2936,103.8607],CC5:[1.2997,103.8634],CC6:[1.3026,103.8749],CC7:[1.3061,103.8820],CC8:[1.3083,103.8883],CC9:[1.3180,103.8924],CC10:[1.3266,103.8900],CC11:[1.3356,103.8878],CC12:[1.3428,103.8798],CC13:[1.3499,103.8730],CC14:[1.3514,103.8644],CC15:[1.3510,103.8484],CC16:[1.3467,103.8394],CC17:[1.3376,103.8323],CC19:[1.3223,103.8152],CC20:[1.3175,103.8076],CC21:[1.3113,103.7963],CC22:[1.3073,103.7898],CC23:[1.2998,103.7873],CC24:[1.2937,103.7844],CC25:[1.2825,103.7820],CC26:[1.2763,103.7914],CC27:[1.2724,103.8026],CC28:[1.2706,103.8095],CC29:[1.2654,103.8204],
+  DT1:[1.3783,103.7762],DT2:[1.3697,103.7836],DT3:[1.3621,103.7672],DT5:[1.3412,103.7759],DT6:[1.3354,103.7838],DT7:[1.3307,103.7968],DT8:[1.3249,103.8077],DT9:[1.3223,103.8152],DT10:[1.3202,103.8257],DT11:[1.3124,103.8382],DT12:[1.3065,103.8517],DT13:[1.3034,103.8556],DT14:[1.3008,103.8565],DT15:[1.2936,103.8607],DT16:[1.2823,103.8594],DT17:[1.2791,103.8528],DT18:[1.2822,103.8483],DT19:[1.2845,103.8445],DT20:[1.2917,103.8440],DT21:[1.2983,103.8497],DT22:[1.3048,103.8556],DT23:[1.3141,103.8615],DT24:[1.3213,103.8710],DT25:[1.3273,103.8832],DT26:[1.3266,103.8900],DT27:[1.3298,103.8989],DT28:[1.3353,103.9068],DT29:[1.3341,103.9166],DT30:[1.3362,103.9326],DT31:[1.3454,103.9380],DT32:[1.3530,103.9450],DT33:[1.3568,103.9538],DT34:[1.3413,103.9610],DT35:[1.3353,103.9613],
+  TE1:[1.4481,103.8195],TE2:[1.4369,103.7864],TE3:[1.4251,103.7968],TE4:[1.4039,103.8162],TE5:[1.3866,103.8355],TE6:[1.3742,103.8383],TE7:[1.3624,103.8376],TE8:[1.3543,103.8319],TE9:[1.3376,103.8323],TE11:[1.3202,103.8257],TE12:[1.3059,103.8177],TE13:[1.3015,103.8227],TE14:[1.3041,103.8322],TE15:[1.2944,103.8227],TE16:[1.2880,103.8352],TE17:[1.2803,103.8394],TE18:[1.2796,103.8444],TE19:[1.2773,103.8497],TE20:[1.2765,103.8543],TE22:[1.2815,103.8631],TE23:[1.2978,103.8708],TE24:[1.3018,103.8820],TE25:[1.3023,103.8909],TE26:[1.3028,103.9007],TE27:[1.3056,103.9110],TE28:[1.3102,103.9260],TE29:[1.3167,103.9392],TE30:[1.3226,103.9492],TE31:[1.3299,103.9604],
+};
+const _MRT_SEQS = {
+  EWL:["EW33","EW32","EW31","EW30","EW29","EW28","EW27","EW26","EW25","EW24","EW23","EW22","EW21","EW20","EW19","EW18","EW17","EW16","EW15","EW14","EW13","EW12","EW11","EW10","EW9","EW8","EW7","EW6","EW5","EW4","EW3","EW2","EW1"],
+  NSL:["NS1","NS2","NS3","NS4","NS5","NS7","NS8","NS9","NS10","NS11","NS12","NS13","NS14","NS15","NS16","NS17","NS18","NS19","NS20","NS21","NS22","NS23","NS24","NS25","NS26","NS27","NS28"],
+  NEL:["NE1","NE3","NE4","NE5","NE6","NE7","NE8","NE9","NE10","NE11","NE12","NE13","NE14","NE15","NE16","NE17"],
+  CCL:["CC1","CC2","CC3","CC4","CC5","CC6","CC7","CC8","CC9","CC10","CC11","CC12","CC13","CC14","CC15","CC16","CC17","CC19","CC20","CC21","CC22","CC23","CC24","CC25","CC26","CC27","CC28","CC29"],
+  DTL:["DT1","DT2","DT3","DT5","DT6","DT7","DT8","DT9","DT10","DT11","DT12","DT13","DT14","DT15","DT16","DT17","DT18","DT19","DT20","DT21","DT22","DT23","DT24","DT25","DT26","DT27","DT28","DT29","DT30","DT31","DT32","DT33","DT34","DT35"],
+  TEL:["TE1","TE2","TE3","TE4","TE5","TE6","TE7","TE8","TE9","TE11","TE12","TE13","TE14","TE15","TE16","TE17","TE18","TE19","TE20","TE22","TE23","TE24","TE25","TE26","TE27","TE28","TE29","TE30","TE31"],
+};
+
+function _mrtClientWaypoints(fromCode, toCode) {
+  for (const seq of Object.values(_MRT_SEQS)) {
+    const fi = seq.indexOf(fromCode), ti = seq.indexOf(toCode);
+    if (fi === -1 || ti === -1) continue;
+    const lo = Math.min(fi, ti), hi = Math.max(fi, ti);
+    const slice = seq.slice(lo, hi + 1);
+    if (fi > ti) slice.reverse();
+    return slice.map((c) => _MRT_COORDS[c]).filter(Boolean);
+  }
+  return null;
+}
 
 // Colour for a journey leg polyline
 function _legColor(leg) {
@@ -1863,44 +1885,37 @@ function updatePlanMap(data, coords) {
       const isWalk = leg.type === "walk";
       const points = _legPoints(leg);
       if (points.length >= 2) {
-        // Subtle white halo under coloured line for readability
-        if (!isWalk) {
-          L.polyline(points, { color: "#fff", weight: 10, opacity: .5, lineCap: "round", lineJoin: "round" })
-           .addTo(_planMap);
-        }
         L.polyline(points, {
-          color, opacity: .92,
-          weight: isWalk ? 3 : 7,
-          dashArray: isWalk ? "6,9" : null,
+          color, opacity: isWalk ? .55 : .9,
+          weight: isWalk ? 2 : 5,
+          dashArray: isWalk ? "4,7" : null,
           lineCap: "round", lineJoin: "round",
         }).addTo(_planMap);
         points.forEach((p) => bounds.push(p));
 
-        // Route badge at midpoint
+        // Compact route badge at midpoint
         const mid = points[Math.floor(points.length / 2)];
-        let badge = "";
-        if (leg.type === "bus")  badge = leg.service_no || "Bus";
-        if (leg.type === "mrt")  badge = leg.line || "MRT";
+        let badge = leg.type === "bus" ? (leg.service_no || "Bus")
+                  : leg.type === "mrt" ? (leg.line || "MRT") : "";
         if (badge) {
-          const dark = _isDark();
           L.marker(mid, {
             icon: L.divIcon({
               className: "",
-              html: `<div style="background:${color};color:#fff;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 5px rgba(0,0,0,.35);border:1.5px solid rgba(255,255,255,.4)">${esc(badge)}</div>`,
+              html: `<div style="background:${color};color:#fff;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">${esc(badge)}</div>`,
               iconAnchor: [0, 0],
             }),
             interactive: false,
           }).addTo(_planMap);
         }
       }
-      // Board / alight markers for bus and MRT
-      if (leg.type === "bus") {
-        _transitStopMarker(leg.board_stop, color, leg.service_no).addTo(_planMap);
-        _transitStopMarker(leg.alight_stop, color, leg.service_no).addTo(_planMap);
+      // Small board/alight dots for transit legs only
+      if (leg.type === "bus" && leg.board_stop?.lat) {
+        L.circleMarker([leg.board_stop.lat, leg.board_stop.lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
+        L.circleMarker([leg.alight_stop.lat, leg.alight_stop.lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
       }
-      if (leg.type === "mrt") {
-        if (leg.board_lat) _transitStopMarker({ lat: leg.board_lat, lng: leg.board_lng, name: leg.board }, color).addTo(_planMap);
-        if (leg.alight_lat) _transitStopMarker({ lat: leg.alight_lat, lng: leg.alight_lng, name: leg.alight }, color).addTo(_planMap);
+      if (leg.type === "mrt" && leg.board_lat) {
+        L.circleMarker([leg.board_lat, leg.board_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
+        L.circleMarker([leg.alight_lat, leg.alight_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
       }
     });
   }
@@ -1910,11 +1925,10 @@ function updatePlanMap(data, coords) {
 }
 
 function _legPoints(leg) {
-  // Use the waypoints array when available — it follows the real route geometry.
+  // Use the backend waypoints array when available — follows real route geometry.
   if (leg.waypoints?.length >= 2) {
     return leg.waypoints.map((w) => [w.lat, w.lng]);
   }
-  // Fallbacks for walk legs (no geometry available) and legacy responses.
   if (leg.type === "walk") {
     const from = leg.from_lat != null ? [leg.from_lat, leg.from_lng] : null;
     const to   = leg.to_lat   != null ? [leg.to_lat,   leg.to_lng]   : null;
@@ -1927,25 +1941,17 @@ function _legPoints(leg) {
     return [];
   }
   if (leg.type === "mrt") {
-    const pts = [];
-    if (leg.board_lat) pts.push([leg.board_lat, leg.board_lng]);
-    if (leg.alight_lat) pts.push([leg.alight_lat, leg.alight_lng]);
-    return pts;
+    // Use client-side station sequence for accurate MRT track geometry.
+    const pts = _mrtClientWaypoints(leg.from_code, leg.to_code);
+    if (pts?.length >= 2) return pts;
+    const r = [];
+    if (leg.board_lat) r.push([leg.board_lat, leg.board_lng]);
+    if (leg.alight_lat) r.push([leg.alight_lat, leg.alight_lng]);
+    return r;
   }
   return [];
 }
 
-function _transitStopMarker(stop, color, label) {
-  if (!stop?.lat) return L.layerGroup();
-  const icon = L.divIcon({
-    className: "",
-    html: `<div style="width:13px;height:13px;border-radius:50%;background:#fff;border:3px solid ${color};box-shadow:0 1px 4px rgba(0,0,0,.35)"></div>`,
-    iconSize: [13, 13], iconAnchor: [6, 6],
-  });
-  const name = stop.name || stop.code || "";
-  return L.marker([stop.lat, stop.lng], { icon })
-    .bindPopup(`<b>${esc(name)}</b>${label ? `<br><small>${esc(label)}</small>` : ""}`);
-}
 
 // ── Shareable journey URLs ────────────────────────────────
 function buildShareUrl() {
