@@ -494,13 +494,23 @@ function svcCard(svc) {
 
 function relLine(rel) {
   if (!rel) return "";
-  const d = rel.avg_delay_sec;
-  const habit = Math.abs(d) < 45 ? "usually on schedule"
-    : `usually ${Math.max(1, Math.round(Math.abs(d) / 60))} min ${d > 0 ? "late" : "early"}`;
+  const habit = delayHabit(rel.avg_delay_sec);
   return `<div class="svc-rel">
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
     ${rel.on_time_pct}% on time · ${habit} <span class="svc-rel-n">(${rel.samples} observations)</span>
   </div>`;
+}
+
+// Render an average delay (seconds) as a human phrase, keeping second-level
+// resolution so small but real deviations from the LTA timing stay visible.
+function delayHabit(secs) {
+  const d = Math.round(secs);
+  const ad = Math.abs(d);
+  if (ad < 5) return "usually right on the LTA timing";
+  const dir = d > 0 ? "late" : "early";
+  if (ad < 60) return `usually ${ad}s ${dir}`;
+  const m = Math.floor(ad / 60), s = ad % 60;
+  return `usually ${m} min ${s ? s + "s " : ""}${dir}`;
 }
 
 function renderArrivals(data) {
