@@ -786,12 +786,12 @@ th.num, td.num { text-align: right; }
 
 /* Plan map jump button */
 .plan-map-jump {
-  display: inline-flex; align-items: center; gap: .3rem;
-  margin: 0 0 .85rem;
-  border: 1.5px solid var(--accent); border-radius: 999px;
+  display: flex; align-items: center; justify-content: center; gap: .45rem;
+  width: 100%; margin: 0 0 .85rem;
+  border: 1.5px solid var(--accent); border-radius: 12px;
   background: var(--accent-soft); color: var(--accent);
-  padding: .38rem .85rem .38rem .65rem;
-  font: inherit; font-size: .82rem; font-weight: 600; cursor: pointer;
+  padding: .65rem 1rem;
+  font: inherit; font-size: .88rem; font-weight: 700; cursor: pointer;
 }
 .plan-map-jump:active { opacity: .7; }
 
