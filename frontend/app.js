@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.3";
+const APP_VERSION = "1.1.4";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1565,12 +1565,13 @@ $("plan-btn").addEventListener("click", doJourneyPlan);
     const isNow = day.value === "now";
     wrap?.classList.toggle("now-mode", isNow);
     if (isNow) { t.value = ""; nowBtn.classList.add("hidden"); return; }
-    // Show "Now" reset button only when a meaningfully future time is chosen.
-    if (!t.value) { nowBtn.classList.add("hidden"); return; }
-    const off = parseInt(day.value || "0", 10);
+    // Show "Now" reset button only when TODAY is selected and the time is
+    // meaningfully in the future (>3 min). For Tomorrow the user can always
+    // pick "Now" from the dropdown — showing the button would cramp the row.
+    if (!t.value || day.value !== "0") { nowBtn.classList.add("hidden"); return; }
     const [h, m] = t.value.split(":").map(Number);
     const now = new Date();
-    const future = off > 0 || h > now.getHours() || (h === now.getHours() && m > now.getMinutes() + 3);
+    const future = h > now.getHours() || (h === now.getHours() && m > now.getMinutes() + 3);
     nowBtn.classList.toggle("hidden", !future);
   };
 
@@ -2343,17 +2344,16 @@ function _isDark() {
 
 function _sgTiles() {
   return L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-    { maxZoom: 19, subdomains: "abcd", detectRetina: true,
+    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+    { maxZoom: 19, subdomains: "abcd", detectRetina: false, keepBuffer: 3,
       attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>' }
   );
 }
 
-// Darker basemap for the full-screen arrivals map so coloured pins pop.
 function _darkTiles() {
   return L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    { maxZoom: 19, subdomains: "abcd", detectRetina: true,
+    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+    { maxZoom: 19, subdomains: "abcd", detectRetina: false, keepBuffer: 3,
       attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>' }
   );
 }

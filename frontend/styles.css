@@ -219,8 +219,8 @@ button { font-family: inherit; cursor: pointer; }
 /* ── Chips ───────────────────────────────────────────── */
 .chips-area { margin-bottom: 1rem; }
 .chips-label {
-  font-size: .66rem; font-weight: 600; letter-spacing: .09em;
-  text-transform: uppercase; color: var(--ink-3);
+  font-size: .68rem; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--accent);
   margin: 0 0 .45rem .05rem;
 }
 .chips-row {
@@ -313,8 +313,7 @@ button { font-family: inherit; cursor: pointer; }
   font-variant-numeric: tabular-nums;
 }
 .svc-mid { flex: 1; min-width: 0; }
-.svc-op { font-size: .78rem; color: var(--ink-3); }
-.svc-tags { display: flex; gap: .3rem; margin-top: .2rem; align-items: center; }
+.svc-tags { display: flex; gap: .3rem; align-items: center; }
 .tag {
   font-size: .72rem; font-weight: 700; color: var(--ink-2);
   border: 1px solid var(--line); border-radius: 5px; padding: .05rem .35rem;
@@ -785,21 +784,18 @@ th.num, td.num { text-align: right; }
   font-size: .84rem; padding: 2rem .5rem; line-height: 1.6;
 }
 
-<<<<<<< Updated upstream
-=======
 /* Plan map jump button */
 .plan-map-jump {
-  display: flex; align-items: center; gap: .4rem;
-  margin: 0 auto .85rem;
-  border: none; border-radius: 999px;
-  background: var(--ink); color: var(--bg);
-  padding: .55rem 1.1rem;
+  display: inline-flex; align-items: center; gap: .3rem;
+  margin: 0 0 .85rem;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--accent);
+  padding: .42rem .85rem .42rem .65rem;
   font: inherit; font-size: .82rem; font-weight: 600; cursor: pointer;
-  box-shadow: 0 2px 14px rgba(0,0,0,.22);
+  box-shadow: var(--shadow-sm);
 }
-.plan-map-jump:active { opacity: .8; }
+.plan-map-jump:active { background: var(--surface-2); }
 
->>>>>>> Stashed changes
 /* Journey cards */
 #plan-results { display: flex; flex-direction: column; gap: 2.2rem; margin-top: 1rem; }
 
@@ -1014,7 +1010,7 @@ th.num, td.num { text-align: right; }
 /* ── Saved view section headers ────────────────────────── */
 .saved-section-hd {
   font-size: .7rem; font-weight: 700; letter-spacing: .09em;
-  text-transform: uppercase; color: var(--ink-3);
+  text-transform: uppercase; color: var(--accent);
   margin-bottom: .45rem;
 }
 
@@ -1086,15 +1082,16 @@ th.num, td.num { text-align: right; }
   pointer-events: none;
   line-height: 1.4;
 }
-/* Apple Maps-style dark tiles: invert(85%) so white land→dark charcoal
-   (not pure black), hue-rotate restores+shifts colours to teal-navy. */
+/* Apple Maps-style dark tiles. 210° hue-rotate gives cooler teal-navy tint.
+   Leaflet container bg set dark so the grey loading flash doesn't appear. */
+.leaflet-container { background: #1c1c1e; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .leaflet-tile-pane {
-    filter: invert(85%) hue-rotate(200deg) brightness(1.05) saturate(1.1);
+    filter: invert(85%) hue-rotate(210deg) brightness(1.0) saturate(1.15);
   }
 }
 [data-theme="dark"] .leaflet-tile-pane {
-  filter: invert(85%) hue-rotate(200deg) brightness(1.05) saturate(1.1);
+  filter: invert(85%) hue-rotate(210deg) brightness(1.0) saturate(1.15);
 }
 /* Leaflet overrides inside map tab */
 #map-tab-container .leaflet-control-zoom { border: none !important; }
@@ -1299,18 +1296,16 @@ th.num, td.num { text-align: right; }
 .arr-locate-btn {
   position: fixed; right: 14px;
   bottom: calc(var(--sheet-h) + 12px);
-  z-index: 12;
-  width: 42px; height: 42px; border-radius: 50%;
-  background: var(--glass-strong);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
-  backdrop-filter: blur(18px) saturate(180%);
-  border: 1px solid var(--glass-line);
-  color: var(--accent);
+  z-index: 16;
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  color: #fff;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: var(--shadow);
-  transition: background .12s, bottom .05s linear;
+  box-shadow: 0 2px 16px rgba(0,0,0,.45);
+  transition: opacity .12s, bottom .05s linear;
 }
-.arr-locate-btn:active { background: var(--surface-2); }
+.arr-locate-btn:active { opacity: .8; }
 
 /* Floating search bar — sits just below the iOS status bar */
 .arr-search-wrap {
@@ -1379,7 +1374,7 @@ th.num, td.num { text-align: right; }
 /* Nearby stops section */
 .arr-section-hd {
   display: flex; align-items: center; gap: .5rem;
-  font-size: .66rem; font-weight: 700; color: var(--ink-3);
+  font-size: .68rem; font-weight: 700; color: var(--accent);
   text-transform: uppercase; letter-spacing: .09em;
   margin-bottom: .5rem;
 }
@@ -1415,12 +1410,46 @@ th.num, td.num { text-align: right; }
 /* Arrival detail bar */
 .arr-detail-bar { padding: .5rem 0 .6rem; }
 .arr-back-btn {
-  display: inline-flex; align-items: center; gap: .35rem;
-  border: none; background: none;
-  color: var(--accent); font-size: .84rem; font-weight: 600;
-  padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; gap: .3rem;
+  border: 1px solid var(--line); background: var(--surface);
+  color: var(--accent); font-size: .82rem; font-weight: 600;
+  padding: .42rem .8rem .42rem .6rem; border-radius: 999px; cursor: pointer;
+  box-shadow: var(--shadow-sm);
 }
-.arr-back-btn:active { opacity: .7; }
+.arr-back-btn:active { background: var(--surface-2); }
+
+/* ── Confirm dialog ─────────────────────────────────── */
+.confirm-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,.45);
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 0 1rem calc(env(safe-area-inset-bottom) + 1rem);
+}
+.confirm-card {
+  background: var(--surface); border-radius: 20px 20px 16px 16px;
+  padding: 1.35rem 1rem 1rem;
+  width: 100%; max-width: 440px;
+  border: 1px solid var(--line);
+  box-shadow: 0 -4px 40px rgba(0,0,0,.3);
+  animation: slideUp .22s cubic-bezier(.32,.72,0,1);
+}
+.confirm-msg {
+  font-size: .9rem; color: var(--ink); text-align: center;
+  margin-bottom: 1.1rem; line-height: 1.5;
+}
+.confirm-btns { display: flex; gap: .6rem; }
+.confirm-cancel {
+  flex: 1; padding: .78rem; border-radius: 12px;
+  border: 1.5px solid var(--line); background: var(--surface-2);
+  color: var(--ink); font-size: .92rem; font-weight: 600; cursor: pointer;
+}
+.confirm-ok {
+  flex: 1; padding: .78rem; border-radius: 12px;
+  border: none; background: var(--bad); color: #fff;
+  font-size: .92rem; font-weight: 600; cursor: pointer;
+}
+.confirm-cancel:active { background: var(--line); }
+.confirm-ok:active { opacity: .85; }
 
 /* ── Settings view ───────────────────────────────────── */
 .stg-wrap {
@@ -1461,6 +1490,33 @@ th.num, td.num { text-align: right; }
   font-size: .9rem; font-weight: 500; color: var(--ink);
 }
 .stg-row-val { font-size: .84rem; color: var(--ink-3); }
+.stg-row-chev { color: var(--ink-3); flex-shrink: 0; transition: transform .2s; }
+#stg-home-row.open .stg-row-chev { transform: rotate(180deg); }
+/* Legend */
+.stg-legend { padding: .35rem 0; }
+.stg-legend-group { padding: .6rem 1rem; }
+.stg-legend-group + .stg-legend-group { border-top: 1px solid var(--line); }
+.stg-legend-head {
+  font-size: .66rem; font-weight: 600; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .08em; margin-bottom: .5rem;
+}
+.stg-legend-row {
+  display: flex; align-items: flex-start; gap: .65rem;
+  padding: .28rem 0;
+}
+.stg-legend-row > :first-child { flex-shrink: 0; margin-top: .1rem; min-width: 30px; text-align: center; }
+.stg-legend-txt { font-size: .82rem; color: var(--ink-2); line-height: 1.4; }
+.stg-legend-na {
+  font-size: .72rem; font-weight: 700; color: var(--ink-3);
+  border: 1px dashed var(--line); border-radius: 5px; padding: .05rem .35rem;
+}
+.stg-legend-ai {
+  font-size: .72rem; font-weight: 700; color: var(--accent);
+  background: var(--accent-soft); border-radius: 5px; padding: .05rem .4rem;
+}
+/* Arrivals legend panel (reuses .stg-legend-* row styles) */
+.arr-legend { padding: 0 .95rem .55rem; }
+.arr-legend .stg-legend-group { padding: .6rem 0; }
 /* Home location edit panel */
 .stg-home-edit { padding: .55rem 1rem .35rem; border-top: 1px solid var(--line); }
 .stg-home-search-wrap { position: relative; margin-bottom: .3rem; }
