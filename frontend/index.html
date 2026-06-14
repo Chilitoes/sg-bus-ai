@@ -11,7 +11,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=39" />
+  <link rel="stylesheet" href="styles.css?v=40" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -47,7 +47,8 @@
   <!-- ════ ARRIVALS VIEW ════ -->
   <section id="view-arrivals" class="view active">
 
-    <div class="search-wrap">
+    <!-- Search bar -->
+    <div class="search-wrap arr-search-wrap">
       <div class="search-row">
         <div class="search-box">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -64,111 +65,142 @@
       <div id="autocomplete" class="autocomplete hidden"></div>
     </div>
 
-    <div id="chips-area" class="chips-area"></div>
-
-    <!-- Stop header card -->
-    <div id="stop-card" class="stop-card hidden">
-      <div class="stop-card-top">
-        <div class="stop-id">
-          <div id="stop-name" class="stop-name"></div>
-          <div class="stop-meta"><span id="stop-road"></span> <span id="stop-code" class="stop-code"></span></div>
-        </div>
-        <div class="stop-actions">
-          <button id="save-btn" class="pillbtn">
-            <svg id="save-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-            <span id="save-label">Save</span>
-          </button>
-          <button id="refresh-btn" class="iconbtn" aria-label="Refresh">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
-          </button>
-        </div>
-      </div>
-      <div class="stop-card-foot">
-        <span id="updated-at"></span>
-        <span class="foot-sep">·</span>
-        <span>auto-refresh 30s</span>
-        <span class="foot-sep">·</span>
-        <span class="ai-note">official LTA times, AI estimate below</span>
-      </div>
+    <!-- Map -->
+    <div class="arr-map-wrap">
+      <div id="arr-map" class="arr-map"></div>
+      <button id="arr-locate-btn" class="arr-locate-btn" aria-label="Center on my location">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+      </button>
     </div>
 
-<div id="arrivals-error" class="error-note hidden"></div>
+    <!-- Content below map -->
+    <div class="arr-below">
 
-    <div id="rows" class="rows"></div>
-    <p id="no-services" class="empty hidden">No buses serving this stop right now.</p>
-
-    <!-- Stats -->
-    <details id="stats-details" class="panel hidden">
-      <summary>
-        <span>Punctuality stats</span>
-        <span id="stats-badge" class="panel-badge">last 30 days</span>
-        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-      </summary>
-      <div class="panel-body">
-        <p id="no-stats" class="empty hidden">Not enough history for this stop yet — it builds automatically.</p>
-
-        <!-- AI vs LTA accuracy scorecard -->
-        <div id="accuracy-scorecard" class="accuracy-scorecard hidden">
-          <div class="acc-col">
-            <div class="acc-label">LTA timing</div>
-            <div class="acc-pct" id="acc-lta">–</div>
-            <div class="acc-sub">within ±1 min</div>
+      <!-- Nearby / default state -->
+      <div id="arr-nearby">
+        <div id="chips-area" class="chips-area"></div>
+        <div id="arr-stops-section" class="hidden">
+          <div class="arr-section-hd">
+            Nearby stops
+            <span id="arr-stops-count" class="panel-badge"></span>
           </div>
-          <div class="acc-vs">vs</div>
-          <div class="acc-col ai">
-            <div class="acc-label">AI-adjusted</div>
-            <div class="acc-pct" id="acc-ai">–</div>
-            <div class="acc-sub">within ±1 min</div>
+          <div id="arr-stops-list"></div>
+        </div>
+      </div>
+
+      <!-- Stop arrival detail (shown after a stop is selected) -->
+      <div id="arr-detail" class="hidden">
+        <div class="arr-detail-bar">
+          <button id="arr-back-btn" class="arr-back-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+            Nearby
+          </button>
+        </div>
+
+        <div id="stop-card" class="stop-card hidden">
+          <div class="stop-card-top">
+            <div class="stop-id">
+              <div id="stop-name" class="stop-name"></div>
+              <div class="stop-meta"><span id="stop-road"></span> <span id="stop-code" class="stop-code"></span></div>
+            </div>
+            <div class="stop-actions">
+              <button id="save-btn" class="pillbtn">
+                <svg id="save-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+                <span id="save-label">Save</span>
+              </button>
+              <button id="refresh-btn" class="iconbtn" aria-label="Refresh">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+              </button>
+            </div>
           </div>
-          <div class="acc-delta-wrap">
-            <span id="acc-delta" class="acc-delta"></span>
+          <div class="stop-card-foot">
+            <span id="updated-at"></span>
+            <span class="foot-sep">·</span>
+            <span>auto-refresh 30s</span>
+            <span class="foot-sep">·</span>
+            <span class="ai-note">official LTA times, AI estimate below</span>
           </div>
         </div>
 
-        <div id="charts-wrap">
-          <div class="chart-block">
-            <div class="chart-title">Average delay by route <span class="chart-hint" id="chart-service-hint"></span></div>
-            <div class="chart-sub">positive = late, negative = early · bar width = number of observations</div>
-            <div class="chart-box chart-box-tall"><canvas id="chart-service"></canvas></div>
-          </div>
-          <div class="chart-block">
-            <div class="chart-title">On-time rate by route <span class="chart-hint">(% arriving within ±1 min of LTA)</span></div>
-            <div class="chart-box"><canvas id="chart-ontime"></canvas></div>
-          </div>
-          <div class="chart-block">
-            <div class="chart-title">Average delay by hour <span class="chart-hint">(orange = peak hours)</span></div>
-            <div class="chart-sub">how late buses tend to run at each hour of the day</div>
-            <div class="chart-box chart-box-tall"><canvas id="chart-hour"></canvas></div>
-          </div>
-          <div class="chart-block">
-            <div class="chart-title">Daily trend, last 14 days <span id="trend-dir" class="chart-hint"></span></div>
-            <div class="chart-sub">average delay per day — are buses getting better or worse?</div>
-            <div class="chart-box"><canvas id="chart-trend"></canvas></div>
-          </div>
-        </div>
-      </div>
-    </details>
+        <div id="arrivals-error" class="error-note hidden"></div>
+        <div id="rows" class="rows"></div>
+        <p id="no-services" class="empty hidden">No buses serving this stop right now.</p>
 
-    <!-- About -->
-    <details id="about-details" class="panel hidden">
-      <summary>
-        <span>How predictions work</span>
-        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-      </summary>
-      <div class="panel-body about-body">
-        <p>The big number is the official LTA estimate. Underneath it, the AI
-        estimate shows when the bus will <em>actually</em> arrive based on how
-        this exact route at this exact stop has behaved historically.</p>
-        <p>Two prediction layers work together: a gradient-boosting model that
-        generalises across hour, day, crowding and bus type — and a per-route
-        memory of real measured delays from the last 30 days. Routes with more
-        history lean on real measurements; the correction also shrinks as a bus
-        gets close, since live GPS estimates are most accurate then.</p>
-        <p>Ground truth comes from tracking each bus across successive polls
-        until it arrives. The model retrains itself hourly.</p>
-        <div id="model-info" class="model-info"></div>
-      </div>
-    </details>
+        <!-- Stats -->
+        <details id="stats-details" class="panel hidden">
+          <summary>
+            <span>Punctuality stats</span>
+            <span id="stats-badge" class="panel-badge">last 30 days</span>
+            <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="panel-body">
+            <p id="no-stats" class="empty hidden">Not enough history for this stop yet — it builds automatically.</p>
+
+            <div id="accuracy-scorecard" class="accuracy-scorecard hidden">
+              <div class="acc-col">
+                <div class="acc-label">LTA timing</div>
+                <div class="acc-pct" id="acc-lta">–</div>
+                <div class="acc-sub">within ±1 min</div>
+              </div>
+              <div class="acc-vs">vs</div>
+              <div class="acc-col ai">
+                <div class="acc-label">AI-adjusted</div>
+                <div class="acc-pct" id="acc-ai">–</div>
+                <div class="acc-sub">within ±1 min</div>
+              </div>
+              <div class="acc-delta-wrap">
+                <span id="acc-delta" class="acc-delta"></span>
+              </div>
+            </div>
+
+            <div id="charts-wrap">
+              <div class="chart-block">
+                <div class="chart-title">Average delay by route <span class="chart-hint" id="chart-service-hint"></span></div>
+                <div class="chart-sub">positive = late, negative = early · bar width = number of observations</div>
+                <div class="chart-box chart-box-tall"><canvas id="chart-service"></canvas></div>
+              </div>
+              <div class="chart-block">
+                <div class="chart-title">On-time rate by route <span class="chart-hint">(% arriving within ±1 min of LTA)</span></div>
+                <div class="chart-box"><canvas id="chart-ontime"></canvas></div>
+              </div>
+              <div class="chart-block">
+                <div class="chart-title">Average delay by hour <span class="chart-hint">(orange = peak hours)</span></div>
+                <div class="chart-sub">how late buses tend to run at each hour of the day</div>
+                <div class="chart-box chart-box-tall"><canvas id="chart-hour"></canvas></div>
+              </div>
+              <div class="chart-block">
+                <div class="chart-title">Daily trend, last 14 days <span id="trend-dir" class="chart-hint"></span></div>
+                <div class="chart-sub">average delay per day — are buses getting better or worse?</div>
+                <div class="chart-box"><canvas id="chart-trend"></canvas></div>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- About -->
+        <details id="about-details" class="panel hidden">
+          <summary>
+            <span>How predictions work</span>
+            <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="panel-body about-body">
+            <p>The big number is the official LTA estimate. Underneath it, the AI
+            estimate shows when the bus will <em>actually</em> arrive based on how
+            this exact route at this exact stop has behaved historically.</p>
+            <p>Two prediction layers work together: a gradient-boosting model that
+            generalises across hour, day, crowding and bus type — and a per-route
+            memory of real measured delays from the last 30 days. Routes with more
+            history lean on real measurements; the correction also shrinks as a bus
+            gets close, since live GPS estimates are most accurate then.</p>
+            <p>Ground truth comes from tracking each bus across successive polls
+            until it arrives. The model retrains itself hourly.</p>
+            <div id="model-info" class="model-info"></div>
+          </div>
+        </details>
+
+      </div><!-- #arr-detail -->
+
+    </div><!-- .arr-below -->
 
   </section>
 
@@ -346,11 +378,6 @@
 </div>
 <div id="stop-picker-backdrop" class="stop-picker-backdrop hidden"></div>
 
-<!-- ════ MAP TAB VIEW ════ -->
-<div id="view-map" class="map-view-outer hidden">
-  <div id="map-tab-container"></div>
-</div>
-
 <!-- Bottom navigation -->
 <nav class="bottomnav">
   <button class="nav-item active" data-view="arrivals">
@@ -365,10 +392,6 @@
   <button class="nav-item" data-view="plan">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>
     <span>Plan</span>
-  </button>
-  <button class="nav-item" data-view="map">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/></svg>
-    <span>Map</span>
   </button>
   <button id="nav-data-btn" class="nav-item hidden" data-view="data">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg>
@@ -442,6 +465,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=39"></script>
+<script src="app.js?v=40"></script>
 </body>
 </html>

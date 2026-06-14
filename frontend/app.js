@@ -395,14 +395,12 @@ $("chips-area").addEventListener("click", (e) => {
 // ── Views / bottom nav ────────────────────────────────────
 function switchView(name) {
   if (name === "data" && !isAdmin()) name = "arrivals";
+  if (name === "map") name = "arrivals"; // map is now embedded in arrivals
   S.view = name;
-  const isMap = name === "map";
   document.querySelectorAll(".nav-item").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === name));
   document.querySelectorAll(".view").forEach((v) =>
     v.classList.toggle("active", v.id === `view-${name}`));
-  if (isMap) { show($("view-map")); initMapView(); }
-  else hide($("view-map"));
   if (name === "saved") renderSaved();
   if (name === "data") loadData();
 }
@@ -632,6 +630,11 @@ async function loadStop(code) {
   code = String(code).trim();
   if (!code) return;
   switchView("arrivals");
+  // Show arrival detail, hide nearby section
+  hide($("arr-nearby"));
+  show($("arr-detail"));
+  // Highlight selected pin on the arrivals map
+  _arrHighlightPin(code);
   clearInterval(S.refreshTmr);
   clearInterval(S.tickTmr);
   S.stop = code;
@@ -1842,6 +1845,115 @@ $("pw-change-btn")?.addEventListener("click", async () => {
   }
 });
 
+// ── Arrivals map ──────────────────────────────────────────
+let _arrMap       = null;
+let _arrLocMarker = null;
+let _arrPinStore  = new Map(); // code → { marker, label }
+
+function initArrMap() {
+  if (!_leafletReady()) { _whenLeaflet(initArrMap); return; }
+  if (_arrMap) { setTimeout(() => _arrMap.invalidateSize(), 60); return; }
+  _arrMap = L.map($("arr-map"), { zoomControl: false, attributionControl: false })
+             .setView([1.3521, 103.8198], 14);
+  _sgTiles().addTo(_arrMap);
+  $("arr-locate-btn").addEventListener("click", _arrGeolocate);
+  _arrGeolocate();
+}
+
+function _arrGeolocate() {
+  _loadArrStops(1.3521, 103.8198);
+  navigator.geolocation?.getCurrentPosition(
+    ({ coords: { latitude: lat, longitude: lng } }) => {
+      if (!_arrMap) return;
+      _arrMap.setView([lat, lng], 16);
+      if (_arrLocMarker) _arrLocMarker.remove();
+      _arrLocMarker = L.circleMarker([lat, lng], {
+        radius: 8, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
+      }).addTo(_arrMap);
+      _loadArrStops(lat, lng);
+    },
+    () => {},
+    { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+  );
+}
+
+async function _loadArrStops(lat, lng) {
+  if (!_arrMap) return;
+  try {
+    const d = await api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=25`);
+    const stops = d.results || [];
+    // Add pins (skip duplicates)
+    stops.forEach((s) => {
+      if (!s.latitude || _arrPinStore.has(s.bus_stop_code)) return;
+      const label = s.description || s.bus_stop_code;
+      const marker = L.marker([s.latitude, s.longitude], {
+        icon: _stopPinIcon(label), title: label,
+      }).addTo(_arrMap);
+      marker._icon?.querySelector(".stop-pin-btn")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        loadStop(s.bus_stop_code);
+      });
+      _arrPinStore.set(s.bus_stop_code, { marker, label, stop: s });
+    });
+    _arrMap.invalidateSize();
+    _renderArrNearbyList(stops);
+  } catch {}
+}
+
+function _renderArrNearbyList(stops) {
+  const section = $("arr-stops-section");
+  const list    = $("arr-stops-list");
+  if (!stops.length) return;
+  $("arr-stops-count").textContent = stops.length;
+  list.innerHTML = stops.map((s) => `
+    <button class="arr-stop-item" data-code="${esc(s.bus_stop_code)}">
+      <span class="arr-stop-code-badge">${esc(s.bus_stop_code)}</span>
+      <span class="arr-stop-info">
+        <span class="arr-stop-name">${esc(s.description || "Bus stop")}</span>
+        <span class="arr-stop-road">${esc(s.road_name || "")}</span>
+      </span>
+      <span class="arr-stop-dist">${Math.round(s.distance_m)} m</span>
+      <svg class="arr-stop-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>
+    </button>`).join("");
+  show(section);
+}
+
+$("arr-stops-list").addEventListener("click", (e) => {
+  const btn = e.target.closest(".arr-stop-item");
+  if (btn) loadStop(btn.dataset.code);
+});
+
+$("arr-back-btn").addEventListener("click", () => {
+  clearInterval(S.refreshTmr);
+  clearInterval(S.tickTmr);
+  S.stop = null;
+  _arrClearHighlight();
+  hide($("arr-detail"));
+  show($("arr-nearby"));
+  setTimeout(() => _arrMap?.invalidateSize(), 50);
+});
+
+function _arrHighlightPin(code) {
+  _arrClearHighlight();
+  const entry = _arrPinStore.get(code);
+  if (!entry) return;
+  const { marker, label } = entry;
+  marker.setIcon(L.divIcon({
+    className: "stop-pin",
+    html: `<button class="stop-pin-btn" style="background:#e5282a;transform:scale(1.4)" aria-label="${esc(label)}"></button><span class="stop-pin-label" style="font-weight:700">${esc(label)}</span>`,
+    iconSize: [22, 22], iconAnchor: [11, 11],
+  }));
+  _arrMap?.panTo(marker.getLatLng(), { animate: true, duration: 0.4 });
+  S._arrHighlightCode = code;
+}
+
+function _arrClearHighlight() {
+  if (!S._arrHighlightCode) return;
+  const entry = _arrPinStore.get(S._arrHighlightCode);
+  if (entry) entry.marker.setIcon(_stopPinIcon(entry.label));
+  S._arrHighlightCode = null;
+}
+
 // ── Maps ──────────────────────────────────────────────────
 // Leaflet is loaded async (defer); guard every call with typeof L check.
 let _planMap = null;   // Leaflet instance for plan tab
@@ -1869,11 +1981,6 @@ function _sgTiles() {
       attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>' }
   );
 }
-
-// ── Map tab ────────────────────────────────────────────────
-let _mapTabMap    = null;
-let _mapTabLoaded = false;
-const _mapTabStopCodes = new Set();
 
 // HTML divIcon marker — taps fire reliably on iOS, unlike SVG circleMarkers
 // (Leaflet 1.7+ dropped its tap handler, so vector layers miss touch clicks).
@@ -2540,6 +2647,7 @@ checkBackend();
 setupPlanField("from");
 setupPlanField("to");
 renderRecents();
+_whenLeaflet(initArrMap);
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
