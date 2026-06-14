@@ -980,7 +980,7 @@ th.num, td.num { text-align: right; }
 /* ── Saved view section headers ────────────────────────── */
 .saved-section-hd {
   font-size: .7rem; font-weight: 700; letter-spacing: .09em;
-  text-transform: uppercase; color: var(--ink-3);
+  text-transform: uppercase; color: var(--accent);
   margin-bottom: .45rem;
 }
 
@@ -1350,7 +1350,7 @@ th.num, td.num { text-align: right; }
 /* Nearby stops section */
 .arr-section-hd {
   display: flex; align-items: center; gap: .5rem;
-  font-size: .68rem; font-weight: 700; color: var(--ink-2);
+  font-size: .68rem; font-weight: 700; color: var(--accent);
   text-transform: uppercase; letter-spacing: .09em;
   margin-bottom: .5rem;
 }
@@ -1393,6 +1393,39 @@ th.num, td.num { text-align: right; }
   box-shadow: var(--shadow-sm);
 }
 .arr-back-btn:active { background: var(--surface-2); }
+
+/* ── Confirm dialog ─────────────────────────────────── */
+.confirm-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,.45);
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 0 1rem calc(env(safe-area-inset-bottom) + 1rem);
+}
+.confirm-card {
+  background: var(--surface); border-radius: 20px 20px 16px 16px;
+  padding: 1.35rem 1rem 1rem;
+  width: 100%; max-width: 440px;
+  border: 1px solid var(--line);
+  box-shadow: 0 -4px 40px rgba(0,0,0,.3);
+  animation: slideUp .22s cubic-bezier(.32,.72,0,1);
+}
+.confirm-msg {
+  font-size: .9rem; color: var(--ink); text-align: center;
+  margin-bottom: 1.1rem; line-height: 1.5;
+}
+.confirm-btns { display: flex; gap: .6rem; }
+.confirm-cancel {
+  flex: 1; padding: .78rem; border-radius: 12px;
+  border: 1.5px solid var(--line); background: var(--surface-2);
+  color: var(--ink); font-size: .92rem; font-weight: 600; cursor: pointer;
+}
+.confirm-ok {
+  flex: 1; padding: .78rem; border-radius: 12px;
+  border: none; background: var(--bad); color: #fff;
+  font-size: .92rem; font-weight: 600; cursor: pointer;
+}
+.confirm-cancel:active { background: var(--line); }
+.confirm-ok:active { opacity: .85; }
 
 /* ── Settings view ───────────────────────────────────── */
 .stg-wrap {

@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.0.3";
+const APP_VERSION = "1.0.4";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -79,6 +79,22 @@ function toast(msg) {
   show(t);
   clearTimeout(toastTmr);
   toastTmr = setTimeout(() => hide(t), 2200);
+}
+
+function showConfirm(msg, okLabel, onConfirm) {
+  const el = document.createElement("div");
+  el.className = "confirm-overlay";
+  el.innerHTML = `<div class="confirm-card">
+    <p class="confirm-msg">${msg}</p>
+    <div class="confirm-btns">
+      <button class="confirm-cancel">Cancel</button>
+      <button class="confirm-ok">${okLabel}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  el.querySelector(".confirm-cancel").addEventListener("click", () => el.remove());
+  el.querySelector(".confirm-ok").addEventListener("click", () => { el.remove(); onConfirm(); });
+  el.addEventListener("click", (e) => { if (e.target === el) el.remove(); });
 }
 
 function parseUTC(iso) {
@@ -285,8 +301,10 @@ $("stg-home-row").addEventListener("click", () => {
 });
 
 $("stg-home-clear-btn").addEventListener("click", () => {
-  clearHome();
-  $("stg-home-edit").classList.add("hidden");
+  showConfirm("Remove your saved home location?", "Remove", () => {
+    clearHome();
+    $("stg-home-edit").classList.add("hidden");
+  });
 });
 
 function openSheet() {
@@ -490,9 +508,15 @@ function syncSaveBtn() {
 $("save-btn").addEventListener("click", () => {
   if (!S.stop) return;
   if (!S.token) { toast("Log in to save stops"); openSheet(); return; }
-  if (isFav(S.stop)) { removeFav(S.stop); toast("Removed from saved stops"); }
-  else { addFav(S.stop, S.stopInfo || {}); toast("Saved — now monitored for better predictions"); }
-  syncSaveBtn();
+  if (isFav(S.stop)) {
+    showConfirm("Remove this stop from saved?", "Remove", () => {
+      removeFav(S.stop); syncSaveBtn(); toast("Removed from saved stops");
+    });
+  } else {
+    addFav(S.stop, S.stopInfo || {});
+    syncSaveBtn();
+    toast("Saved — now monitored for better predictions");
+  }
 });
 
 // ── Recents ───────────────────────────────────────────────
@@ -1212,9 +1236,11 @@ async function loadSavedPreviews() {
 $("saved-list").addEventListener("click", (e) => {
   const rm = e.target.closest("[data-remove]");
   if (rm) {
-    removeFav(rm.dataset.remove);
-    if (S.stop === rm.dataset.remove) syncSaveBtn();
-    toast("Removed");
+    showConfirm("Remove this saved stop?", "Remove", () => {
+      removeFav(rm.dataset.remove);
+      if (S.stop === rm.dataset.remove) syncSaveBtn();
+      toast("Removed");
+    });
     return;
   }
   const card = e.target.closest(".saved-card");
@@ -1223,7 +1249,13 @@ $("saved-list").addEventListener("click", (e) => {
 
 $("saved-journeys-list").addEventListener("click", (e) => {
   const rm = e.target.closest("[data-sj-remove]");
-  if (rm) { removeJourney(parseInt(rm.dataset.sjRemove)); toast("Route removed"); return; }
+  if (rm) {
+    showConfirm("Remove this saved route?", "Remove", () => {
+      removeJourney(parseInt(rm.dataset.sjRemove));
+      toast("Route removed");
+    });
+    return;
+  }
   const plan = e.target.closest(".sj-plan-btn");
   if (plan) {
     const { fromLat, fromLng, toLat, toLng, fromName, toName } = plan.dataset;
