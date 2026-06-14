@@ -842,15 +842,6 @@ th.num, td.num { text-align: right; }
   color: var(--bad); background: var(--bad-soft);
   border-radius: 5px; padding: .07rem .38rem;
 }
-.unavailable-card {
-  opacity: .55;
-  border-style: dashed;
-  pointer-events: none;
-}
-.unavail-reason {
-  font-size: .75rem; color: var(--ink-3);
-  font-style: italic;
-}
 
 /* "Should I run?" verdict on journey cards */
 .jcard-catch {
