@@ -121,12 +121,7 @@ function initTheme() {
   const system = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   applyTheme(saved || system);
 }
-$("theme-btn").addEventListener("click", () => {
-  const cur = document.documentElement.getAttribute("data-theme");
-  applyTheme(cur === "dark" ? "light" : "dark");
-  if (S.stats) renderCharts(S.stats);
-  _swapArrTiles();
-});
+// theme-btn is now the "Light" seg button in Settings; toggling handled there
 
 // ── Auth ──────────────────────────────────────────────────
 function setAuth(token, username) {
@@ -150,7 +145,7 @@ function isAdmin() { return S.token && S.username === "admin"; }
 function syncAccountUI() {
   const loggedIn = !!S.token;
   const admin = isAdmin();
-  $("account-dot").classList.toggle("hidden", !loggedIn);
+  $("account-dot")?.classList.toggle("hidden", !loggedIn);
   $("auth-forms").classList.toggle("hidden", loggedIn);
   $("auth-profile").classList.toggle("hidden", !loggedIn);
   if (loggedIn) {
@@ -160,10 +155,19 @@ function syncAccountUI() {
   $("saved-sync-note").textContent = loggedIn
     ? `Synced to ${S.username}'s account · monitored 24/7 for sharper predictions`
     : "";
-  // Data tab only visible to admin
   $("nav-data-btn")?.classList.toggle("hidden", !admin);
-  // If currently on data view and no longer admin, go to arrivals
   if (S.view === "data" && !admin) switchView("arrivals");
+  _updateSettingsUI();
+}
+
+function _updateSettingsUI() {
+  const loggedIn = !!S.token;
+  const lbl = $("stg-account-label");
+  if (lbl) lbl.textContent = loggedIn ? S.username : "Sign in";
+  // Highlight active theme button
+  const cur = document.documentElement.getAttribute("data-theme") || "dark";
+  document.querySelectorAll(".theme-seg-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.themeOpt === cur));
 }
 
 function openSheet() {
@@ -185,8 +189,17 @@ function openSheet() {
 }
 function closeSheet() { hide($("sheet-backdrop")); hide($("account-sheet")); }
 
-$("account-btn").addEventListener("click", openSheet);
+$("account-btn").addEventListener("click", openSheet);   // hidden stub
 $("sheet-backdrop").addEventListener("click", closeSheet);
+$("stg-account-row").addEventListener("click", openSheet);
+document.querySelectorAll(".theme-seg-btn").forEach((b) => {
+  b.addEventListener("click", () => {
+    applyTheme(b.dataset.themeOpt);
+    if (S.stats) renderCharts(S.stats);
+    _swapArrTiles();
+    _updateSettingsUI();
+  });
+});
 
 function setAuthMode(mode) {
   S.authMode = mode;
@@ -404,7 +417,8 @@ function switchView(name) {
     v.classList.toggle("active", v.id === `view-${name}`));
   if (name === "saved") renderSaved();
   if (name === "data") loadData();
-  if (name === "arrivals") { _syncTopbarH(); setTimeout(() => _arrMap?.invalidateSize(), 60); }
+  if (name === "arrivals") setTimeout(() => _arrMap?.invalidateSize(), 60);
+  if (name === "settings") _updateSettingsUI();
 }
 document.querySelectorAll(".nav-item").forEach((b) =>
   b.addEventListener("click", () => switchView(b.dataset.view)));
@@ -1833,10 +1847,7 @@ let _arrTileLayer = null;
 let _arrLocMarker = null;
 let _arrPinStore  = new Map(); // code → { marker, label }
 
-function _syncTopbarH() {
-  const h = document.querySelector(".topbar")?.offsetHeight ?? 56;
-  document.documentElement.style.setProperty("--topbar-h", h + "px");
-}
+function _syncTopbarH() { /* topbar removed */ }
 
 // ── Draggable bottom sheet ────────────────────────────────
 function _setSheetH(px) {
@@ -1973,6 +1984,12 @@ function _renderArrNearbyList(stops) {
 $("arr-stops-list").addEventListener("click", (e) => {
   const btn = e.target.closest(".arr-stop-item");
   if (btn) loadStop(btn.dataset.code);
+});
+
+// Tap the stop-card header to collapse back to nearby list.
+$("stop-card").addEventListener("click", () => {
+  if ($("arr-detail").classList.contains("hidden")) return;
+  $("arr-back-btn").click();
 });
 
 $("arr-back-btn").addEventListener("click", () => {
@@ -2652,8 +2669,7 @@ checkBackend();
 setupPlanField("from");
 setupPlanField("to");
 renderRecents();
-_syncTopbarH();
-addEventListener("resize", _syncTopbarH);
+_updateSettingsUI();
 _initSheetDrag();
 _whenLeaflet(initArrMap);
 if ("serviceWorker" in navigator) {

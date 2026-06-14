@@ -105,26 +105,7 @@ button { font-family: inherit; cursor: pointer; }
   padding: .5rem 1rem;
 }
 
-/* ── Top bar ─────────────────────────────────────────── */
-.topbar {
-  position: sticky; top: 0; z-index: 60;
-  background: var(--topbar-bg);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid var(--glass-line);
-  padding-top: env(safe-area-inset-top);
-}
-.topbar-inner {
-  max-width: 640px; margin: 0 auto;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: .7rem 1rem;
-}
-.wordmark {
-  font-size: 1.1rem; font-weight: 800;
-  letter-spacing: -.02em; color: var(--ink);
-}
-.wordmark-sub { font-weight: 400; color: var(--ink-3); font-size: .88rem; letter-spacing: 0; }
-.topbar-actions { display: flex; gap: .4rem; }
+/* Topbar removed — replaced by Settings tab */
 
 .iconbtn {
   width: 36px; height: 36px; border-radius: 10px;
@@ -1200,7 +1181,7 @@ th.num, td.num { text-align: right; }
    fixed children only paint while Arrivals is active. */
 .arr-map-wrap {
   position: fixed;
-  top: var(--topbar-h, 56px);
+  top: 0;
   left: 0; right: 0;
   bottom: 0;
   z-index: 1;
@@ -1226,7 +1207,6 @@ th.num, td.num { text-align: right; }
 :root { --sheet-h: 46vh; }
 
 .arr-locate-btn {
-  /* sit just above the bottom sheet, tracking its current height */
   position: fixed; right: 14px;
   bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--sheet-h) + 12px);
   z-index: 12;
@@ -1242,20 +1222,23 @@ th.num, td.num { text-align: right; }
 }
 .arr-locate-btn:active { background: var(--surface-2); }
 
-/* Floating glass search bar over the map */
+/* Floating search bar — sits just below the iOS status bar */
 .arr-search-wrap {
   position: fixed;
-  top: calc(var(--topbar-h, 56px) + 10px);
+  top: calc(env(safe-area-inset-top) + 10px);
   left: 50%; transform: translateX(-50%);
   width: min(640px, calc(100% - 1.5rem));
   margin: 0; z-index: 30;
 }
+/* High-contrast solid-ish background so the search box is always readable
+   over both light and dark maps. */
 .arr-search-wrap .search-box {
-  background: var(--glass-strong);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid var(--glass-line);
-  box-shadow: var(--shadow);
+  background: var(--surface);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 20px rgba(0,0,0,.35);
+  opacity: 0.97;
 }
 
 /* Liquid-glass bottom sheet */
@@ -1342,3 +1325,56 @@ th.num, td.num { text-align: right; }
   padding: 0; cursor: pointer;
 }
 .arr-back-btn:active { opacity: .7; }
+
+/* ── Settings view ───────────────────────────────────── */
+.stg-wrap {
+  padding: calc(env(safe-area-inset-top) + 1.5rem) 1rem
+           calc(var(--nav-h) + env(safe-area-inset-bottom) + 1.5rem);
+  max-width: 640px; margin: 0 auto;
+}
+.stg-app-header {
+  padding: .5rem 0 1.75rem;
+}
+.stg-app-name {
+  font-size: 1.9rem; font-weight: 800; letter-spacing: -.04em; color: var(--ink);
+  line-height: 1;
+}
+.stg-app-sub {
+  font-size: .8rem; color: var(--ink-3); margin-top: .35rem;
+}
+.stg-section { margin-bottom: 1.1rem; }
+.stg-section-title {
+  font-size: .68rem; font-weight: 700; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .09em;
+  padding: 0 .25rem .4rem;
+}
+.stg-card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.stg-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .82rem 1rem; gap: .75rem; width: 100%;
+}
+.stg-row-sep { border-top: 1px solid var(--line); }
+.stg-row-btn { background: none; border: none; cursor: pointer; text-align: left; }
+.stg-row-btn:active { background: var(--surface-2); }
+.stg-row-label {
+  display: flex; align-items: center; gap: .45rem;
+  font-size: .9rem; font-weight: 500; color: var(--ink);
+}
+.stg-row-val { font-size: .84rem; color: var(--ink-3); }
+/* Theme segmented control */
+.theme-seg {
+  display: flex; border: 1.5px solid var(--line); border-radius: 10px; overflow: hidden;
+}
+.theme-seg-btn {
+  display: flex; align-items: center; gap: .3rem;
+  padding: .38rem .7rem; font-size: .8rem; font-weight: 600;
+  background: none; border: none; color: var(--ink-3); cursor: pointer;
+  transition: background .1s, color .1s;
+}
+.theme-seg-btn.active {
+  background: var(--accent); color: #fff;
+}
