@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.10";
+const APP_VERSION = "1.1.11";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -2932,3 +2932,78 @@ if (hasShareParams) {
 } else if (/^\d{5}$/.test(bootStop)) {
   loadStop(bootStop);
 }
+
+// ── Feedback ──────────────────────────────────────────────────────────────────
+(() => {
+  const overlay  = $("feedback-overlay");
+  const closeBtn = $("feedback-close");
+  const laterBtn = $("feedback-later");
+  const submitBtn = $("feedback-submit");
+  const starsEl  = $("feedback-stars");
+  const textEl   = $("feedback-text");
+  const openBtn  = $("feedback-open-btn");
+  if (!overlay) return;
+
+  let _rating = 0;
+
+  function _openFeedback(ctx = "") {
+    overlay._ctx = ctx;
+    overlay.classList.remove("hidden");
+    document.body.style.overflow = "hidden";
+  }
+  function _closeFeedback() {
+    overlay.classList.add("hidden");
+    document.body.style.overflow = "";
+  }
+
+  // Star rating
+  starsEl?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".fb-star");
+    if (!btn) return;
+    _rating = parseInt(btn.dataset.v, 10);
+    starsEl.querySelectorAll(".fb-star").forEach((b) =>
+      b.classList.toggle("selected", parseInt(b.dataset.v, 10) <= _rating));
+    submitBtn.disabled = false;
+  });
+
+  // Enable submit when text is typed (even without rating)
+  textEl?.addEventListener("input", () => {
+    submitBtn.disabled = !_rating && !textEl.value.trim();
+  });
+
+  submitBtn?.addEventListener("click", async () => {
+    submitBtn.disabled = true;
+    const msg = textEl?.value.trim() || null;
+    const params = new URLSearchParams();
+    if (_rating) params.set("rating", _rating);
+    if (msg)     params.set("message", msg);
+    if (overlay._ctx) params.set("context", overlay._ctx);
+    try {
+      await api(`/api/feedback?${params}`);
+    } catch (_) { /* best-effort */ }
+    toast("Thanks for your feedback! 🙏");
+    _closeFeedback();
+    // Reset
+    _rating = 0;
+    starsEl?.querySelectorAll(".fb-star").forEach((b) => b.classList.remove("selected"));
+    if (textEl) textEl.value = "";
+  });
+
+  closeBtn?.addEventListener("click", _closeFeedback);
+  laterBtn?.addEventListener("click", _closeFeedback);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) _closeFeedback(); });
+
+  openBtn?.addEventListener("click", () => _openFeedback("settings"));
+
+  // Auto-prompt: every 10th app open, after 90 seconds of use
+  const COUNT_KEY = "fbOpenCount";
+  const count = parseInt(localStorage.getItem(COUNT_KEY) || "0", 10) + 1;
+  localStorage.setItem(COUNT_KEY, count);
+  if (count % 10 === 0 && !sessionStorage.getItem("fbShownThisSession")) {
+    sessionStorage.setItem("fbShownThisSession", "1");
+    setTimeout(() => {
+      if (!overlay.classList.contains("hidden")) return; // already open
+      _openFeedback("auto");
+    }, 90_000); // 90 seconds into the session
+  }
+})();

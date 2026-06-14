@@ -208,6 +208,17 @@ class SavedJourney(Base):
     saved_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class Feedback(Base):
+    """User-submitted feedback (anonymous; no auth required)."""
+    __tablename__ = "feedback"
+
+    id         = Column(Integer, primary_key=True)
+    rating     = Column(Integer, nullable=True)   # 1–5
+    message    = Column(String(2000), nullable=True)
+    context    = Column(String(50),   nullable=True)   # e.g. "arrivals", "plan"
+    submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def get_db():

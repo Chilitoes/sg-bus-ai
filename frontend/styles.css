@@ -1464,3 +1464,68 @@ th.num, td.num { text-align: right; }
 .theme-seg-btn.active {
   background: var(--accent); color: #fff;
 }
+
+/* ── Feedback ─────────────────────────────────────────────── */
+.feedback-open-btn {
+  display: flex; align-items: center; justify-content: center; gap: .5rem;
+  width: 100%; margin-top: .65rem;
+  padding: .6rem 1rem;
+  border: 1.5px solid var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--ink-2);
+  font: inherit; font-size: .86rem; font-weight: 600; cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.feedback-open-btn:active { border-color: var(--accent); color: var(--accent); }
+
+.feedback-overlay {
+  position: fixed; inset: 0; z-index: 1100;
+  background: rgba(0,0,0,.55);
+  display: flex; align-items: flex-end;
+  backdrop-filter: blur(4px);
+}
+.feedback-overlay.hidden { display: none; }
+.feedback-sheet {
+  width: 100%; max-width: 520px; margin: 0 auto;
+  background: var(--surface-2);
+  border-radius: 20px 20px 0 0;
+  padding: 0 0 env(safe-area-inset-bottom, 16px);
+  animation: sheetUp .25s ease;
+}
+.feedback-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1rem .6rem;
+  border-bottom: 1px solid var(--line);
+}
+.feedback-title { font-size: 1rem; font-weight: 700; }
+.feedback-body { padding: 1rem; display: flex; flex-direction: column; gap: .75rem; }
+.feedback-stars {
+  display: flex; justify-content: space-around; padding: .25rem 0;
+}
+.fb-star {
+  background: none; border: none; font-size: 2rem; cursor: pointer;
+  transition: transform .15s;
+  filter: grayscale(1) opacity(.45);
+}
+.fb-star:active, .fb-star.selected { filter: none; transform: scale(1.2); }
+.fb-star.selected { transform: scale(1.25); }
+.feedback-text {
+  width: 100%; padding: .65rem .8rem;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  color: var(--ink); font: inherit; font-size: .88rem; resize: none;
+  box-sizing: border-box;
+}
+.feedback-text:focus { outline: none; border-color: var(--accent); }
+.feedback-submit {
+  width: 100%; padding: .65rem;
+  background: var(--accent); color: #fff;
+  border: none; border-radius: 10px;
+  font: inherit; font-size: .9rem; font-weight: 700; cursor: pointer;
+  transition: opacity .15s;
+}
+.feedback-submit:disabled { opacity: .4; cursor: default; }
+.feedback-submit:not(:disabled):active { opacity: .8; }
+.feedback-later {
+  background: none; border: none; color: var(--ink-3);
+  font: inherit; font-size: .82rem; cursor: pointer; text-align: center;
+  padding: .25rem;
+}

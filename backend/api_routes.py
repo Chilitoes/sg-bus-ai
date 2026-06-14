@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 from auth_routes import require_admin
 from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL, DATABASE_URL
 from data_collector import persist_arrival_payload
-from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, MonitoredStop, User, get_db
+from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, Feedback, MonitoredStop, User, get_db
 from ml_model import model as global_model
 
 logger = logging.getLogger(__name__)
@@ -1673,4 +1673,50 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
         },
         "recent_records":  recent,
         "recent_tracking": tracking,
+    }
+
+
+# ── Feedback ──────────────────────────────────────────────────────────────────
+
+@router.post("/feedback")
+def submit_feedback(
+    rating:  int | None = Query(None, ge=1, le=5),
+    message: str | None = Query(None, max_length=2000),
+    context: str | None = Query(None, max_length=50),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Accept anonymous feedback from app users. No auth required."""
+    if not rating and not message:
+        raise HTTPException(status_code=422, detail="Provide at least a rating or a message.")
+    row = Feedback(rating=rating, message=message, context=context)
+    db.add(row)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/feedback")
+def list_feedback(
+    limit: int = Query(100, ge=1, le=500),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Return recent feedback entries. Admin only."""
+    rows = (
+        db.query(Feedback)
+        .order_by(Feedback.submitted_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {
+        "count": len(rows),
+        "items": [
+            {
+                "id":           r.id,
+                "rating":       r.rating,
+                "message":      r.message,
+                "context":      r.context,
+                "submitted_at": r.submitted_at.isoformat(),
+            }
+            for r in rows
+        ],
     }
