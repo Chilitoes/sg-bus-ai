@@ -912,15 +912,18 @@ async def plan_journey(
                 is_last_bus = buses_available <= 1
                 break
 
-        # service_operating: True if API failed (unknown) OR buses are running;
-        # False only when the API responded and reported no buses for this service.
+        # service_operating: only mark False during known off-hours (1–5 am)
+        # when the API confirmed no buses at that specific board stop.
+        # Outside those hours, "no buses in LTA window" does NOT mean the
+        # service isn't running — the board stop may differ from the user's
+        # current stop, or the next bus may simply be outside the API's
+        # prediction window. Showing the route with wait_min=None is better
+        # than hiding a genuinely running service.
         api_responded = lta_data is not None
-        service_operating = (not api_responded) or (buses_available > 0)
-        # Deep-night guard: most SG buses don't run ~1am–5am (first buses ~5:30am).
-        # For a live "now" query with no concrete arrival, don't optimistically
-        # assume the bus is running just because the API was silent/unreachable.
-        if not is_future and (1 <= sgt.hour < 5) and buses_available == 0:
+        if not is_future and (1 <= sgt.hour < 5) and api_responded and buses_available == 0:
             service_operating = False
+        else:
+            service_operating = True
 
         brd = db.query(BusStop).filter_by(bus_stop_code=board).first()
         alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()
@@ -1228,12 +1231,10 @@ async def plan_multimodal(
                 last_bus = buses_avail <= 1; break
 
         api_responded = lta_data is not None
-        service_operating = (not api_responded) or (buses_avail > 0)
-        # Deep-night guard: most SG buses don't run ~1am–5am (first buses ~5:30am).
-        # For a live "now" query with no concrete arrival, don't optimistically
-        # assume the bus is running just because the API was silent/unreachable.
-        if not is_future and (1 <= sgt.hour < 5) and buses_avail == 0:
+        if not is_future and (1 <= sgt.hour < 5) and api_responded and buses_avail == 0:
             service_operating = False
+        else:
+            service_operating = True
 
         brd = db.query(BusStop).filter_by(bus_stop_code=board).first()
         alt = db.query(BusStop).filter_by(bus_stop_code=alight).first()
