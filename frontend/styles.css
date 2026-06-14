@@ -697,7 +697,7 @@ th.num, td.num { text-align: right; }
 }
 .plan-row-label {
   font-size: .7rem; font-weight: 700; color: var(--ink-3);
-  width: 30px; flex-shrink: 0; padding-top: .8rem; text-transform: uppercase; letter-spacing: .06em;
+  width: 42px; flex-shrink: 0; padding-top: .8rem; text-transform: uppercase; letter-spacing: .06em;
 }
 .plan-field-wrap { flex: 1; min-width: 0; position: relative; }
 /* Departure-time row */
@@ -738,7 +738,7 @@ th.num, td.num { text-align: right; }
 .plan-future-note svg { flex-shrink: 0; color: var(--accent); }
 .plan-swap-row {
   display: flex; justify-content: flex-start;
-  padding-left: calc(30px + .55rem);
+  padding-left: calc(42px + .55rem);
   margin: .3rem 0;
 }
 .plan-swap-btn {
@@ -775,7 +775,7 @@ th.num, td.num { text-align: right; }
   background: var(--ink); color: var(--bg);
   display: inline-flex; align-items: center; justify-content: center;
   font-size: .9rem; font-weight: 800; padding: 0 .4rem;
-  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
 }
 .jcard-arrow { color: var(--ink-3); flex-shrink: 0; }
 .jcard-meta { flex: 1; min-width: 0; }
@@ -1201,15 +1201,16 @@ th.num, td.num { text-align: right; }
 .arr-map,
 .arr-map .leaflet-container { width: 100%; height: 100%; }
 
-/* Dark-but-colourful map: invert the light voyager tiles and rotate the hue
-   back 180° so it darkens (light→dark) while water/parks/roads keep colour.
-   Only the tile pane is filtered, so the red stop pins stay red. */
-[data-theme="dark"] .arr-map .leaflet-tile-pane {
-  filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.9) saturate(.95);
+/* Dark map: darken tiles without inverting — keeps colours natural.
+   Applied to both the arrivals and plan maps. */
+[data-theme="dark"] .arr-map .leaflet-tile-pane,
+[data-theme="dark"] .plan-map .leaflet-tile-pane {
+  filter: brightness(.68) saturate(1.35) contrast(1.05);
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .arr-map .leaflet-tile-pane {
-    filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.9) saturate(.95);
+  :root:not([data-theme="light"]) .arr-map .leaflet-tile-pane,
+  :root:not([data-theme="light"]) .plan-map .leaflet-tile-pane {
+    filter: brightness(.68) saturate(1.35) contrast(1.05);
   }
 }
 
