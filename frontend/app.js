@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.12";
+const APP_VERSION = "1.1.13";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -564,9 +564,87 @@ function switchView(name) {
   if (name === "data") loadData();
   if (name === "arrivals") setTimeout(() => _arrMap?.invalidateSize(), 60);
   if (name === "settings") _updateSettingsUI();
+  if (name === "checkpoint") loadCheckpoint();
 }
 document.querySelectorAll(".nav-item").forEach((b) =>
   b.addEventListener("click", () => switchView(b.dataset.view)));
+
+// ── Checkpoint view ───────────────────────────────────────
+let _cpData = null;
+let _cpTab  = "woodlands";
+let _cpRefreshTmr = null;
+
+function loadCheckpoint(force = false) {
+  if (_cpData && !force) { _renderCheckpoint(_cpData); return; }
+  show($("cp-loading")); hide($("cp-error"));
+  api("/api/checkpoint/traffic")
+    .then((data) => {
+      _cpData = data;
+      hide($("cp-loading"));
+      _renderCheckpoint(data);
+      clearTimeout(_cpRefreshTmr);
+      _cpRefreshTmr = setTimeout(() => {
+        _cpData = null;
+        if (S.view === "checkpoint") loadCheckpoint();
+      }, 120_000);
+    })
+    .catch((e) => {
+      hide($("cp-loading"));
+      const el = $("cp-error");
+      el.textContent = `Could not load checkpoint data: ${e.message}`;
+      show(el);
+    });
+}
+
+function _renderCheckpoint(data) {
+  if (data.fetched_at) {
+    const t = new Date(data.fetched_at + "Z");
+    $("cp-updated").textContent =
+      `Updated ${fmtClock(t)} · LTA DataMall`;
+  }
+  _renderCpPanel("woodlands", data.woodlands);
+  _renderCpPanel("tuas",      data.tuas);
+}
+
+function _renderCpPanel(key, cp) {
+  if (!cp) return;
+  const bust = `?t=${Date.now()}`;
+
+  const timesEl = $(`cp-times-${key}`);
+  if (cp.travel_times && cp.travel_times.length) {
+    timesEl.innerHTML = cp.travel_times.map((t) => `
+      <div class="cp-time-row">
+        <div class="cp-time-route">
+          <span class="cp-time-name">${esc(t.name)}</span>
+          <span class="cp-time-seg">${esc(t.start)} → ${esc(t.end)}</span>
+        </div>
+        <span class="cp-time-min">${t.est_min} min</span>
+      </div>`).join("");
+  } else {
+    timesEl.innerHTML = `<div class="cp-time-row"><span style="color:var(--ink-3);font-size:.82rem">No approach-road data available right now.</span></div>`;
+  }
+
+  const camEl = $(`cp-cameras-${key}`);
+  if (cp.cameras && cp.cameras.length) {
+    camEl.innerHTML = cp.cameras.map((c) => `
+      <div class="cp-camera-card">
+        <img class="cp-camera-img" src="${esc(c.url + bust)}" alt="Traffic camera" loading="lazy" />
+      </div>`).join("");
+  } else {
+    camEl.innerHTML = `<p class="empty" style="font-size:.82rem;padding:.5rem 0">No camera feeds available for this checkpoint.</p>`;
+  }
+}
+
+document.querySelectorAll(".cp-tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    _cpTab = btn.dataset.cp;
+    document.querySelectorAll(".cp-tab").forEach((b) => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".cp-panel").forEach((p) =>
+      p.classList.toggle("hidden", p.id !== `cp-panel-${_cpTab}`));
+  });
+});
+
+$("cp-refresh-btn").addEventListener("click", () => { _cpData = null; loadCheckpoint(true); });
 
 // ── Search + autocomplete ─────────────────────────────────
 const input = $("stop-input");
@@ -3020,7 +3098,7 @@ if (hasShareParams) {
   openBtn?.addEventListener("click", () => _openFeedback("settings"));
 
   // Auto-prompt: every 10th app open, after 90 seconds of use
-  const COUNT_KEY = "fbOpenCount";
+  const COUNT_KEY  = "fbOpenCount";
   const count = parseInt(localStorage.getItem(COUNT_KEY) || "0", 10) + 1;
   localStorage.setItem(COUNT_KEY, count);
   if (count % 10 === 0 && !sessionStorage.getItem("fbShownThisSession")) {

@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.1.12" />
+  <link rel="stylesheet" href="styles.css?v=1.1.13" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -355,6 +355,43 @@
     <div id="plan-results"></div>
   </section>
 
+  <!-- ════ CHECKPOINT VIEW ════ -->
+  <section id="view-checkpoint" class="view">
+    <div class="cp-header">
+      <div>
+        <h2 class="view-title" style="margin-bottom:.15rem">Checkpoint Traffic</h2>
+        <p id="cp-updated" class="view-sub"></p>
+      </div>
+      <button id="cp-refresh-btn" class="iconbtn" aria-label="Refresh checkpoint data">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+      </button>
+    </div>
+
+    <div class="cp-tabs">
+      <button class="cp-tab active" data-cp="woodlands">Woodlands</button>
+      <button class="cp-tab" data-cp="tuas">Tuas</button>
+    </div>
+
+    <div id="cp-loading" class="plan-loading hidden">Loading…</div>
+    <div id="cp-error" class="error-note hidden"></div>
+
+    <div id="cp-panel-woodlands" class="cp-panel">
+      <div class="cp-section-hd">Approach roads</div>
+      <div id="cp-times-woodlands" class="cp-times-list"></div>
+      <div class="cp-section-hd cp-cam-hd">Live cameras <span class="cp-cam-note">~90 s refresh by LTA</span></div>
+      <div id="cp-cameras-woodlands" class="cp-cameras"></div>
+    </div>
+
+    <div id="cp-panel-tuas" class="cp-panel hidden">
+      <div class="cp-section-hd">Approach roads</div>
+      <div id="cp-times-tuas" class="cp-times-list"></div>
+      <div class="cp-section-hd cp-cam-hd">Live cameras <span class="cp-cam-note">~90 s refresh by LTA</span></div>
+      <div id="cp-cameras-tuas" class="cp-cameras"></div>
+    </div>
+
+    <p class="cp-note">Travel times are for Singapore-side expressways only · Data from LTA DataMall</p>
+  </section>
+
   <!-- ════ DATA VIEW ════ -->
   <section id="view-data" class="view">
     <h2 class="view-title">Data &amp; model</h2>
@@ -512,7 +549,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">1.1.12</span>
+            <span class="stg-row-val" id="stg-version-val">1.1.13</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -586,6 +623,14 @@
   </button>
   <button class="nav-item" data-view="plan" aria-label="Plan">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>
+  </button>
+  <button class="nav-item" data-view="checkpoint" aria-label="Checkpoint">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="3" y1="13" x2="21" y2="13"/>
+      <line x1="7" y1="7" x2="7" y2="19"/>
+      <line x1="17" y1="7" x2="17" y2="13"/>
+      <line x1="7" y1="9" x2="17" y2="9"/>
+    </svg>
   </button>
   <button id="nav-data-btn" class="nav-item hidden" data-view="data" aria-label="Data">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg>
@@ -689,6 +734,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1.1.12"></script>
+<script src="app.js?v=1.1.13"></script>
 </body>
 </html>

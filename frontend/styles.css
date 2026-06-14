@@ -1538,3 +1538,62 @@ th.num, td.num { text-align: right; }
   font: inherit; font-size: .82rem; cursor: pointer; text-align: center;
   padding: .25rem;
 }
+
+/* ── Checkpoint view ────────────────────────────────────── */
+.cp-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 1.1rem 1rem .3rem;
+}
+.cp-tabs {
+  display: flex; gap: .5rem;
+  padding: .5rem 1rem .75rem;
+}
+.cp-tab {
+  flex: 1; padding: .55rem .5rem;
+  background: var(--surface); border: 1.5px solid var(--line);
+  border-radius: 10px; color: var(--ink-2);
+  font: inherit; font-size: .88rem; font-weight: 600; cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.cp-tab.active {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+.cp-panel { padding: 0 1rem 1rem; }
+.cp-section-hd {
+  font-size: .72rem; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--ink-3);
+  margin: .9rem 0 .45rem;
+}
+.cp-cam-hd { display: flex; align-items: center; gap: .5rem; }
+.cp-cam-note { font-size: .68rem; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.cp-times-list {
+  background: var(--surface); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); overflow: hidden;
+}
+.cp-time-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .65rem .9rem; gap: .5rem;
+  border-bottom: 1px solid var(--line);
+}
+.cp-time-row:last-child { border-bottom: none; }
+.cp-time-route { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.cp-time-name  { font-size: .82rem; font-weight: 700; color: var(--ink); }
+.cp-time-seg   { font-size: .72rem; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-time-min   {
+  font-size: .95rem; font-weight: 700; color: var(--accent);
+  white-space: nowrap; flex-shrink: 0;
+}
+.cp-cameras { display: flex; flex-direction: column; gap: .75rem; }
+.cp-camera-card {
+  border-radius: 10px; overflow: hidden;
+  background: var(--surface-2); box-shadow: var(--shadow-sm);
+}
+.cp-camera-img {
+  width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover;
+  background: var(--surface-2);
+}
+.cp-note {
+  font-size: .72rem; color: var(--ink-3);
+  padding: .5rem 1rem 1.5rem;
+  text-align: center;
+}

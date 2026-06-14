@@ -22,6 +22,8 @@ GET  /api/data                       Database overview for the Data tab
 import asyncio
 import itertools
 import logging
+import math
+import time as _time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -1675,6 +1677,107 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
         "recent_records":  recent,
         "recent_tracking": tracking,
     }
+
+
+# ── Checkpoint traffic ────────────────────────────────────────────────────────
+
+_CHECKPOINTS = {
+    "woodlands": {
+        "lat": 1.4476, "lng": 103.7679,
+        "name": "Woodlands Causeway",
+        "radius_km": 1.5,
+        "keywords": ["woodlands", "bke", "kje"],
+    },
+    "tuas": {
+        "lat": 1.3440, "lng": 103.6370,
+        "name": "Tuas Second Link",
+        "radius_km": 2.0,
+        "keywords": ["tuas", "second link", "aye"],
+    },
+}
+_cp_cache: dict | None = None
+_cp_cache_ts: float = 0.0
+_CP_CACHE_SEC = 120
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    R = 6371.0
+    φ1, φ2 = math.radians(lat1), math.radians(lat2)
+    dφ = math.radians(lat2 - lat1)
+    dλ = math.radians(lng2 - lng1)
+    a = math.sin(dφ / 2) ** 2 + math.cos(φ1) * math.cos(φ2) * math.sin(dλ / 2) ** 2
+    return R * 2 * math.asin(min(1.0, math.sqrt(a)))
+
+
+@router.get("/checkpoint/traffic")
+async def checkpoint_traffic() -> dict:
+    """Live LTA camera feeds + approach-road travel times for both checkpoints."""
+    global _cp_cache, _cp_cache_ts
+    now_ts = _time.time()
+    if _cp_cache and (now_ts - _cp_cache_ts) < _CP_CACHE_SEC:
+        return _cp_cache
+
+    hdrs = {"AccountKey": LTA_API_KEY}
+    async with httpx.AsyncClient(timeout=10) as client:
+        imgs_r, ett_r = await asyncio.gather(
+            client.get(f"{LTA_BASE_URL}/Traffic-Images",  headers=hdrs),
+            client.get(f"{LTA_BASE_URL}/EstTravelTimes",  headers=hdrs),
+            return_exceptions=True,
+        )
+
+    cameras_raw = (
+        imgs_r.json().get("value", [])
+        if not isinstance(imgs_r, Exception) and imgs_r.status_code == 200
+        else []
+    )
+    ett_raw = (
+        ett_r.json().get("value", [])
+        if not isinstance(ett_r, Exception) and ett_r.status_code == 200
+        else []
+    )
+
+    out: dict = {}
+    for key, cp in _CHECKPOINTS.items():
+        cameras = sorted(
+            [
+                {
+                    "id":  c["CameraID"],
+                    "url": c["ImageLink"],
+                    "lat": c["Latitude"],
+                    "lng": c["Longitude"],
+                }
+                for c in cameras_raw
+                if _haversine_km(cp["lat"], cp["lng"], c["Latitude"], c["Longitude"]) <= cp["radius_km"]
+            ],
+            key=lambda c: _haversine_km(cp["lat"], cp["lng"], c["lat"], c["lng"]),
+        )
+        kws = cp["keywords"]
+        travel_times = [
+            {
+                "name":    e["Name"],
+                "start":   e["StartPoint"],
+                "end":     e["EndPoint"],
+                "est_min": e["EstTime"],
+            }
+            for e in ett_raw
+            if any(
+                k in (
+                    e.get("StartPoint", "") + e.get("EndPoint", "") +
+                    e.get("FarEndPoint", "") + e.get("Name", "")
+                ).lower()
+                for k in kws
+            )
+        ]
+        out[key] = {
+            "name":         cp["name"],
+            "cameras":      cameras[:4],
+            "travel_times": travel_times[:8],
+        }
+
+    out["fetched_at"] = datetime.utcnow().isoformat()
+    _cp_cache = out
+    _cp_cache_ts = now_ts
+    return out
 
 
 # ── Feedback ──────────────────────────────────────────────────────────────────
