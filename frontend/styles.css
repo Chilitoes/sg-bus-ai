@@ -51,9 +51,9 @@
     --shadow:    0 2px 12px rgba(0,0,0,.45);
     --topbar-bg: rgba(28, 28, 30, 0.85);
     --nav-bg:    #1c1c1e;
-    --glass:        rgba(20, 20, 22, 0.42);
-    --glass-strong: rgba(20, 20, 22, 0.72);
-    --glass-line:   rgba(255, 255, 255, 0.08);
+    --glass:        rgba(20, 20, 22, 0.18);
+    --glass-strong: rgba(20, 20, 22, 0.50);
+    --glass-line:   rgba(255, 255, 255, 0.07);
   }
 }
 [data-theme="dark"] {
@@ -76,9 +76,9 @@
   --shadow:    0 2px 12px rgba(0,0,0,.45);
   --topbar-bg: rgba(28, 28, 30, 0.85);
   --nav-bg:    #1c1c1e;
-  --glass:        rgba(20, 20, 22, 0.42);
-  --glass-strong: rgba(20, 20, 22, 0.72);
-  --glass-line:   rgba(255, 255, 255, 0.08);
+  --glass:        rgba(20, 20, 22, 0.18);
+  --glass-strong: rgba(20, 20, 22, 0.50);
+  --glass-line:   rgba(255, 255, 255, 0.07);
 }
 
 html { font-size: 16px; }

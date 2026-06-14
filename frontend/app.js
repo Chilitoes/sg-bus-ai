@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.5";
+const APP_VERSION = "1.1.6";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -564,6 +564,7 @@ function switchView(name) {
   if (name === "data") loadData();
   if (name === "arrivals") setTimeout(() => _arrMap?.invalidateSize(), 60);
   if (name === "settings") _updateSettingsUI();
+  if (name === "plan") setTimeout(_preinitPlanMap, 200);
 }
 document.querySelectorAll(".nav-item").forEach((b) =>
   b.addEventListener("click", () => switchView(b.dataset.view)));
@@ -1594,6 +1595,8 @@ $("plan-btn").addEventListener("click", doJourneyPlan);
   });
 
   applyMode(); // apply initial now-mode on page load
+  // Re-check every minute so the button hides after departure time passes.
+  setInterval(applyMode, 60_000);
 })();
 $("plan-results").addEventListener("click", (e) => {
   const go = e.target.closest(".jcard-go");
@@ -2382,7 +2385,11 @@ $("plan-map-locate-btn")?.addEventListener("click", () => {
 });
 
 $("plan-map-jump").addEventListener("click", () => {
-  $("plan-map-wrap").scrollIntoView({ behavior: "smooth", block: "start" });
+  const wrap = $("plan-map-wrap");
+  if (!wrap || wrap.classList.contains("hidden")) return;
+  wrap.classList.add("fullscreen");
+  show($("plan-map-fs-collapse")); hide($("plan-map-fs-expand"));
+  setTimeout(() => _planMap?.invalidateSize(), 50);
 });
 
 $("plan-map-fs-btn").addEventListener("click", () => {
@@ -2583,6 +2590,14 @@ function _legColor(leg, busIdx = 0) {
   return BUS_COLORS[Math.min(busIdx, BUS_COLORS.length - 1)];
 }
 
+function _preinitPlanMap() {
+  if (_planMap || !_leafletReady()) return;
+  const container = $("plan-map");
+  _planMap = L.map(container, { zoomControl: true, attributionControl: false })
+             .setView([1.3521, 103.8198], 13);
+  _sgTiles().addTo(_planMap);
+}
+
 function updatePlanMap(data, coords, optIdx = 0) {
   if (!_leafletReady()) { _whenLeaflet(() => updatePlanMap(data, coords, optIdx)); return; }
   _planData = data; _planCoords = coords; _planOptIdx = optIdx;
@@ -2697,7 +2712,7 @@ function updatePlanMap(data, coords, optIdx = 0) {
           L.marker(mid, {
             icon: L.divIcon({
               className: "",
-              html: `<div style="background:#1c1c1e;color:${color};border:1.5px solid ${color};padding:2px 7px;border-radius:99px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.5)">${esc(badge)}</div>`,
+              html: `<div style="color:${color};border:1.5px solid ${color};padding:2px 7px;border-radius:99px;font-size:10px;font-weight:700;white-space:nowrap;text-shadow:0 0 4px rgba(0,0,0,.9),0 1px 3px rgba(0,0,0,.8)">${esc(badge)}</div>`,
               iconAnchor: [0, 0],
             }),
             interactive: false,
