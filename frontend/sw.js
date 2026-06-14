@@ -4,7 +4,7 @@
    moment you're online. The cache is only an offline fallback. (A previous
    cache-first strategy could serve stale app.js even after a version bump.) */
 
-const CACHE = "sgbus-shell-v1.1.1";
+const CACHE = "sgbus-shell-v1.1.2";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

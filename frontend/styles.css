@@ -1071,11 +1071,16 @@ th.num, td.num { text-align: right; }
   pointer-events: none;
   line-height: 1.4;
 }
-/* Dim Voyager tiles in dark mode so the map doesn't look washed out */
+/* Apple Maps-style dark tiles: invert light tiles + hue-rotate to restore
+   water→dark navy, parks→dark green, roads→dark grey, +20° teal tint. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .leaflet-tile-pane { filter: brightness(.72) saturate(.8); }
+  :root:not([data-theme="light"]) .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(200deg) brightness(0.72) saturate(0.9);
+  }
 }
-[data-theme="dark"] .leaflet-tile-pane { filter: brightness(.72) saturate(.8); }
+[data-theme="dark"] .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(200deg) brightness(0.72) saturate(0.9);
+}
 /* Leaflet overrides inside map tab */
 #map-tab-container .leaflet-control-zoom { border: none !important; }
 #map-tab-container .leaflet-control-zoom a {
@@ -1270,18 +1275,8 @@ th.num, td.num { text-align: right; }
 .arr-map,
 .arr-map .leaflet-container { width: 100%; height: 100%; }
 
-/* Dark map: dim brightness, boost saturation to keep colours vivid.
-   Applied to both the arrivals and plan maps. */
-[data-theme="dark"] .arr-map .leaflet-tile-pane,
-[data-theme="dark"] .plan-map .leaflet-tile-pane {
-  filter: brightness(.62) saturate(1.5) contrast(1.08) hue-rotate(-5deg);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .arr-map .leaflet-tile-pane,
-  :root:not([data-theme="light"]) .plan-map .leaflet-tile-pane {
-    filter: brightness(.62) saturate(1.5) contrast(1.08) hue-rotate(-5deg);
-  }
-}
+/* Apple Maps-style dark tiles on arrivals + plan maps (same technique as global,
+   no override needed — inherits the invert filter above). */
 
 /* Sheet height is a variable so the drag handler can move it; default 46vh. */
 :root { --sheet-h: 46vh; }
