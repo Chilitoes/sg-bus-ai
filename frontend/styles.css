@@ -1270,18 +1270,26 @@ th.num, td.num { text-align: right; }
 .arr-locate-btn {
   position: fixed; right: 14px;
   bottom: calc(var(--sheet-h) + 12px);
-  z-index: 12;
+  z-index: 16;
   width: 42px; height: 42px; border-radius: 50%;
-  background: var(--glass-strong);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
-  backdrop-filter: blur(18px) saturate(180%);
-  border: 1px solid var(--glass-line);
+  background: rgba(13,14,16,.88);
+  border: 1px solid rgba(255,255,255,.18);
   color: var(--accent);
   display: flex; align-items: center; justify-content: center;
-  box-shadow: var(--shadow);
+  box-shadow: 0 2px 14px rgba(0,0,0,.5);
   transition: background .12s, bottom .05s linear;
 }
-.arr-locate-btn:active { background: var(--surface-2); }
+.arr-locate-btn:active { background: rgba(40,42,50,.95); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .arr-locate-btn {
+    background: rgba(255,255,255,.95);
+    border-color: rgba(0,0,0,.12);
+  }
+}
+[data-theme="light"] .arr-locate-btn {
+  background: rgba(255,255,255,.95);
+  border-color: rgba(0,0,0,.12);
+}
 
 /* Floating search bar — sits just below the iOS status bar */
 .arr-search-wrap {
