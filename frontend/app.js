@@ -188,14 +188,18 @@ function clearHome() {
 }
 function _updatePlanHomeChip() {
   const h = getHome();
-  const row = $("plan-chips");
-  if (!row) return;
-  if (h) {
-    $("plan-home-chip-name").textContent = h.name;
-    row.classList.remove("hidden");
-  } else {
-    row.classList.add("hidden");
-  }
+  const homeChip    = $("plan-home-chip");
+  const setHomeChip = $("plan-set-home-chip");
+  const chips       = $("plan-chips");
+  if (!chips) return;
+
+  const showHome    = !!h;
+  const showSetHome = !h && planState.fromLat !== null;
+
+  if (showHome) $("plan-home-chip-name").textContent = h.name;
+  homeChip?.classList.toggle("hidden", !showHome);
+  setHomeChip?.classList.toggle("hidden", !showSetHome);
+  chips.classList.toggle("hidden", !showHome && !showSetHome);
 }
 function _updateSettingsHomeUI() {
   const h = getHome();
@@ -634,7 +638,7 @@ function svcCard(svc) {
   const TYPE_LABEL = { SD: "Single deck", DD: "Double deck", BD: "Bendy" };
   const tags = [
     next.type && next.type !== "SD" ? `<span class="tag" title="${TYPE_LABEL[next.type] || next.type}">${esc(next.type)}</span>` : "",
-    next.feature === "WAB" ? `<span class="tag wab" title="Wheelchair accessible">♿ WAB</span>` : "",
+    next.feature === "WAB" ? `<span class="tag wab" title="Wheelchair accessible">♿</span>` : "",
     next.load ? `<span class="load-dot ${esc(next.load)}" title="${LOAD_LABEL[next.load] || ""}"></span>` : "",
   ].join("");
   return `
@@ -1401,6 +1405,7 @@ function setupPlanField(field) {
     const v = input.value.trim();
     v ? show(clear) : hide(clear);
     clearSel();
+    if (field === "from") _updatePlanHomeChip();
     clearTimeout(acTmr);
     acTmr = setTimeout(async () => {
       if (!v || v.length < 2) { hide(ac); ac.innerHTML = ""; return; }
@@ -1438,7 +1443,9 @@ function setupPlanField(field) {
 
   clear.addEventListener("click", () => {
     input.value = ""; hide(clear); hide(ac); ac.innerHTML = "";
-    clearSel(); input.focus();
+    clearSel();
+    if (field === "from") _updatePlanHomeChip();
+    input.focus();
   });
 
   ac.addEventListener("click", (e) => {
@@ -1476,6 +1483,7 @@ function setPlanLocation(field, code, name, lat, lng) {
   show($(`plan-${field}-clear`));
   hide($(`plan-${field}-ac`));
   $(`plan-${field}-ac`).innerHTML = "";
+  if (field === "from") _updatePlanHomeChip();
 }
 
 $("plan-swap").addEventListener("click", () => {
@@ -1492,6 +1500,13 @@ $("plan-swap").addEventListener("click", () => {
     planState.toLat  = null; planState.toLng  = null;
     $("plan-to-input").value = ""; hide($("plan-to-clear"));
   }
+  _updatePlanHomeChip();
+});
+
+$("plan-set-home-chip").addEventListener("click", () => {
+  if (planState.fromLat === null) { toast("Set a FROM location first"); return; }
+  saveHome(planState.fromName, planState.fromLat, planState.fromLng);
+  toast(`Home set to ${planState.fromName}`);
 });
 
 $("plan-btn").addEventListener("click", doJourneyPlan);
@@ -2249,6 +2264,15 @@ function _stopPinIcon(label, noLabel = false) {
   });
 }
 
+$("plan-map-locate-btn")?.addEventListener("click", () => {
+  if (!navigator.geolocation) { toast("Location not supported"); return; }
+  navigator.geolocation.getCurrentPosition(
+    ({ coords: { latitude: lat, longitude: lng } }) => { _planMap?.setView([lat, lng], 15); },
+    () => toast("Location permission needed"),
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 }
+  );
+});
+
 $("plan-map-fs-btn").addEventListener("click", () => {
   const wrap = $("plan-map-wrap");
   const isFs = wrap.classList.toggle("fullscreen");
@@ -2816,6 +2840,7 @@ function _confirmPickerStop() {
     planState.fromLng  = s.longitude;
     $("plan-from-input").value = name;
     show($("plan-from-clear"));
+    _updatePlanHomeChip();
   } else {
     planState.toName = name;
     planState.toCode = s.bus_stop_code;
