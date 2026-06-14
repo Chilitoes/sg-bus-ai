@@ -2761,7 +2761,7 @@ function _onPickerMove() {
 }
 
 function _loadPickerStops(lat, lng) {
-  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=25`).then((d) => {
+  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=40`).then((d) => {
     if (!_pickerMap) return;
     _pickerLayers.forEach((m) => m.remove());
     _pickerLayers = [];

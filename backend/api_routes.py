@@ -469,7 +469,7 @@ def search_stops(
 def nearby_stops(
     lat: float = Query(..., ge=-90, le=90),
     lng: float = Query(..., ge=-180, le=180),
-    limit: int = Query(10, le=20),
+    limit: int = Query(10, le=60),
     db: Session = Depends(get_db),
 ) -> dict:
     """Bus stops nearest to a coordinate, with distance in metres."""

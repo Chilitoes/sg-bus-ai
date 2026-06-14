@@ -785,7 +785,7 @@ th.num, td.num { text-align: right; }
 }
 
 /* Journey cards */
-#plan-results { display: flex; flex-direction: column; gap: 1.1rem; }
+#plan-results { display: flex; flex-direction: column; gap: 1.6rem; }
 
 .journey-card {
   background: var(--surface); border: 1px solid var(--line);
