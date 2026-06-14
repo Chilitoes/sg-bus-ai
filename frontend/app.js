@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.7";
+const APP_VERSION = "1.1.8";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1556,36 +1556,20 @@ $("plan-set-home-chip").addEventListener("click", () => {
 
 $("plan-btn").addEventListener("click", doJourneyPlan);
 
-// Departure-time control: Now / Today / Tomorrow selector + future-time reset.
+// Departure-time control: Now / Today / Tomorrow selector.
 (() => {
-  const t = $("plan-time"), nowBtn = $("plan-time-now"), day = $("plan-day");
-  if (!t || !nowBtn || !day) return;
+  const t = $("plan-time"), day = $("plan-day");
+  if (!t || !day) return;
   const wrap = t.closest(".plan-time-wrap");
-  let _hideTimer = null;
 
   const applyMode = () => {
-    clearTimeout(_hideTimer);
     const isNow = day.value === "now";
     wrap?.classList.toggle("now-mode", isNow);
-    if (isNow) { t.value = ""; nowBtn.classList.add("hidden"); return; }
-    // Show "Now" reset button only when TODAY is selected and the time is
-    // meaningfully in the future (>3 min). For Tomorrow the user can always
-    // pick "Now" from the dropdown — showing the button would cramp the row.
-    if (!t.value || day.value !== "0") { nowBtn.classList.add("hidden"); return; }
-    const [h, m] = t.value.split(":").map(Number);
-    const now = new Date();
-    const diffSecs = (h * 60 + m - now.getHours() * 60 - now.getMinutes()) * 60 - now.getSeconds();
-    if (diffSecs > 3 * 60) {
-      nowBtn.classList.remove("hidden");
-      // Schedule precise auto-hide the moment departure drops to ≤3 min away.
-      _hideTimer = setTimeout(applyMode, (diffSecs - 3 * 60) * 1000 + 500);
-    } else {
-      nowBtn.classList.add("hidden");
-    }
+    if (isNow) t.value = "";
   };
 
   day.addEventListener("change", () => {
-    // Switching away from Now: pre-fill with current time as a helpful default.
+    // Switching away from Now: pre-fill with current time as a starting point.
     if (day.value !== "now" && !t.value) {
       const n = new Date();
       t.value = `${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}`;
@@ -1596,13 +1580,8 @@ $("plan-btn").addEventListener("click", doJourneyPlan);
     if (t.value && day.value === "now") day.value = "0";
     applyMode();
   });
-  nowBtn.addEventListener("click", () => {
-    t.value = ""; day.value = "now";
-    wrap?.classList.add("now-mode");
-    nowBtn.classList.add("hidden");
-  });
 
-  applyMode(); // apply initial now-mode on page load
+  applyMode();
 })();
 $("plan-results").addEventListener("click", (e) => {
   const go = e.target.closest(".jcard-go");
@@ -1875,6 +1854,7 @@ function renderUnavailableCard(opt) {
 
 function _unavailableSection(data) {
   if (!data.unavailable?.length) return "";
+  if (data.is_future) return "";
   return data.unavailable.map(renderUnavailableCard).join("");
 }
 
