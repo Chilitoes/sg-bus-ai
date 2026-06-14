@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.11";
+const APP_VERSION = "1.1.12";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1751,10 +1751,11 @@ $("plan-recents")?.addEventListener("click", (e) => {
 
 // ── Render: bus-only (stop-code → stop-code) ─────────────
 function renderBusOnlyResult(data) {
-  if (!data.options?.length) {
+  if (!data.options?.length && !data.unavailable?.length) {
     return `<div class="plan-no-routes">${esc(data.message || "No route found. Try nearby stops.")}</div>`;
   }
-  return data.options.map(renderBusOnlyCard).join("");
+  return (data.options?.length ? data.options.map(renderBusOnlyCard).join("") : "")
+    + _unavailableSection(data);
 }
 
 function renderBusOnlyCard(opt, idx = 0) {
@@ -1820,13 +1821,36 @@ function catchLine(c) {
   return `<span class="jcard-catch miss">✗ ${c.walk_min} min walk, bus in ${c.walk_min + c.margin_min} — you'll likely miss it${next}</span>`;
 }
 
+function renderUnavailableCard(opt) {
+  const badgesHtml = (opt.legs || [])
+    .filter((l) => l.type === "bus" || l.type === "mrt" || l.service_no)
+    .map((l) => l.type === "mrt"
+      ? `<span class="jcard-badge mrt-badge" style="opacity:.45">${esc(l.line || "MRT")}</span>`
+      : `<span class="jcard-badge" style="opacity:.45">${esc(l.service_no)}</span>`)
+    .join("") || `<span class="jcard-badge" style="opacity:.45">${esc(opt.mode === "mrt" ? "MRT" : "Bus")}</span>`;
+  return `
+    <div class="journey-card unavailable-card">
+      <div class="jcard-summary">
+        <div class="jcard-routes">${badgesHtml}</div>
+        <div class="jcard-meta">
+          <span class="unavail-reason">${esc(opt.unavailable_reason || "Not running right now")}</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function _unavailableSection(data) {
+  if (!data.unavailable?.length) return "";
+  return data.unavailable.map(renderUnavailableCard).join("");
+}
 
 // ── Render: multimodal (address → address) ────────────────
 function renderMultimodalResult(data) {
-  if (!data.options?.length) {
+  if (!data.options?.length && !data.unavailable?.length) {
     return `<div class="plan-no-routes">No routes found between these locations. Try addresses closer to bus stops or MRT stations.</div>`;
   }
-  return data.options.map(renderMultimodalCard).join("");
+  return (data.options?.length ? data.options.map(renderMultimodalCard).join("") : "")
+    + _unavailableSection(data);
 }
 
 function renderMultimodalCard(opt, idx = 0) {

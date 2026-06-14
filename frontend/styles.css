@@ -851,6 +851,15 @@ th.num, td.num { text-align: right; }
 .jcard-catch.make  { color: var(--good); }
 .jcard-catch.tight { color: #d97706; }
 .jcard-catch.miss  { color: var(--bad); }
+.unavailable-card {
+  opacity: .55;
+  border-style: dashed;
+  pointer-events: none;
+}
+.unavail-reason {
+  font-size: .75rem; color: var(--ink-3);
+  font-style: italic;
+}
 
 /* Per-service reliability (arrivals detail) */
 .svc-rel {
