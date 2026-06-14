@@ -1839,13 +1839,25 @@ function _syncTopbarH() {
 }
 
 // ── Draggable bottom sheet ────────────────────────────────
-// Snap heights as a fraction of the viewport.
-const _SHEET_SNAPS = { min: 0.20, mid: 0.46, max: 0.82 };
 function _setSheetH(px) {
   document.documentElement.style.setProperty("--sheet-h", Math.round(px) + "px");
 }
+// Compute the three snap heights in px. The max is capped so the sheet's top
+// always stays just below the floating search bar — otherwise it swallows the
+// search bar and the drag handle becomes unreachable.
+function _sheetSnaps() {
+  const sheet  = document.querySelector(".arr-sheet");
+  const search = document.querySelector(".arr-search-wrap");
+  const bottomY = sheet ? sheet.getBoundingClientRect().bottom : innerHeight;
+  const searchBottom = search ? search.getBoundingClientRect().bottom : 80;
+  const min = Math.round(innerHeight * 0.22);
+  const mid = Math.round(innerHeight * 0.46);
+  const max = Math.max(mid + 1, Math.round(bottomY - searchBottom - 12));
+  return { min, mid, max };
+}
 function _snapSheet(name) {
-  _setSheetH(innerHeight * (_SHEET_SNAPS[name] ?? _SHEET_SNAPS.mid));
+  const s = _sheetSnaps();
+  _setSheetH(s[name] ?? s.mid);
   setTimeout(() => _arrMap?.invalidateSize(), 280);
 }
 function _initSheetDrag() {
@@ -1855,8 +1867,6 @@ function _initSheetDrag() {
   _snapSheet("mid");
 
   let startY = 0, startH = 0, dragging = false;
-  const clamp = (h) =>
-    Math.max(innerHeight * _SHEET_SNAPS.min, Math.min(innerHeight * _SHEET_SNAPS.max, h));
 
   handle.addEventListener("pointerdown", (e) => {
     dragging = true;
@@ -1867,7 +1877,9 @@ function _initSheetDrag() {
   });
   handle.addEventListener("pointermove", (e) => {
     if (!dragging) return;
-    _setSheetH(clamp(startH + (startY - e.clientY)));   // drag up → taller
+    const s = _sheetSnaps();
+    const h = Math.max(s.min, Math.min(s.max, startH + (startY - e.clientY)));
+    _setSheetH(h);                                       // drag up → taller
     e.preventDefault();
   });
   const end = () => {
@@ -1875,7 +1887,7 @@ function _initSheetDrag() {
     dragging = false;
     sheet.classList.remove("dragging");
     const h = sheet.getBoundingClientRect().height;
-    const snaps = Object.values(_SHEET_SNAPS).map((f) => innerHeight * f);
+    const snaps = Object.values(_sheetSnaps());
     _setSheetH(snaps.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a)));
     setTimeout(() => _arrMap?.invalidateSize(), 280);
   };
