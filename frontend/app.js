@@ -18,7 +18,13 @@ const RECENT_KEY = "sgbus_recent";
 const THEME_KEY  = "sgbus_theme";
 const TOKEN_KEY  = "sgbus_token";
 const USER_KEY   = "sgbus_user";
-const APP_VERSION = "61";
+// Version scheme — MAJOR.MINOR.PATCH (semver-style):
+//   MAJOR  → big monthly overhauls / redesigns
+//   MINOR  → new features
+//   PATCH  → bug fixes & small tweaks (bumped on most pushes)
+// Bump this on every push and keep the <span id="stg-version-val"> in
+// index.html in sync.
+const APP_VERSION = "1.0.9";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -73,6 +79,22 @@ function toast(msg) {
   show(t);
   clearTimeout(toastTmr);
   toastTmr = setTimeout(() => hide(t), 2200);
+}
+
+function showConfirm(msg, okLabel, onConfirm) {
+  const el = document.createElement("div");
+  el.className = "confirm-overlay";
+  el.innerHTML = `<div class="confirm-card">
+    <p class="confirm-msg">${msg}</p>
+    <div class="confirm-btns">
+      <button class="confirm-cancel">Cancel</button>
+      <button class="confirm-ok">${okLabel}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  el.querySelector(".confirm-cancel").addEventListener("click", () => el.remove());
+  el.querySelector(".confirm-ok").addEventListener("click", () => { el.remove(); onConfirm(); });
+  el.addEventListener("click", (e) => { if (e.target === el) el.remove(); });
 }
 
 function parseUTC(iso) {
@@ -273,14 +295,18 @@ $("plan-home-chip").addEventListener("click", () => {
 
 $("stg-home-row").addEventListener("click", () => {
   const edit = $("stg-home-edit");
-  const open = edit.classList.toggle("hidden");
-  if (!open) setTimeout(() => $("stg-home-input").focus(), 50);
+  const nowHidden = edit.classList.toggle("hidden");
+  $("stg-home-row").classList.toggle("open", !nowHidden);
+  if (!nowHidden) setTimeout(() => $("stg-home-input").focus(), 50);
   else $("stg-home-ac").innerHTML = "";
 });
 
 $("stg-home-clear-btn").addEventListener("click", () => {
-  clearHome();
-  $("stg-home-edit").classList.add("hidden");
+  showConfirm("Remove your saved home location?", "Remove", () => {
+    clearHome();
+    $("stg-home-edit").classList.add("hidden");
+    $("stg-home-row").classList.remove("open");
+  });
 });
 
 function openSheet() {
@@ -484,9 +510,15 @@ function syncSaveBtn() {
 $("save-btn").addEventListener("click", () => {
   if (!S.stop) return;
   if (!S.token) { toast("Log in to save stops"); openSheet(); return; }
-  if (isFav(S.stop)) { removeFav(S.stop); toast("Removed from saved stops"); }
-  else { addFav(S.stop, S.stopInfo || {}); toast("Saved — now monitored for better predictions"); }
-  syncSaveBtn();
+  if (isFav(S.stop)) {
+    showConfirm("Remove this stop from saved?", "Remove", () => {
+      removeFav(S.stop); syncSaveBtn(); toast("Removed from saved stops");
+    });
+  } else {
+    addFav(S.stop, S.stopInfo || {});
+    syncSaveBtn();
+    toast("Saved — now monitored for better predictions");
+  }
 });
 
 // ── Recents ───────────────────────────────────────────────
@@ -650,7 +682,6 @@ function svcCard(svc) {
       <button class="svc-head">
         <span class="route-badge">${esc(svc.service_no)}</span>
         <span class="svc-mid">
-          <span class="svc-op">${esc(svc.operator || "")}</span>
           <span class="svc-tags">${tags}</span>
         </span>
         <span class="svc-eta">
@@ -769,6 +800,7 @@ async function loadStop(code) {
     renderArrivals(arrivals);
     show($("stats-details"));
     show($("about-details"));
+    show($("legend-details"));
     prepareStats(stats);
     syncSaveBtn();
     pushRecent(code, info);
@@ -1206,9 +1238,11 @@ async function loadSavedPreviews() {
 $("saved-list").addEventListener("click", (e) => {
   const rm = e.target.closest("[data-remove]");
   if (rm) {
-    removeFav(rm.dataset.remove);
-    if (S.stop === rm.dataset.remove) syncSaveBtn();
-    toast("Removed");
+    showConfirm("Remove this saved stop?", "Remove", () => {
+      removeFav(rm.dataset.remove);
+      if (S.stop === rm.dataset.remove) syncSaveBtn();
+      toast("Removed");
+    });
     return;
   }
   const card = e.target.closest(".saved-card");
@@ -1217,7 +1251,13 @@ $("saved-list").addEventListener("click", (e) => {
 
 $("saved-journeys-list").addEventListener("click", (e) => {
   const rm = e.target.closest("[data-sj-remove]");
-  if (rm) { removeJourney(parseInt(rm.dataset.sjRemove)); toast("Route removed"); return; }
+  if (rm) {
+    showConfirm("Remove this saved route?", "Remove", () => {
+      removeJourney(parseInt(rm.dataset.sjRemove));
+      toast("Route removed");
+    });
+    return;
+  }
   const plan = e.target.closest(".sj-plan-btn");
   if (plan) {
     const { fromLat, fromLng, toLat, toLng, fromName, toName } = plan.dataset;
@@ -1642,6 +1682,7 @@ async function doJourneyPlan() {
   const res  = $("plan-results");
   const load = $("plan-loading");
   hide(err); res.innerHTML = ""; show(load);
+  hide($("plan-map-jump"));
   $("plan-btn").disabled = true;
 
   try {
@@ -1682,6 +1723,7 @@ async function doJourneyPlan() {
     if (planData) {
       updatePlanMap(planData, { fLat, fLng, tLat, tLng, fromName, toName });
       updateShareUrl();
+      show($("plan-map-jump"));
     }
     updateJourneyCardSaveBtns();
     pushRecent();
@@ -2012,25 +2054,87 @@ async function checkBackend() {
 }
 
 // ── Change password ───────────────────────────────────────
-$("pw-change-btn")?.addEventListener("click", async () => {
-  const cur = $("pw-current").value;
-  const nw  = $("pw-new").value;
+function _clearPwForm() {
+  ["pw-current", "pw-new", "pw-confirm"].forEach((id) => {
+    const el = $(id);
+    if (el) { el.value = ""; el.type = "password"; }
+  });
+  const hint = $("pw-match-hint");
+  if (hint) { hint.textContent = ""; hint.className = "pw-match-hint hidden"; }
   const err = $("pw-error");
-  hide(err);
-  if (nw.length < 8) {
-    err.textContent = "New password must be at least 8 characters.";
-    show(err); return;
+  if (err) hide(err);
+}
+
+document.querySelectorAll(".pw-eye").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const input = $(btn.dataset.target);
+    if (!input) return;
+    const shown = input.type === "text";
+    input.type = shown ? "password" : "text";
+    btn.setAttribute("aria-label", shown ? "Show password" : "Hide password");
+    if (shown) {
+      btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    } else {
+      btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+    }
+  });
+});
+
+$("pw-confirm")?.addEventListener("input", () => {
+  const nw   = $("pw-new")?.value || "";
+  const conf = $("pw-confirm")?.value || "";
+  const hint = $("pw-match-hint");
+  if (!hint) return;
+  if (!conf) { hint.textContent = ""; hint.className = "pw-match-hint hidden"; return; }
+  if (conf === nw) {
+    hint.textContent = "Passwords match";
+    hint.className = "pw-match-hint match";
+  } else {
+    hint.textContent = "Passwords don't match";
+    hint.className = "pw-match-hint mismatch";
   }
+});
+
+$("pw-cancel-btn")?.addEventListener("click", () => {
+  const details = document.querySelector(".pw-change");
+  if (details) details.open = false;
+  _clearPwForm();
+});
+
+$("pw-change-btn")?.addEventListener("click", async () => {
+  const cur  = $("pw-current")?.value.trim() || "";
+  const nw   = $("pw-new")?.value || "";
+  const conf = $("pw-confirm")?.value || "";
+  const err  = $("pw-error");
+  const btn  = $("pw-change-btn");
+  hide(err);
+  if (!cur) {
+    err.textContent = "Please enter your current password."; show(err); return;
+  }
+  if (nw.length < 8) {
+    err.textContent = "New password must be at least 8 characters."; show(err); return;
+  }
+  if (nw !== conf) {
+    err.textContent = "New passwords don't match."; show(err); return;
+  }
+  btn.disabled = true; btn.textContent = "Saving…";
   try {
     await api("/api/auth/change-password", {
       method: "POST",
       body: JSON.stringify({ current_password: cur, new_password: nw }),
     });
-    $("pw-current").value = ""; $("pw-new").value = "";
-    toast("Password updated");
+    const details = document.querySelector(".pw-change");
+    if (details) details.open = false;
+    _clearPwForm();
+    toast("Password changed — signing you out…");
+    setTimeout(() => {
+      clearAuth();
+      setTimeout(() => openSheet(), 400);
+    }, 1800);
   } catch (e) {
     err.textContent = e.message || "Couldn't update password.";
     show(err);
+    btn.disabled = false; btn.textContent = "Save";
   }
 });
 
@@ -2275,6 +2379,10 @@ $("plan-map-locate-btn")?.addEventListener("click", () => {
     () => toast("Location permission needed"),
     { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 }
   );
+});
+
+$("plan-map-jump").addEventListener("click", () => {
+  $("plan-map-wrap").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
 $("plan-map-fs-btn").addEventListener("click", () => {

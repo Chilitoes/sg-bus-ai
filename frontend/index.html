@@ -10,7 +10,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=61" />
+  <link rel="stylesheet" href="styles.css?v=1.0.9" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -35,10 +35,13 @@
     <!-- Full-screen map (background) -->
     <div class="arr-map-wrap">
       <div id="arr-map" class="arr-map"></div>
-      <button id="arr-locate-btn" class="arr-locate-btn" aria-label="Center on my location">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-      </button>
     </div>
+
+    <!-- Locate button lives outside arr-map-wrap so its z-index is in the
+         root stacking context (not trapped inside arr-map-wrap's z=1 context) -->
+    <button id="arr-locate-btn" class="arr-locate-btn" aria-label="Center on my location">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+    </button>
 
     <!-- Floating search bar over the map -->
     <div class="search-wrap arr-search-wrap">
@@ -75,7 +78,7 @@
         <div class="arr-detail-bar">
           <button id="arr-back-btn" class="arr-back-btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
-            Nearby
+            Back
           </button>
         </div>
 
@@ -177,6 +180,36 @@
             <p>Ground truth comes from tracking each bus across successive polls
             until it arrives. The model retrains itself hourly.</p>
             <div id="model-info" class="model-info"></div>
+          </div>
+        </details>
+
+        <!-- Legend -->
+        <details id="legend-details" class="panel hidden">
+          <summary>
+            <span>What the labels mean</span>
+            <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="panel-body arr-legend">
+            <div class="stg-legend-group">
+              <div class="stg-legend-head">Bus type</div>
+              <div class="stg-legend-row"><span class="tag">DD</span><span class="stg-legend-txt">Double-deck bus</span></div>
+              <div class="stg-legend-row"><span class="tag">BD</span><span class="stg-legend-txt">Bendy (articulated) bus</span></div>
+              <div class="stg-legend-row"><span class="stg-legend-na">SD</span><span class="stg-legend-txt">Single-deck bus — the default, shown without a tag</span></div>
+            </div>
+            <div class="stg-legend-group">
+              <div class="stg-legend-head">Accessibility</div>
+              <div class="stg-legend-row"><span class="tag wab">♿</span><span class="stg-legend-txt">Wheelchair-accessible bus</span></div>
+            </div>
+            <div class="stg-legend-group">
+              <div class="stg-legend-head">Crowding</div>
+              <div class="stg-legend-row"><span class="load-pill SEA">Seats</span><span class="stg-legend-txt">Seats available</span></div>
+              <div class="stg-legend-row"><span class="load-pill SDA">Standing</span><span class="stg-legend-txt">Standing only</span></div>
+              <div class="stg-legend-row"><span class="load-pill LSD">Crowded</span><span class="stg-legend-txt">Limited standing — packed</span></div>
+            </div>
+            <div class="stg-legend-group">
+              <div class="stg-legend-head">Timing</div>
+              <div class="stg-legend-row"><span class="stg-legend-ai">AI</span><span class="stg-legend-txt">Machine-learning adjusted arrival, refining the raw LTA estimate</span></div>
+            </div>
           </div>
         </details>
 
@@ -315,6 +348,10 @@
     <div id="plan-loading" class="plan-loading hidden">Finding routes…</div>
     <div id="plan-error" class="error-note hidden"></div>
     <div id="plan-results"></div>
+    <button id="plan-map-jump" class="plan-map-jump hidden">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+      View on map
+    </button>
 
     <!-- Map shown after planning -->
     <div id="plan-map-wrap" class="plan-map-wrap hidden">
@@ -419,6 +456,7 @@
               Home
             </span>
             <span id="stg-home-name" class="stg-row-val">Not set</span>
+            <svg class="stg-row-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
           </button>
           <div id="stg-home-edit" class="stg-home-edit hidden">
             <div class="stg-home-search-wrap">
@@ -448,8 +486,35 @@
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               <span id="stg-account-label">Sign in</span>
             </span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>
+            <svg class="stg-row-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
           </button>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="stg-section">
+        <div class="stg-section-title">Legend</div>
+        <div class="stg-card stg-legend">
+          <div class="stg-legend-group">
+            <div class="stg-legend-head">Bus type</div>
+            <div class="stg-legend-row"><span class="tag">DD</span><span class="stg-legend-txt">Double-deck bus</span></div>
+            <div class="stg-legend-row"><span class="tag">BD</span><span class="stg-legend-txt">Bendy (articulated) bus</span></div>
+            <div class="stg-legend-row"><span class="stg-legend-na">SD</span><span class="stg-legend-txt">Single-deck bus — the default, shown without a tag</span></div>
+          </div>
+          <div class="stg-legend-group">
+            <div class="stg-legend-head">Accessibility</div>
+            <div class="stg-legend-row"><span class="tag wab">♿</span><span class="stg-legend-txt">Wheelchair-accessible bus (WAB)</span></div>
+          </div>
+          <div class="stg-legend-group">
+            <div class="stg-legend-head">Crowding</div>
+            <div class="stg-legend-row"><span class="load-pill SEA">Seats</span><span class="stg-legend-txt">Seats available (SEA)</span></div>
+            <div class="stg-legend-row"><span class="load-pill SDA">Standing</span><span class="stg-legend-txt">Standing only (SDA)</span></div>
+            <div class="stg-legend-row"><span class="load-pill LSD">Crowded</span><span class="stg-legend-txt">Limited standing — packed (LSD)</span></div>
+          </div>
+          <div class="stg-legend-group">
+            <div class="stg-legend-head">Timing</div>
+            <div class="stg-legend-row"><span class="stg-legend-ai">AI</span><span class="stg-legend-txt">Machine-learning adjusted arrival — refines the raw LTA estimate using live traffic &amp; history</span></div>
+          </div>
         </div>
       </div>
 
@@ -459,7 +524,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">61</span>
+            <span class="stg-row-val" id="stg-version-val">1.0.9</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -558,17 +623,45 @@
     </div>
 
     <details class="pw-change">
-      <summary>Change password</summary>
-      <label class="field">
-        <span>Current password</span>
-        <input id="pw-current" type="password" autocomplete="current-password" />
-      </label>
-      <label class="field">
-        <span>New password</span>
-        <input id="pw-new" type="password" autocomplete="new-password" />
-      </label>
-      <p id="pw-error" class="error-note hidden"></p>
-      <button id="pw-change-btn" class="bigbtn outline" type="button">Update password</button>
+      <summary>
+        <span>Change password</span>
+        <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </summary>
+      <div class="pw-form">
+        <label class="field">
+          <span>Current password</span>
+          <div class="pw-input-wrap">
+            <input id="pw-current" type="password" autocomplete="current-password" placeholder="Enter current password" />
+            <button type="button" class="pw-eye" data-target="pw-current" aria-label="Show password">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </label>
+        <label class="field">
+          <span>New password</span>
+          <div class="pw-input-wrap">
+            <input id="pw-new" type="password" autocomplete="new-password" placeholder="At least 8 characters" />
+            <button type="button" class="pw-eye" data-target="pw-new" aria-label="Show password">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </label>
+        <label class="field">
+          <span>Confirm new password</span>
+          <div class="pw-input-wrap">
+            <input id="pw-confirm" type="password" autocomplete="new-password" placeholder="Repeat new password" />
+            <button type="button" class="pw-eye" data-target="pw-confirm" aria-label="Show password">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <span id="pw-match-hint" class="pw-match-hint hidden"></span>
+        </label>
+        <p id="pw-error" class="error-note hidden"></p>
+        <div class="pw-btn-row">
+          <button id="pw-cancel-btn" class="bigbtn outline" type="button">Cancel</button>
+          <button id="pw-change-btn" class="bigbtn" type="button">Save</button>
+        </div>
+      </div>
     </details>
 
     <button id="logout-btn" class="bigbtn outline">
@@ -580,6 +673,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=61"></script>
+<script src="app.js?v=1.0.9"></script>
 </body>
 </html>
