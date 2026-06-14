@@ -712,43 +712,45 @@ th.num, td.num { text-align: right; }
 .plan-time-row { margin-top: .75rem; align-items: center; }
 .plan-time-row .plan-row-label { padding-top: 0; }
 .plan-time-wrap {
-  flex: 1; display: flex; align-items: center; gap: .4rem; min-width: 0;
-  background: var(--surface-2); border: 1.5px solid var(--line);
-  border-radius: 14px; padding: .2rem .5rem;
+  flex: 1; display: flex; align-items: stretch; gap: 0; min-width: 0;
+  background: var(--bg); border: 1.5px solid var(--accent);
+  border-radius: 14px; padding: 0; overflow: hidden;
 }
 .plan-time-input {
   flex: 1; min-width: 0;
   background: transparent; border: none;
   color: var(--ink);
-  padding: .52rem .2rem; font-size: .88rem; font-family: inherit;
+  padding: .52rem .55rem; font-size: .88rem; font-family: inherit;
   -webkit-appearance: none; appearance: none;
 }
 .plan-time-input:focus { outline: none; }
 .plan-day-select {
   flex-shrink: 0;
-  background: transparent; border: none; border-left: 1.5px solid var(--line);
+  background: transparent; border: none; border-left: 1.5px solid var(--accent);
   color: var(--ink);
-  padding: .52rem .4rem; font-size: .88rem; font-family: inherit;
+  padding: .52rem .85rem .52rem .55rem; font-size: .88rem; font-family: inherit;
   -webkit-appearance: none; appearance: none;
   cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%239790b0' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right .35rem center; background-size: 10px;
 }
 .plan-day-select:focus { outline: none; }
-.plan-time-now {
-  flex-shrink: 0; border: none; background: var(--accent-soft);
+.plan-time-wrap:focus-within { border-color: var(--accent); }
+/* Now-mode: select fills full width → entire pill tappable */
+.plan-time-wrap.now-mode { background: var(--accent-soft); border-color: var(--accent); padding: 0; }
+.plan-time-wrap.now-mode .plan-time-input { display: none; }
+.plan-time-wrap.now-mode .plan-day-select {
+  flex: 1; border-left: none;
+  color: var(--accent); font-weight: 700; font-size: .92rem;
+  text-align: center; text-align-last: center;
+  padding: .55rem 2rem .55rem .55rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23f0596a' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right .6rem center; background-size: 11px;
+}
   color: var(--accent); border-radius: 8px; padding: .38rem .65rem;
   font-size: .78rem; font-weight: 700;
 }
 .plan-time-now:active { background: var(--accent); color: #fff; }
-.plan-time-wrap:focus-within { border-color: var(--accent); }
-/* Now-mode: styled as an accent pill so users know it's tappable */
-.plan-time-wrap.now-mode { background: var(--accent-soft); border-color: rgba(240,89,106,.35); }
-.plan-time-wrap.now-mode .plan-time-input { display: none; }
-.plan-time-wrap.now-mode .plan-day-select {
-  border-left: none; color: var(--accent); font-weight: 700;
-  padding: 0 1.6rem 0 .6rem;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23f0596a' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat; background-position: right .45rem center; background-size: 11px;
-}
 /* Future-trip note above results */
 .plan-future-note {
   display: flex; align-items: center; gap: .45rem;
