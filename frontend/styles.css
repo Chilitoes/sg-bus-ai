@@ -1283,25 +1283,15 @@ th.num, td.num { text-align: right; }
   position: fixed; right: 14px;
   bottom: calc(var(--sheet-h) + 12px);
   z-index: 16;
-  width: 42px; height: 42px; border-radius: 50%;
-  background: rgba(13,14,16,.88);
-  border: 1px solid rgba(255,255,255,.18);
-  color: var(--accent);
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  color: #fff;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 14px rgba(0,0,0,.5);
-  transition: background .12s, bottom .05s linear;
+  box-shadow: 0 2px 16px rgba(0,0,0,.45);
+  transition: opacity .12s, bottom .05s linear;
 }
-.arr-locate-btn:active { background: rgba(40,42,50,.95); }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .arr-locate-btn {
-    background: rgba(255,255,255,.95);
-    border-color: rgba(0,0,0,.12);
-  }
-}
-[data-theme="light"] .arr-locate-btn {
-  background: rgba(255,255,255,.95);
-  border-color: rgba(0,0,0,.12);
-}
+.arr-locate-btn:active { opacity: .8; }
 
 /* Floating search bar — sits just below the iOS status bar */
 .arr-search-wrap {
