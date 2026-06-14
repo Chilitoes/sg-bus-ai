@@ -1543,6 +1543,14 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
     labeled_count  = db.query(func.count(BusArrivalRecord.id)).filter(
         BusArrivalRecord.delay_seconds.isnot(None)).scalar() or 0
 
+    # Records collected since midnight SGT (UTC+8)
+    _SGT = timezone(timedelta(hours=8))
+    today_sgt_start = datetime.now(_SGT).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_utc_start = today_sgt_start.astimezone(timezone.utc).replace(tzinfo=None)
+    records_today = db.query(func.count(BusArrivalRecord.id)).filter(
+        BusArrivalRecord.collection_time >= today_utc_start
+    ).scalar() or 0
+
     # Recent 20 arrival records with a known delay (arrived early or late)
     recent_rows = (
         db.query(BusArrivalRecord)
@@ -1655,6 +1663,7 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
             "labeled_records": labeled_count,
             "tracking_rows":   tracking_count,
             "bus_stops":       stops_count,
+            "records_today":   records_today,
         },
         "model":       global_model.status(),
         "monitored_stops": monitored,

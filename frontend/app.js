@@ -1224,10 +1224,11 @@ $("saved-login-btn").addEventListener("click", openSheet);
 // ── Data view ─────────────────────────────────────────────
 async function loadData() {
   hide($("data-error"));
-  $("data-grid").innerHTML = Array.from({ length: 6 }, () => `<div class="skel" style="height:70px"></div>`).join("");
+  $("data-grid").innerHTML = Array.from({ length: 7 }, () => `<div class="skel" style="height:70px"></div>`).join("");
   try {
     const d = await api("/api/data");
     const cards = [
+      ["Today", Number(d.database.records_today ?? 0).toLocaleString(), "snapshots collected"],
       ["Database", d.database.type, ""],
       ["Snapshots", Number(d.database.arrival_records).toLocaleString(), "arrival records"],
       ["Labeled", Number(d.database.labeled_records).toLocaleString(), "with measured delay"],
