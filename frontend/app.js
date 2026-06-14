@@ -614,7 +614,7 @@ async function loadStop(code) {
   // Show arrival detail, hide nearby section; grow the sheet to fit arrivals
   hide($("arr-nearby"));
   show($("arr-detail"));
-  document.querySelector(".arr-sheet")?.classList.add("expanded");
+  _snapSheet("max");
   // Highlight selected pin on the arrivals map
   _arrHighlightPin(code);
   clearInterval(S.refreshTmr);
@@ -1838,23 +1838,66 @@ function _syncTopbarH() {
   document.documentElement.style.setProperty("--topbar-h", h + "px");
 }
 
+// ── Draggable bottom sheet ────────────────────────────────
+// Snap heights as a fraction of the viewport.
+const _SHEET_SNAPS = { min: 0.20, mid: 0.46, max: 0.82 };
+function _setSheetH(px) {
+  document.documentElement.style.setProperty("--sheet-h", Math.round(px) + "px");
+}
+function _snapSheet(name) {
+  _setSheetH(innerHeight * (_SHEET_SNAPS[name] ?? _SHEET_SNAPS.mid));
+  setTimeout(() => _arrMap?.invalidateSize(), 280);
+}
+function _initSheetDrag() {
+  const sheet  = document.querySelector(".arr-sheet");
+  const handle = document.querySelector(".arr-sheet-handle");
+  if (!sheet || !handle) return;
+  _snapSheet("mid");
+
+  let startY = 0, startH = 0, dragging = false;
+  const clamp = (h) =>
+    Math.max(innerHeight * _SHEET_SNAPS.min, Math.min(innerHeight * _SHEET_SNAPS.max, h));
+
+  handle.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    sheet.classList.add("dragging");
+    startY = e.clientY;
+    startH = sheet.getBoundingClientRect().height;
+    handle.setPointerCapture?.(e.pointerId);
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    _setSheetH(clamp(startH + (startY - e.clientY)));   // drag up → taller
+    e.preventDefault();
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    sheet.classList.remove("dragging");
+    const h = sheet.getBoundingClientRect().height;
+    const snaps = Object.values(_SHEET_SNAPS).map((f) => innerHeight * f);
+    _setSheetH(snaps.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a)));
+    setTimeout(() => _arrMap?.invalidateSize(), 280);
+  };
+  handle.addEventListener("pointerup", end);
+  handle.addEventListener("pointercancel", end);
+}
+
 function initArrMap() {
   if (!_leafletReady()) { _whenLeaflet(initArrMap); return; }
   _syncTopbarH();
   if (_arrMap) { setTimeout(() => _arrMap.invalidateSize(), 60); return; }
   _arrMap = L.map($("arr-map"), { zoomControl: false, attributionControl: false })
              .setView([1.3521, 103.8198], 15);
-  _arrTileLayer = (_isDark() ? _darkTiles() : _sgTiles()).addTo(_arrMap);
+  // Colourful basemap (voyager); dark mode gets a gentle CSS dim, not a black map.
+  _arrTileLayer = _sgTiles().addTo(_arrMap);
   $("arr-locate-btn").addEventListener("click", _arrGeolocate);
   _arrGeolocate();
 }
 
-// Swap the arrivals basemap when the user toggles light/dark.
-function _swapArrTiles() {
-  if (!_arrMap) return;
-  if (_arrTileLayer) _arrMap.removeLayer(_arrTileLayer);
-  _arrTileLayer = (_isDark() ? _darkTiles() : _sgTiles()).addTo(_arrMap);
-}
+// Kept for the theme toggle hook; voyager tiles work in both themes so this is
+// now a no-op placeholder (dark dimming is handled in CSS).
+function _swapArrTiles() {}
 
 function _arrGeolocate() {
   _loadArrStops(1.3521, 103.8198);
@@ -1876,7 +1919,7 @@ function _arrGeolocate() {
 async function _loadArrStops(lat, lng) {
   if (!_arrMap) return;
   try {
-    const d = await api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=25`);
+    const d = await api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=20`);
     const stops = d.results || [];
     // Add pins (skip duplicates)
     stops.forEach((s) => {
@@ -1926,7 +1969,7 @@ $("arr-back-btn").addEventListener("click", () => {
   _arrClearHighlight();
   hide($("arr-detail"));
   show($("arr-nearby"));
-  document.querySelector(".arr-sheet")?.classList.remove("expanded");
+  _snapSheet("mid");
   setTimeout(() => _arrMap?.invalidateSize(), 50);
 });
 
@@ -2598,6 +2641,7 @@ setupPlanField("to");
 renderRecents();
 _syncTopbarH();
 addEventListener("resize", _syncTopbarH);
+_initSheetDrag();
 _whenLeaflet(initArrMap);
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});

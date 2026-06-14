@@ -20,8 +20,11 @@
   --bad-soft:  rgba(200,16,46,.10);
   --shadow-sm: 0 1px 2px rgba(0,0,0,.06), 0 1px 4px rgba(0,0,0,.04);
   --shadow:    0 2px 8px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.05);
-  --topbar-bg: rgba(240, 242, 245, 0.92);
-  --nav-bg:    rgba(240, 242, 245, 0.94);
+  --topbar-bg: rgba(240, 242, 245, 0.72);
+  --nav-bg:    rgba(240, 242, 245, 0.72);
+  --glass:        rgba(255, 255, 255, 0.60);
+  --glass-strong: rgba(255, 255, 255, 0.78);
+  --glass-line:   rgba(255, 255, 255, 0.55);
   --radius:    14px;
   --nav-h:     58px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -46,8 +49,11 @@
     --bad-soft:  rgba(239,68,88,.13);
     --shadow-sm: 0 1px 3px rgba(0,0,0,.4);
     --shadow:    0 2px 10px rgba(0,0,0,.5);
-    --topbar-bg: rgba(13, 14, 16, 0.92);
-    --nav-bg:    rgba(13, 14, 16, 0.94);
+    --topbar-bg: rgba(13, 14, 16, 0.62);
+    --nav-bg:    rgba(13, 14, 16, 0.62);
+    --glass:        rgba(28, 30, 36, 0.52);
+    --glass-strong: rgba(20, 22, 26, 0.70);
+    --glass-line:   rgba(255, 255, 255, 0.10);
   }
 }
 [data-theme="dark"] {
@@ -68,8 +74,11 @@
   --bad-soft:  rgba(239,68,88,.13);
   --shadow-sm: 0 1px 3px rgba(0,0,0,.4);
   --shadow:    0 2px 10px rgba(0,0,0,.5);
-  --topbar-bg: rgba(13, 14, 16, 0.92);
-  --nav-bg:    rgba(13, 14, 16, 0.94);
+  --topbar-bg: rgba(13, 14, 16, 0.62);
+  --nav-bg:    rgba(13, 14, 16, 0.62);
+  --glass:        rgba(28, 30, 36, 0.52);
+  --glass-strong: rgba(20, 22, 26, 0.70);
+  --glass-line:   rgba(255, 255, 255, 0.10);
 }
 
 html { font-size: 16px; }
@@ -100,9 +109,9 @@ button { font-family: inherit; cursor: pointer; }
 .topbar {
   position: sticky; top: 0; z-index: 60;
   background: var(--topbar-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--glass-line);
   padding-top: env(safe-area-inset-top);
 }
 .topbar-inner {
@@ -526,9 +535,9 @@ th.num, td.num { text-align: right; }
 .bottomnav {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 70;
   background: var(--nav-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid var(--line);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-top: 1px solid var(--glass-line);
   display: flex; justify-content: center; gap: .25rem;
   padding: .3rem .5rem calc(.3rem + env(safe-area-inset-bottom));
 }
@@ -1194,22 +1203,37 @@ th.num, td.num { text-align: right; }
 .arr-map,
 .arr-map .leaflet-container { width: 100%; height: 100%; }
 
+/* Keep the map colourful but blend it into the dark theme (gentle, not black). */
+[data-theme="dark"] .arr-map .leaflet-tile-pane {
+  filter: brightness(.82) saturate(1.05) contrast(.96);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .arr-map .leaflet-tile-pane {
+    filter: brightness(.82) saturate(1.05) contrast(.96);
+  }
+}
+
+/* Sheet height is a variable so the drag handler can move it; default 46vh. */
+:root { --sheet-h: 46vh; }
+
 .arr-locate-btn {
-  /* sit just above the bottom sheet */
+  /* sit just above the bottom sheet, tracking its current height */
   position: fixed; right: 14px;
-  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 46vh + 12px);
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--sheet-h) + 12px);
   z-index: 12;
   width: 42px; height: 42px; border-radius: 50%;
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid var(--glass-line);
   color: var(--accent);
   display: flex; align-items: center; justify-content: center;
   box-shadow: var(--shadow);
-  transition: background .12s;
+  transition: background .12s, bottom .05s linear;
 }
 .arr-locate-btn:active { background: var(--surface-2); }
 
-/* Floating search bar over the map */
+/* Floating glass search bar over the map */
 .arr-search-wrap {
   position: fixed;
   top: calc(var(--topbar-h, 56px) + 10px);
@@ -1217,33 +1241,52 @@ th.num, td.num { text-align: right; }
   width: min(640px, calc(100% - 1.5rem));
   margin: 0; z-index: 30;
 }
-.arr-search-wrap .search-box { box-shadow: var(--shadow); }
+.arr-search-wrap .search-box {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--shadow);
+}
 
-/* Bottom sheet */
+/* Liquid-glass bottom sheet */
 .arr-sheet {
   position: fixed; left: 0; right: 0;
   bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
   z-index: 15;
   max-width: 640px; margin: 0 auto;
-  height: 46vh;
+  height: var(--sheet-h);
   display: flex; flex-direction: column;
-  background: var(--surface);
-  border-radius: 20px 20px 0 0;
-  border: 1px solid var(--line);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border-radius: 22px 22px 0 0;
+  border: 1px solid var(--glass-line);
   border-bottom: none;
-  box-shadow: 0 -8px 30px rgba(0,0,0,.22);
+  box-shadow: 0 -10px 36px rgba(0,0,0,.26);
 }
-.arr-sheet.expanded { height: 72vh; }
+/* While dragging, disable the snap transition for 1:1 finger tracking. */
+.arr-sheet:not(.dragging) { transition: height .26s cubic-bezier(.32,.72,0,1); }
+
 .arr-sheet-handle {
   flex-shrink: 0;
-  width: 38px; height: 4px; border-radius: 99px;
-  background: var(--line);
-  margin: .55rem auto .15rem;
+  position: relative;
+  height: 22px; cursor: grab;
+  touch-action: none;            /* let JS own the vertical gesture */
+  display: flex; align-items: center; justify-content: center;
 }
+.arr-sheet-handle::before {
+  content: "";
+  width: 40px; height: 5px; border-radius: 99px;
+  background: var(--ink-3); opacity: .55;
+}
+.arr-sheet-handle:active { cursor: grabbing; }
+
 .arr-sheet-scroll {
   flex: 1; min-height: 0;
   overflow-y: auto; -webkit-overflow-scrolling: touch;
-  padding: .35rem 1rem 1rem;
+  padding: .2rem 1rem 1rem;
+  overscroll-behavior: contain;
 }
 .arr-below { padding-top: .25rem; }
 
