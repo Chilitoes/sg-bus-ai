@@ -1901,15 +1901,18 @@ function initArrMap() {
   if (_arrMap) { setTimeout(() => _arrMap.invalidateSize(), 60); return; }
   _arrMap = L.map($("arr-map"), { zoomControl: false, attributionControl: false })
              .setView([1.3521, 103.8198], 15);
-  // Colourful basemap (voyager); dark mode gets a gentle CSS dim, not a black map.
-  _arrTileLayer = _sgTiles().addTo(_arrMap);
+  // Dark basemap in dark mode, colourful voyager in light mode.
+  _arrTileLayer = (_isDark() ? _darkTiles() : _sgTiles()).addTo(_arrMap);
   $("arr-locate-btn").addEventListener("click", _arrGeolocate);
   _arrGeolocate();
 }
 
-// Kept for the theme toggle hook; voyager tiles work in both themes so this is
-// now a no-op placeholder (dark dimming is handled in CSS).
-function _swapArrTiles() {}
+// Swap the arrivals basemap when the user toggles light/dark.
+function _swapArrTiles() {
+  if (!_arrMap) return;
+  if (_arrTileLayer) _arrMap.removeLayer(_arrTileLayer);
+  _arrTileLayer = (_isDark() ? _darkTiles() : _sgTiles()).addTo(_arrMap);
+}
 
 function _arrGeolocate() {
   _loadArrStops(1.3521, 103.8198);
