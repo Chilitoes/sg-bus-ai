@@ -1494,21 +1494,44 @@ $("plan-swap").addEventListener("click", () => {
 
 $("plan-btn").addEventListener("click", doJourneyPlan);
 
-// Departure-time control: reveal a "Now" reset once a future time is picked.
+// Departure-time control: Now / Today / Tomorrow selector + future-time reset.
 (() => {
   const t = $("plan-time"), nowBtn = $("plan-time-now"), day = $("plan-day");
-  if (!t || !nowBtn) return;
-  const check = () => {
+  if (!t || !nowBtn || !day) return;
+  const wrap = t.closest(".plan-time-wrap");
+
+  const applyMode = () => {
+    const isNow = day.value === "now";
+    wrap?.classList.toggle("now-mode", isNow);
+    if (isNow) { t.value = ""; nowBtn.classList.add("hidden"); return; }
+    // Show "Now" reset button only when a meaningfully future time is chosen.
     if (!t.value) { nowBtn.classList.add("hidden"); return; }
-    const off = parseInt(day?.value || "0", 10);
+    const off = parseInt(day.value || "0", 10);
     const [h, m] = t.value.split(":").map(Number);
     const now = new Date();
     const future = off > 0 || h > now.getHours() || (h === now.getHours() && m > now.getMinutes() + 3);
     nowBtn.classList.toggle("hidden", !future);
   };
-  t.addEventListener("input", check);
-  day?.addEventListener("change", check);
-  nowBtn.addEventListener("click", () => { t.value = ""; if (day) day.value = "0"; nowBtn.classList.add("hidden"); });
+
+  day.addEventListener("change", () => {
+    // Switching away from Now: pre-fill with current time as a helpful default.
+    if (day.value !== "now" && !t.value) {
+      const n = new Date();
+      t.value = `${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}`;
+    }
+    applyMode();
+  });
+  t.addEventListener("input", () => {
+    if (t.value && day.value === "now") day.value = "0";
+    applyMode();
+  });
+  nowBtn.addEventListener("click", () => {
+    t.value = ""; day.value = "now";
+    wrap?.classList.add("now-mode");
+    nowBtn.classList.add("hidden");
+  });
+
+  applyMode(); // apply initial now-mode on page load
 })();
 $("plan-results").addEventListener("click", (e) => {
   const go = e.target.closest(".jcard-go");
@@ -1558,7 +1581,7 @@ $("plan-results").addEventListener("click", (e) => {
 // Build the &depart_at=… query suffix when a future time is set, else "".
 function _departQueryParam() {
   const timeVal = $("plan-time")?.value; // "HH:MM" or ""
-  if (!timeVal) return "";
+  if (!timeVal || $("plan-day")?.value === "now") return "";
   const dayOffset = parseInt($("plan-day")?.value || "0", 10);
   const [h, m] = timeVal.split(":").map(Number);
   // Build local-time Date for today+offset at chosen time (local clock = SGT for SG)

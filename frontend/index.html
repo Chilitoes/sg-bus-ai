@@ -11,7 +11,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=51" />
+  <link rel="stylesheet" href="styles.css?v=52" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -291,8 +291,9 @@
       <div class="plan-row plan-time-row">
         <span class="plan-row-label">Depart</span>
         <div class="plan-time-wrap">
-          <input id="plan-time" type="time" class="plan-time-input" aria-label="Departure time (leave blank for now)" />
+          <input id="plan-time" type="time" class="plan-time-input" aria-label="Departure time" />
           <select id="plan-day" class="plan-day-select" aria-label="Departure day">
+            <option value="now" selected>Now</option>
             <option value="0">Today</option>
             <option value="1">Tomorrow</option>
           </select>
@@ -452,7 +453,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val">v51</span>
+            <span class="stg-row-val">v52</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -579,6 +580,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=51"></script>
+<script src="app.js?v=52"></script>
 </body>
 </html>

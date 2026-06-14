@@ -740,6 +740,9 @@ th.num, td.num { text-align: right; }
 }
 .plan-time-now:active { background: var(--accent); color: #fff; }
 .plan-time-wrap:focus-within { border-color: var(--accent); }
+/* Now-mode: time input hidden, select has no left border */
+.plan-time-wrap.now-mode .plan-time-input { display: none; }
+.plan-time-wrap.now-mode .plan-day-select { border-left: none; padding-left: .3rem; }
 /* Future-trip note above results */
 .plan-future-note {
   display: flex; align-items: center; gap: .45rem;
