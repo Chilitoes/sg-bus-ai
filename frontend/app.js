@@ -631,9 +631,10 @@ function svcCard(svc) {
   const later = svc.buses.slice(1);
   const laterIsos = later.map((b) => b.api_arrival).join(",");
   const laterTxt = later.map((b) => fmtMin(secsUntil(parseUTC(b.api_arrival)))).join(" · ");
+  const TYPE_LABEL = { SD: "Single deck", DD: "Double deck", BD: "Bendy" };
   const tags = [
-    next.type && next.type !== "SD" ? `<span class="tag">${esc(next.type)}</span>` : "",
-    next.feature === "WAB" ? `<span class="tag">♿</span>` : "",
+    next.type && next.type !== "SD" ? `<span class="tag" title="${TYPE_LABEL[next.type] || next.type}">${esc(next.type)}</span>` : "",
+    next.feature === "WAB" ? `<span class="tag wab" title="Wheelchair accessible">♿ WAB</span>` : "",
     next.load ? `<span class="load-dot ${esc(next.load)}" title="${LOAD_LABEL[next.load] || ""}"></span>` : "",
   ].join("");
   return `

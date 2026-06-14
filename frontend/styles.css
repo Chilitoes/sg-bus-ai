@@ -321,9 +321,10 @@ button { font-family: inherit; cursor: pointer; }
 .svc-op { font-size: .78rem; color: var(--ink-3); }
 .svc-tags { display: flex; gap: .3rem; margin-top: .2rem; align-items: center; }
 .tag {
-  font-size: .7rem; font-weight: 600; color: var(--ink-2);
-  border: 1px solid var(--line); border-radius: 4px; padding: 0 .32rem;
+  font-size: .72rem; font-weight: 700; color: var(--ink-2);
+  border: 1px solid var(--line); border-radius: 5px; padding: .05rem .35rem;
 }
+.tag.wab { color: var(--good); border-color: var(--good); background: rgba(74,222,128,.1); }
 .load-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .load-dot.SEA { background: var(--good); }
 .load-dot.SDA { background: var(--warn); }
@@ -784,7 +785,7 @@ th.num, td.num { text-align: right; }
 }
 
 /* Journey cards */
-#plan-results { display: flex; flex-direction: column; gap: .65rem; }
+#plan-results { display: flex; flex-direction: column; gap: 1.1rem; }
 
 .journey-card {
   background: var(--surface); border: 1px solid var(--line);
