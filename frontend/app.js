@@ -1901,18 +1901,16 @@ function initArrMap() {
   if (_arrMap) { setTimeout(() => _arrMap.invalidateSize(), 60); return; }
   _arrMap = L.map($("arr-map"), { zoomControl: false, attributionControl: false })
              .setView([1.3521, 103.8198], 15);
-  // Dark basemap in dark mode, colourful voyager in light mode.
-  _arrTileLayer = (_isDark() ? _darkTiles() : _sgTiles()).addTo(_arrMap);
+  // Colourful voyager tiles; dark mode applies a CSS invert filter that
+  // darkens the map while keeping hues (water, parks, roads) — see styles.css.
+  _arrTileLayer = _sgTiles().addTo(_arrMap);
   $("arr-locate-btn").addEventListener("click", _arrGeolocate);
   _arrGeolocate();
 }
 
-// Swap the arrivals basemap when the user toggles light/dark.
-function _swapArrTiles() {
-  if (!_arrMap) return;
-  if (_arrTileLayer) _arrMap.removeLayer(_arrTileLayer);
-  _arrTileLayer = (_isDark() ? _darkTiles() : _sgTiles()).addTo(_arrMap);
-}
+// Theme toggle hook — the dark map look is a pure-CSS filter keyed on the
+// theme attribute, so the tiles themselves never need swapping.
+function _swapArrTiles() {}
 
 function _arrGeolocate() {
   _loadArrStops(1.3521, 103.8198);
