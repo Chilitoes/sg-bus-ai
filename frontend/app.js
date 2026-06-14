@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.6";
+const APP_VERSION = "1.1.7";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1561,8 +1561,10 @@ $("plan-btn").addEventListener("click", doJourneyPlan);
   const t = $("plan-time"), nowBtn = $("plan-time-now"), day = $("plan-day");
   if (!t || !nowBtn || !day) return;
   const wrap = t.closest(".plan-time-wrap");
+  let _hideTimer = null;
 
   const applyMode = () => {
+    clearTimeout(_hideTimer);
     const isNow = day.value === "now";
     wrap?.classList.toggle("now-mode", isNow);
     if (isNow) { t.value = ""; nowBtn.classList.add("hidden"); return; }
@@ -1572,8 +1574,14 @@ $("plan-btn").addEventListener("click", doJourneyPlan);
     if (!t.value || day.value !== "0") { nowBtn.classList.add("hidden"); return; }
     const [h, m] = t.value.split(":").map(Number);
     const now = new Date();
-    const future = h > now.getHours() || (h === now.getHours() && m > now.getMinutes() + 3);
-    nowBtn.classList.toggle("hidden", !future);
+    const diffSecs = (h * 60 + m - now.getHours() * 60 - now.getMinutes()) * 60 - now.getSeconds();
+    if (diffSecs > 3 * 60) {
+      nowBtn.classList.remove("hidden");
+      // Schedule precise auto-hide the moment departure drops to ≤3 min away.
+      _hideTimer = setTimeout(applyMode, (diffSecs - 3 * 60) * 1000 + 500);
+    } else {
+      nowBtn.classList.add("hidden");
+    }
   };
 
   day.addEventListener("change", () => {
@@ -1595,8 +1603,6 @@ $("plan-btn").addEventListener("click", doJourneyPlan);
   });
 
   applyMode(); // apply initial now-mode on page load
-  // Re-check every minute so the button hides after departure time passes.
-  setInterval(applyMode, 60_000);
 })();
 $("plan-results").addEventListener("click", (e) => {
   const go = e.target.closest(".jcard-go");
@@ -2712,7 +2718,7 @@ function updatePlanMap(data, coords, optIdx = 0) {
           L.marker(mid, {
             icon: L.divIcon({
               className: "",
-              html: `<div style="color:${color};border:1.5px solid ${color};padding:2px 7px;border-radius:99px;font-size:10px;font-weight:700;white-space:nowrap;text-shadow:0 0 4px rgba(0,0,0,.9),0 1px 3px rgba(0,0,0,.8)">${esc(badge)}</div>`,
+              html: `<div style="color:${color};font-size:11px;font-weight:800;white-space:nowrap;text-shadow:0 0 6px rgba(0,0,0,1),0 1px 4px rgba(0,0,0,.9),-1px -1px 0 rgba(0,0,0,.6)">${esc(badge)}</div>`,
               iconAnchor: [0, 0],
             }),
             interactive: false,
