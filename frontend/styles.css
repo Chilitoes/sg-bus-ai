@@ -138,23 +138,17 @@ button { font-family: inherit; cursor: pointer; }
 .view { display: none; }
 .view.active { display: block; animation: viewIn .16s ease; }
 @keyframes viewIn { from { opacity: 0; transform: translateY(5px); } }
-.view-title { font-size: 1.2rem; font-weight: 700; letter-spacing: -.01em; }
+.view-title { font-size: 1.2rem; font-weight: 600; letter-spacing: -.01em; }
 .view-sub { font-size: .82rem; color: var(--ink-3); margin: .2rem 0 1rem; line-height: 1.55; }
 
 /* Plan view hero header */
-.plan-hero { text-align: center; padding: .6rem 0 1.5rem; }
-.plan-hero-icon {
-  width: 60px; height: 60px; border-radius: 18px;
-  background: var(--accent);
-  display: inline-flex; align-items: center; justify-content: center;
-  margin-bottom: 1rem; color: #fff;
-  box-shadow: 0 4px 16px rgba(240,89,106,.35);
-}
+.plan-hero { text-align: left; padding: .25rem 0 1.2rem; }
+.plan-hero-icon { display: none; }
 .plan-hero-title {
-  font-size: 1.55rem; font-weight: 800; letter-spacing: -.03em;
-  color: var(--ink); margin-bottom: .35rem;
+  font-size: 1.25rem; font-weight: 600; letter-spacing: -.02em;
+  color: var(--ink); margin-bottom: .2rem;
 }
-.plan-hero-sub { font-size: .85rem; color: var(--ink-3); line-height: 1.5; }
+.plan-hero-sub { font-size: .82rem; color: var(--ink-3); line-height: 1.5; }
 
 /* ── Search ──────────────────────────────────────────── */
 .search-wrap { position: relative; margin-bottom: .75rem; }
@@ -225,7 +219,7 @@ button { font-family: inherit; cursor: pointer; }
 /* ── Chips ───────────────────────────────────────────── */
 .chips-area { margin-bottom: 1rem; }
 .chips-label {
-  font-size: .66rem; font-weight: 700; letter-spacing: .09em;
+  font-size: .66rem; font-weight: 600; letter-spacing: .09em;
   text-transform: uppercase; color: var(--ink-3);
   margin: 0 0 .45rem .05rem;
 }
@@ -259,7 +253,7 @@ button { font-family: inherit; cursor: pointer; }
   box-shadow: var(--shadow-sm);
 }
 .stop-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
-.stop-name { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; line-height: 1.3; }
+.stop-name { font-size: 1rem; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; }
 .stop-meta { font-size: .78rem; color: var(--ink-3); margin-top: .18rem; }
 .stop-code {
   font-variant-numeric: tabular-nums; font-weight: 700;
@@ -314,7 +308,7 @@ button { font-family: inherit; cursor: pointer; }
   min-width: 52px; height: 40px; border-radius: 10px;
   background: var(--ink); color: var(--bg);
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 1.1rem; font-weight: 800; letter-spacing: -.02em;
+  font-size: 1.1rem; font-weight: 700; letter-spacing: -.02em;
   padding: 0 .45rem; flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -336,7 +330,7 @@ button { font-family: inherit; cursor: pointer; }
   text-align: right; flex-shrink: 0;
 }
 .eta-now {
-  font-size: 2rem; font-weight: 800; line-height: 1;
+  font-size: 2rem; font-weight: 700; line-height: 1;
   font-variant-numeric: tabular-nums; letter-spacing: -.03em;
 }
 .eta-now .eta-unit { font-size: .65rem; font-weight: 600; color: var(--ink-3); margin-left: .1rem; letter-spacing: 0; vertical-align: .15rem; }
@@ -438,11 +432,11 @@ button { font-family: inherit; cursor: pointer; }
 }
 .acc-col.ai .acc-pct { color: var(--good); }
 .acc-label {
-  font-size: .67rem; font-weight: 700; text-transform: uppercase;
+  font-size: .67rem; font-weight: 600; text-transform: uppercase;
   letter-spacing: .06em; color: var(--ink-3); margin-bottom: .18rem;
 }
 .acc-pct {
-  font-size: 1.8rem; font-weight: 800; line-height: 1;
+  font-size: 1.8rem; font-weight: 700; line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 .acc-sub {
@@ -496,8 +490,8 @@ button { font-family: inherit; cursor: pointer; }
   border-radius: var(--radius); padding: .75rem .85rem;
   box-shadow: var(--shadow-sm);
 }
-.stat-label { font-size: .65rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); }
-.stat-value { font-size: 1.35rem; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; margin-top: .1rem; }
+.stat-label { font-size: .65rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); }
+.stat-value { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; margin-top: .1rem; }
 .stat-sub { font-size: .7rem; color: var(--ink-3); margin-top: .05rem; }
 
 .block { margin-top: 1.1rem; }
@@ -587,7 +581,7 @@ th.num, td.num { text-align: right; }
 }
 /* Sheet header */
 .sheet-header { text-align: center; margin-bottom: 1.4rem; }
-.sheet-title { font-size: 1.05rem; font-weight: 800; color: var(--ink); letter-spacing: -.01em; }
+.sheet-title { font-size: 1.05rem; font-weight: 700; color: var(--ink); letter-spacing: -.01em; }
 .sheet-sub { font-size: .74rem; color: var(--ink-3); margin-top: .25rem; line-height: 1.5; }
 
 /* Google sign-in */
@@ -712,7 +706,7 @@ th.num, td.num { text-align: right; }
   display: flex; align-items: flex-start; gap: .6rem;
 }
 .plan-row-label {
-  font-size: .65rem; font-weight: 800; color: var(--accent);
+  font-size: .65rem; font-weight: 600; color: var(--accent);
   width: 50px; flex-shrink: 0; padding-top: 1rem; text-transform: uppercase; letter-spacing: .1em;
 }
 .plan-field-wrap { flex: 1; min-width: 0; position: relative; }
@@ -1366,7 +1360,7 @@ th.num, td.num { text-align: right; }
 .arr-stop-item {
   display: flex; align-items: center; gap: 1rem;
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: 16px; padding: 1.4rem 1.15rem;
+  border-radius: 16px; padding: .95rem 1.15rem;
   cursor: pointer; box-shadow: var(--shadow);
   text-align: left; width: 100%;
   transition: background .1s;
@@ -1375,14 +1369,14 @@ th.num, td.num { text-align: right; }
 
 .arr-stop-code-badge {
   font-size: .84rem;
-  font-weight: 800; color: var(--accent);
+  font-weight: 700; color: var(--accent);
   background: var(--accent-soft); border: 1.5px solid rgba(240,89,106,.22);
   padding: .55rem .75rem; border-radius: 11px; flex-shrink: 0;
   min-width: 54px; text-align: center; line-height: 1.2;
   letter-spacing: -.01em;
 }
 .arr-stop-info { flex: 1; min-width: 0; }
-.arr-stop-name { font-size: 1.08rem; font-weight: 700; color: var(--ink); }
+.arr-stop-name { font-size: 1.05rem; font-weight: 600; color: var(--ink); }
 .arr-stop-road { font-size: .78rem; color: var(--ink-3); margin-top: .18rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .arr-stop-dist {
   font-size: .8rem; font-weight: 700; color: var(--ink-2);

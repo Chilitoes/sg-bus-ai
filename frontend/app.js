@@ -18,7 +18,7 @@ const RECENT_KEY = "sgbus_recent";
 const THEME_KEY  = "sgbus_theme";
 const TOKEN_KEY  = "sgbus_token";
 const USER_KEY   = "sgbus_user";
-const APP_VERSION = "60";
+const APP_VERSION = "61";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
