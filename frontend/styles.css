@@ -1302,21 +1302,23 @@ th.num, td.num { text-align: right; }
 .arr-sheet-handle {
   flex-shrink: 0;
   position: relative;
-  height: 22px; cursor: grab;
-  touch-action: none;            /* let JS own the vertical gesture */
+  height: 44px; cursor: grab;
+  touch-action: none;
   display: flex; align-items: center; justify-content: center;
+  padding: 0 0 6px; /* slight downward shift of pill keeps visual weight centred */
 }
 .arr-sheet-handle::before {
   content: "";
-  width: 40px; height: 5px; border-radius: 99px;
-  background: var(--ink-3); opacity: .55;
+  width: 48px; height: 5px; border-radius: 99px;
+  background: var(--ink-3); opacity: .5;
 }
 .arr-sheet-handle:active { cursor: grabbing; }
+.arr-sheet-handle:active::before { opacity: .8; }
 
 .arr-sheet-scroll {
   flex: 1; min-height: 0;
   overflow-y: auto; -webkit-overflow-scrolling: touch;
-  padding: .2rem 1rem 1rem;
+  padding: 0 1rem 1rem;
   overscroll-behavior: contain;
 }
 .arr-below { padding-top: .25rem; }
