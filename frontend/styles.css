@@ -1179,24 +1179,27 @@ th.num, td.num { text-align: right; }
   }
 }
 
-/* ── Arrivals map ────────────────────────────────────── */
+/* ── Arrivals: full-screen map + bottom sheet ─────────── */
+/* The map fills the viewport behind the floating search bar and the
+   draggable bottom sheet. Inactive views are display:none, so these
+   fixed children only paint while Arrivals is active. */
 .arr-map-wrap {
-  margin: .5rem -1rem 0;
-  position: relative;
-  overflow: hidden;
+  position: fixed;
+  top: var(--topbar-h, 56px);
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 1;
+  background: var(--bg);
 }
-.arr-map { height: 280px; }
-.arr-map .leaflet-container { height: 280px; }
-
-/* dim tiles in dark mode */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .arr-map .leaflet-tile-pane { filter: brightness(.72) saturate(.8); }
-}
-[data-theme="dark"] .arr-map .leaflet-tile-pane { filter: brightness(.72) saturate(.8); }
+.arr-map,
+.arr-map .leaflet-container { width: 100%; height: 100%; }
 
 .arr-locate-btn {
-  position: absolute; bottom: 12px; right: 12px; z-index: 500;
-  width: 40px; height: 40px; border-radius: 50%;
+  /* sit just above the bottom sheet */
+  position: fixed; right: 14px;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 46vh + 12px);
+  z-index: 12;
+  width: 42px; height: 42px; border-radius: 50%;
   background: var(--surface);
   border: 1px solid var(--line);
   color: var(--accent);
@@ -1206,8 +1209,43 @@ th.num, td.num { text-align: right; }
 }
 .arr-locate-btn:active { background: var(--surface-2); }
 
-/* ── Below-map content ───────────────────────────────── */
-.arr-below { padding-top: .75rem; }
+/* Floating search bar over the map */
+.arr-search-wrap {
+  position: fixed;
+  top: calc(var(--topbar-h, 56px) + 10px);
+  left: 50%; transform: translateX(-50%);
+  width: min(640px, calc(100% - 1.5rem));
+  margin: 0; z-index: 30;
+}
+.arr-search-wrap .search-box { box-shadow: var(--shadow); }
+
+/* Bottom sheet */
+.arr-sheet {
+  position: fixed; left: 0; right: 0;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  z-index: 15;
+  max-width: 640px; margin: 0 auto;
+  height: 46vh;
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  border: 1px solid var(--line);
+  border-bottom: none;
+  box-shadow: 0 -8px 30px rgba(0,0,0,.22);
+}
+.arr-sheet.expanded { height: 72vh; }
+.arr-sheet-handle {
+  flex-shrink: 0;
+  width: 38px; height: 4px; border-radius: 99px;
+  background: var(--line);
+  margin: .55rem auto .15rem;
+}
+.arr-sheet-scroll {
+  flex: 1; min-height: 0;
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: .35rem 1rem 1rem;
+}
+.arr-below { padding-top: .25rem; }
 
 /* Nearby stops section */
 .arr-section-hd {

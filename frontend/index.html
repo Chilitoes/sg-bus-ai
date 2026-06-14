@@ -11,7 +11,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=40" />
+  <link rel="stylesheet" href="styles.css?v=41" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -47,25 +47,7 @@
   <!-- ════ ARRIVALS VIEW ════ -->
   <section id="view-arrivals" class="view active">
 
-    <!-- Search bar -->
-    <div class="search-wrap arr-search-wrap">
-      <div class="search-row">
-        <div class="search-box">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input id="stop-input" type="text" inputmode="search" placeholder="Stop name or 5-digit code"
-                 autocomplete="off" spellcheck="false" enterkeyhint="search" />
-          <button id="search-clear" class="search-clear hidden" aria-label="Clear">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <button id="near-btn" class="near-btn" aria-label="Stops near me">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-        </button>
-      </div>
-      <div id="autocomplete" class="autocomplete hidden"></div>
-    </div>
-
-    <!-- Map -->
+    <!-- Full-screen map (background) -->
     <div class="arr-map-wrap">
       <div id="arr-map" class="arr-map"></div>
       <button id="arr-locate-btn" class="arr-locate-btn" aria-label="Center on my location">
@@ -73,8 +55,23 @@
       </button>
     </div>
 
-    <!-- Content below map -->
-    <div class="arr-below">
+    <!-- Floating search bar over the map -->
+    <div class="search-wrap arr-search-wrap">
+      <div class="search-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input id="stop-input" type="text" inputmode="search" placeholder="Stop name or 5-digit code"
+               autocomplete="off" spellcheck="false" enterkeyhint="search" />
+        <button id="search-clear" class="search-clear hidden" aria-label="Clear">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="autocomplete" class="autocomplete hidden"></div>
+    </div>
+
+    <!-- Bottom sheet over the map -->
+    <div class="arr-sheet">
+      <div class="arr-sheet-handle"></div>
+      <div class="arr-sheet-scroll arr-below">
 
       <!-- Nearby / default state -->
       <div id="arr-nearby">
@@ -200,7 +197,8 @@
 
       </div><!-- #arr-detail -->
 
-    </div><!-- .arr-below -->
+      </div><!-- .arr-sheet-scroll -->
+    </div><!-- .arr-sheet -->
 
   </section>
 
@@ -465,6 +463,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=40"></script>
+<script src="app.js?v=41"></script>
 </body>
 </html>

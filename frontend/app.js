@@ -125,6 +125,7 @@ $("theme-btn").addEventListener("click", () => {
   const cur = document.documentElement.getAttribute("data-theme");
   applyTheme(cur === "dark" ? "light" : "dark");
   if (S.stats) renderCharts(S.stats);
+  _swapArrTiles();
 });
 
 // ── Auth ──────────────────────────────────────────────────
@@ -403,6 +404,7 @@ function switchView(name) {
     v.classList.toggle("active", v.id === `view-${name}`));
   if (name === "saved") renderSaved();
   if (name === "data") loadData();
+  if (name === "arrivals") { _syncTopbarH(); setTimeout(() => _arrMap?.invalidateSize(), 60); }
 }
 document.querySelectorAll(".nav-item").forEach((b) =>
   b.addEventListener("click", () => switchView(b.dataset.view)));
@@ -459,29 +461,8 @@ document.addEventListener("click", (e) => {
       && !e.target.closest("#near-btn")) hideAc();
 });
 
-// ── Stops near me ─────────────────────────────────────────
-$("near-btn").addEventListener("click", () => {
-  if (!navigator.geolocation) { toast("Location not supported on this device"); return; }
-  toast("Finding stops near you…");
-  navigator.geolocation.getCurrentPosition(async (pos) => {
-    try {
-      const d = await api(`/api/stops/nearby?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}&limit=8`);
-      const box = $("autocomplete");
-      box.innerHTML = d.results.length
-        ? d.results.map((s) => `
-          <div class="ac-item" data-code="${esc(s.bus_stop_code)}">
-            <span class="ac-code">${esc(s.bus_stop_code)}</span>
-            <div>
-              <div class="ac-name">${esc(s.description || "Bus stop")}</div>
-              <div class="ac-road">${esc(s.road_name || "")} · ${Math.round(s.distance_m)} m away</div>
-            </div>
-          </div>`).join("")
-        : `<div class="ac-empty">No bus stops found nearby.</div>`;
-      show(box);
-    } catch { toast("Couldn't load nearby stops"); }
-  }, () => toast("Location permission needed for nearby stops"),
-  { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 });
-});
+// (Stops-near-me lives on the arrivals map now — the map auto-geolocates and
+//  the locate button re-centres; no separate search-bar button.)
 
 // ── Arrivals ──────────────────────────────────────────────
 function skeletons(n = 4) {
@@ -630,9 +611,10 @@ async function loadStop(code) {
   code = String(code).trim();
   if (!code) return;
   switchView("arrivals");
-  // Show arrival detail, hide nearby section
+  // Show arrival detail, hide nearby section; grow the sheet to fit arrivals
   hide($("arr-nearby"));
   show($("arr-detail"));
+  document.querySelector(".arr-sheet")?.classList.add("expanded");
   // Highlight selected pin on the arrivals map
   _arrHighlightPin(code);
   clearInterval(S.refreshTmr);
@@ -1847,17 +1829,31 @@ $("pw-change-btn")?.addEventListener("click", async () => {
 
 // ── Arrivals map ──────────────────────────────────────────
 let _arrMap       = null;
+let _arrTileLayer = null;
 let _arrLocMarker = null;
 let _arrPinStore  = new Map(); // code → { marker, label }
 
+function _syncTopbarH() {
+  const h = document.querySelector(".topbar")?.offsetHeight ?? 56;
+  document.documentElement.style.setProperty("--topbar-h", h + "px");
+}
+
 function initArrMap() {
   if (!_leafletReady()) { _whenLeaflet(initArrMap); return; }
+  _syncTopbarH();
   if (_arrMap) { setTimeout(() => _arrMap.invalidateSize(), 60); return; }
   _arrMap = L.map($("arr-map"), { zoomControl: false, attributionControl: false })
-             .setView([1.3521, 103.8198], 14);
-  _sgTiles().addTo(_arrMap);
+             .setView([1.3521, 103.8198], 15);
+  _arrTileLayer = (_isDark() ? _darkTiles() : _sgTiles()).addTo(_arrMap);
   $("arr-locate-btn").addEventListener("click", _arrGeolocate);
   _arrGeolocate();
+}
+
+// Swap the arrivals basemap when the user toggles light/dark.
+function _swapArrTiles() {
+  if (!_arrMap) return;
+  if (_arrTileLayer) _arrMap.removeLayer(_arrTileLayer);
+  _arrTileLayer = (_isDark() ? _darkTiles() : _sgTiles()).addTo(_arrMap);
 }
 
 function _arrGeolocate() {
@@ -1887,7 +1883,7 @@ async function _loadArrStops(lat, lng) {
       if (!s.latitude || _arrPinStore.has(s.bus_stop_code)) return;
       const label = s.description || s.bus_stop_code;
       const marker = L.marker([s.latitude, s.longitude], {
-        icon: _stopPinIcon(label), title: label,
+        icon: _stopPinIcon(label, true), title: label,
       }).addTo(_arrMap);
       marker._icon?.querySelector(".stop-pin-btn")?.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -1930,6 +1926,7 @@ $("arr-back-btn").addEventListener("click", () => {
   _arrClearHighlight();
   hide($("arr-detail"));
   show($("arr-nearby"));
+  document.querySelector(".arr-sheet")?.classList.remove("expanded");
   setTimeout(() => _arrMap?.invalidateSize(), 50);
 });
 
@@ -1950,7 +1947,7 @@ function _arrHighlightPin(code) {
 function _arrClearHighlight() {
   if (!S._arrHighlightCode) return;
   const entry = _arrPinStore.get(S._arrHighlightCode);
-  if (entry) entry.marker.setIcon(_stopPinIcon(entry.label));
+  if (entry) entry.marker.setIcon(_stopPinIcon(entry.label, true));
   S._arrHighlightCode = null;
 }
 
@@ -1982,75 +1979,27 @@ function _sgTiles() {
   );
 }
 
-// HTML divIcon marker — taps fire reliably on iOS, unlike SVG circleMarkers
-// (Leaflet 1.7+ dropped its tap handler, so vector layers miss touch clicks).
-function _stopPinIcon(label) {
-  return L.divIcon({
-    className: "stop-pin",
-    html: `<button class="stop-pin-btn" aria-label="${esc(label || "")}"></button><span class="stop-pin-label">${esc(label || "")}</span>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
-  });
-}
-
-function initMapView() {
-  if (!_leafletReady()) { _whenLeaflet(initMapView); return; }
-  const topbarH = document.querySelector(".topbar")?.offsetHeight ?? 60;
-  document.documentElement.style.setProperty("--topbar-h", topbarH + "px");
-
-  if (!_mapTabMap) {
-    _mapTabMap = L.map($("map-tab-container"), { zoomControl: true, attributionControl: false })
-                  .setView([1.3521, 103.8198], 15);
-    _sgTiles().addTo(_mapTabMap);
-  }
-  setTimeout(() => _mapTabMap.invalidateSize(), 60);
-  if (_mapTabLoaded) return;
-  _mapTabLoaded = true;
-
-  // Always load stops for the current view straight away so there are dots to
-  // tap even if the user never answers the location prompt. Geolocation then
-  // recenters and loads stops near them (with a timeout so it can't hang).
-  _loadMapTabStops(1.3521, 103.8198);
-  navigator.geolocation?.getCurrentPosition(
-    ({ coords: { latitude: lat, longitude: lng } }) => {
-      _mapTabMap.setView([lat, lng], 16);
-      L.circleMarker([lat, lng], {
-        radius: 9, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
-      }).bindTooltip("You", { permanent: true, direction: "top", offset: [0, -12] })
-        .addTo(_mapTabMap);
-      _loadMapTabStops(lat, lng);
-    },
-    () => {},
-    { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+// Darker basemap for the full-screen arrivals map so coloured pins pop.
+function _darkTiles() {
+  return L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    { maxZoom: 19, subdomains: "abcd", detectRetina: true,
+      attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>' }
   );
 }
 
-function _loadMapTabStops(lat, lng) {
-  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=20`).then((d) => {
-    if (!_mapTabMap) return;
-    d.results?.forEach((s) => {
-      if (!s.latitude) return;
-      if (_mapTabStopCodes.has(s.bus_stop_code)) return;   // avoid duplicates
-      _mapTabStopCodes.add(s.bus_stop_code);
-      const handler = () => { switchView("arrivals"); loadStop(s.bus_stop_code); };
-      const label = s.description || s.bus_stop_code;
-      const marker = L.marker([s.latitude, s.longitude], {
-        icon: _stopPinIcon(label),
-        title: label,
-      })
-      .addTo(_mapTabMap);
-      // Attach click on the <button> inside the divIcon — buttons receive touch
-      // events on iOS Safari without any workarounds, unlike plain <div> elements.
-      // stopPropagation so the map's own click (pan gesture end) doesn't also fire.
-      marker._icon?.querySelector(".stop-pin-btn")?.addEventListener("click", (e) => {
-        e.stopPropagation();
-        handler();
-      });
-    });
-    // Markers added after the container was first sized can land with a stale
-    // hit-test offset; nudge Leaflet to recompute pane positions.
-    _mapTabMap.invalidateSize();
-  }).catch(() => {});
+// HTML divIcon marker — taps fire reliably on iOS, unlike SVG circleMarkers
+// (Leaflet 1.7+ dropped its tap handler, so vector layers miss touch clicks).
+// noLabel: omit the text label (used on the arrivals map where many pins
+// would otherwise overlap into an unreadable mess).
+function _stopPinIcon(label, noLabel = false) {
+  const lbl = noLabel ? "" : `<span class="stop-pin-label">${esc(label || "")}</span>`;
+  return L.divIcon({
+    className: "stop-pin",
+    html: `<button class="stop-pin-btn" aria-label="${esc(label || "")}"></button>${lbl}`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  });
 }
 
 $("plan-map-fs-btn").addEventListener("click", () => {
@@ -2647,6 +2596,8 @@ checkBackend();
 setupPlanField("from");
 setupPlanField("to");
 renderRecents();
+_syncTopbarH();
+addEventListener("resize", _syncTopbarH);
 _whenLeaflet(initArrMap);
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
