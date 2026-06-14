@@ -11,7 +11,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=49" />
+  <link rel="stylesheet" href="styles.css?v=50" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -217,8 +217,13 @@
 
   <!-- ════ PLAN VIEW ════ -->
   <section id="view-plan" class="view">
-    <h2 class="view-title">Plan a journey</h2>
-    <p class="view-sub">Enter any Singapore address, landmark, or bus stop. Finds bus and MRT routes with live wait times.</p>
+    <div class="plan-hero">
+      <div class="plan-hero-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="m16 8 5 0M16 12l5 0M3 16l1 5M15 16l-1 5M1 12h15"/></svg>
+      </div>
+      <h2 class="plan-hero-title">Plan a journey</h2>
+      <p class="plan-hero-sub">Bus &amp; MRT routes with live arrival times</p>
+    </div>
 
     <div class="plan-form">
       <!-- From -->
@@ -409,7 +414,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val">v49</span>
+            <span class="stg-row-val">v50</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -536,6 +541,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=49"></script>
+<script src="app.js?v=50"></script>
 </body>
 </html>

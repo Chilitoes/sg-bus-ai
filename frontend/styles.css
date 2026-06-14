@@ -141,6 +141,21 @@ button { font-family: inherit; cursor: pointer; }
 .view-title { font-size: 1.2rem; font-weight: 700; letter-spacing: -.01em; }
 .view-sub { font-size: .82rem; color: var(--ink-3); margin: .2rem 0 1rem; line-height: 1.55; }
 
+/* Plan view hero header */
+.plan-hero { text-align: center; padding: .6rem 0 1.5rem; }
+.plan-hero-icon {
+  width: 60px; height: 60px; border-radius: 18px;
+  background: var(--accent-soft);
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-bottom: 1rem; color: var(--accent);
+  box-shadow: 0 4px 16px rgba(240,89,106,.18);
+}
+.plan-hero-title {
+  font-size: 1.55rem; font-weight: 800; letter-spacing: -.03em;
+  color: var(--ink); margin-bottom: .35rem;
+}
+.plan-hero-sub { font-size: .85rem; color: var(--ink-3); line-height: 1.5; }
+
 /* ── Search ──────────────────────────────────────────── */
 .search-wrap { position: relative; margin-bottom: .75rem; }
 .arr-search-wrap { margin-bottom: 0; position: relative; z-index: 51; }
@@ -670,30 +685,30 @@ th.num, td.num { text-align: right; }
 /* ── Plan view ───────────────────────────────────────── */
 .plan-form {
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: .75rem .85rem;
-  margin-bottom: .75rem; box-shadow: var(--shadow-sm);
+  border-radius: 20px; padding: 1.3rem 1.1rem 1.1rem;
+  margin-bottom: 1.1rem; box-shadow: var(--shadow);
 }
 .plan-row {
-  display: flex; align-items: flex-start; gap: .55rem;
+  display: flex; align-items: flex-start; gap: .6rem;
 }
 .plan-row-label {
-  font-size: .7rem; font-weight: 700; color: var(--ink-3);
-  width: 42px; flex-shrink: 0; padding-top: .8rem; text-transform: uppercase; letter-spacing: .06em;
+  font-size: .65rem; font-weight: 800; color: var(--accent);
+  width: 50px; flex-shrink: 0; padding-top: 1rem; text-transform: uppercase; letter-spacing: .1em;
 }
 .plan-field-wrap { flex: 1; min-width: 0; position: relative; }
 /* Departure-time row */
-.plan-time-row { margin-top: .6rem; align-items: center; }
+.plan-time-row { margin-top: .75rem; align-items: center; }
 .plan-time-row .plan-row-label { padding-top: 0; }
 .plan-time-wrap {
   flex: 1; display: flex; align-items: center; gap: .4rem; min-width: 0;
   background: var(--surface-2); border: 1.5px solid var(--line);
-  border-radius: 12px; padding: .1rem .4rem;
+  border-radius: 14px; padding: .2rem .5rem;
 }
 .plan-time-input {
   flex: 1; min-width: 0;
   background: transparent; border: none;
   color: var(--ink);
-  padding: .42rem .2rem; font-size: .84rem; font-family: inherit;
+  padding: .52rem .2rem; font-size: .88rem; font-family: inherit;
   -webkit-appearance: none; appearance: none;
 }
 .plan-time-input:focus { outline: none; }
@@ -701,7 +716,7 @@ th.num, td.num { text-align: right; }
   flex-shrink: 0;
   background: transparent; border: none; border-left: 1.5px solid var(--line);
   color: var(--ink);
-  padding: .42rem .4rem; font-size: .84rem; font-family: inherit;
+  padding: .52rem .4rem; font-size: .88rem; font-family: inherit;
   -webkit-appearance: none; appearance: none;
   cursor: pointer;
 }
@@ -724,18 +739,18 @@ th.num, td.num { text-align: right; }
 .plan-future-note svg { flex-shrink: 0; color: var(--accent); }
 .plan-swap-row {
   display: flex; justify-content: flex-start;
-  padding-left: calc(42px + .55rem);
-  margin: .3rem 0;
+  padding-left: calc(50px + .6rem);
+  margin: .5rem 0;
 }
 .plan-swap-btn {
-  width: 32px; height: 32px; border-radius: 50%;
+  width: 34px; height: 34px; border-radius: 50%;
   border: 1.5px solid var(--line); background: var(--surface-2);
   color: var(--ink-2);
   display: inline-flex; align-items: center; justify-content: center;
   box-shadow: var(--shadow-sm);
 }
 .plan-swap-btn:active { background: var(--accent-soft); color: var(--accent); }
-.plan-go-btn { margin-bottom: .75rem; gap: .5rem; }
+.plan-go-btn { margin-bottom: .9rem; gap: .5rem; font-size: 1rem; }
 .plan-loading {
   text-align: center; color: var(--ink-3);
   font-size: .82rem; padding: 1.5rem; letter-spacing: .02em;
@@ -1289,30 +1304,31 @@ th.num, td.num { text-align: right; }
   text-transform: uppercase; letter-spacing: .09em;
   margin-bottom: .5rem;
 }
-#arr-stops-list { display: flex; flex-direction: column; gap: .4rem; }
+#arr-stops-list { display: flex; flex-direction: column; gap: .6rem; }
 
 .arr-stop-item {
-  display: flex; align-items: center; gap: .9rem;
+  display: flex; align-items: center; gap: 1rem;
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 1.05rem 1.1rem;
-  cursor: pointer; box-shadow: var(--shadow-sm);
+  border-radius: 16px; padding: 1.4rem 1.15rem;
+  cursor: pointer; box-shadow: var(--shadow);
   text-align: left; width: 100%;
   transition: background .1s;
 }
 .arr-stop-item:active { background: var(--surface-2); }
 
 .arr-stop-code-badge {
-  font-variant-numeric: tabular-nums; font-size: .78rem;
-  font-weight: 700; color: var(--ink-2);
-  background: var(--surface-2); border: 1px solid var(--line);
-  padding: .28rem .55rem; border-radius: 8px; flex-shrink: 0;
-  min-width: 46px; text-align: center;
+  font-size: .84rem;
+  font-weight: 800; color: var(--accent);
+  background: var(--accent-soft); border: 1.5px solid rgba(240,89,106,.22);
+  padding: .55rem .75rem; border-radius: 11px; flex-shrink: 0;
+  min-width: 54px; text-align: center; line-height: 1.2;
+  letter-spacing: -.01em;
 }
 .arr-stop-info { flex: 1; min-width: 0; }
-.arr-stop-name { font-size: 1rem; font-weight: 600; color: var(--ink); }
-.arr-stop-road { font-size: .72rem; color: var(--ink-3); margin-top: .05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arr-stop-name { font-size: 1.08rem; font-weight: 700; color: var(--ink); }
+.arr-stop-road { font-size: .78rem; color: var(--ink-3); margin-top: .18rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .arr-stop-dist {
-  font-size: .72rem; font-weight: 600; color: var(--ink-3);
+  font-size: .8rem; font-weight: 700; color: var(--ink-2);
   flex-shrink: 0; white-space: nowrap;
 }
 .arr-stop-chev { color: var(--ink-3); flex-shrink: 0; }
