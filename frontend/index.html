@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.1.8" />
+  <link rel="stylesheet" href="styles.css?v=1.1.9" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -115,7 +115,8 @@
         <div id="rows" class="rows"></div>
         <p id="no-services" class="empty hidden">No buses serving this stop right now.</p>
 
-        <!-- Stats -->
+        <!-- Stats / About / Legend — grouped accordion -->
+        <div class="panel-group">
         <details id="stats-details" class="panel hidden">
           <summary>
             <span>Punctuality stats</span>
@@ -216,6 +217,7 @@
             </div>
           </div>
         </details>
+        </div><!-- .panel-group -->
 
       </div><!-- #arr-detail -->
 
@@ -350,24 +352,7 @@
 
     <div id="plan-loading" class="plan-loading hidden">Finding routes…</div>
     <div id="plan-error" class="error-note hidden"></div>
-    <button id="plan-map-jump" class="plan-map-jump hidden">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-      View on map
-    </button>
     <div id="plan-results"></div>
-
-    <!-- Map shown after planning -->
-    <div id="plan-map-wrap" class="plan-map-wrap hidden">
-      <div id="plan-map" class="plan-map"></div>
-      <button id="plan-map-locate-btn" class="plan-map-locate-btn" aria-label="Center on my location">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-      </button>
-      <button id="plan-map-fs-btn" class="plan-map-fs-btn" aria-label="Full screen">
-        <svg id="plan-map-fs-expand" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-        <svg id="plan-map-fs-collapse" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/></svg>
-      </button>
-      <div class="plan-map-attr">© <a href="https://www.onemap.gov.sg" target="_blank" rel="noopener">OneMap</a> &amp; OpenStreetMap contributors</div>
-    </div>
   </section>
 
   <!-- ════ DATA VIEW ════ -->
@@ -527,7 +512,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">1.1.8</span>
+            <span class="stg-row-val" id="stg-version-val">1.1.9</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -676,6 +661,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1.1.8"></script>
+<script src="app.js?v=1.1.9"></script>
 </body>
 </html>

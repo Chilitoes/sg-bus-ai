@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.8";
+const APP_VERSION = "1.1.9";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -564,7 +564,6 @@ function switchView(name) {
   if (name === "data") loadData();
   if (name === "arrivals") setTimeout(() => _arrMap?.invalidateSize(), 60);
   if (name === "settings") _updateSettingsUI();
-  if (name === "plan") setTimeout(_preinitPlanMap, 200);
 }
 document.querySelectorAll(".nav-item").forEach((b) =>
   b.addEventListener("click", () => switchView(b.dataset.view)));
@@ -1588,19 +1587,9 @@ $("plan-results").addEventListener("click", (e) => {
   if (go) {
     const card = go.closest(".journey-card");
     const nowOpen = card.classList.toggle("open");
-    if (_planData && _planCoords) {
-      if (nowOpen) {
-        // Card just opened: draw its route.
-        const idx = parseInt(card.dataset.optIndex, 10);
-        if (!isNaN(idx)) updatePlanMap(_planData, _planCoords, idx);
-      } else {
-        // Card just closed: switch the map to whichever other card is still open.
-        const other = document.querySelector("#plan-results .journey-card.open");
-        if (other) {
-          const idx = parseInt(other.dataset.optIndex, 10);
-          if (!isNaN(idx)) updatePlanMap(_planData, _planCoords, idx);
-        }
-      }
+    if (nowOpen && _planData && _planCoords) {
+      const idx = parseInt(card.dataset.optIndex, 10);
+      if (!isNaN(idx)) _openCardMap(card, _planData, _planCoords, idx);
     }
     return;
   }
@@ -1671,7 +1660,6 @@ async function doJourneyPlan() {
   const res  = $("plan-results");
   const load = $("plan-loading");
   hide(err); res.innerHTML = ""; show(load);
-  hide($("plan-map-jump"));
   $("plan-btn").disabled = true;
 
   try {
@@ -1712,7 +1700,6 @@ async function doJourneyPlan() {
     if (planData) {
       updatePlanMap(planData, { fLat, fLng, tLat, tLng, fromName, toName });
       updateShareUrl();
-      show($("plan-map-jump"));
     }
     updateJourneyCardSaveBtns();
     pushRecent();
@@ -1816,7 +1803,7 @@ function renderBusOnlyCard(opt, idx = 0) {
           <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
       </div>
-      <div class="jcard-detail">${detailHtml}</div>
+      <div class="jcard-detail">${detailHtml}<div class="jcard-map-wrap"><div class="jcard-map"></div></div></div>
     </div>`;
 }
 
@@ -1927,7 +1914,7 @@ function renderMultimodalCard(opt, idx = 0) {
           <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
       </div>
-      <div class="jcard-detail">${detailHtml}</div>
+      <div class="jcard-detail">${detailHtml}<div class="jcard-map-wrap"><div class="jcard-map"></div></div></div>
     </div>`;
 }
 
@@ -2313,10 +2300,8 @@ function _arrClearHighlight() {
 
 // ── Maps ──────────────────────────────────────────────────
 // Leaflet is loaded async (defer); guard every call with typeof L check.
-let _planMap = null;   // Leaflet instance for plan tab
-let _planData = null;  // last plan response, for redrawing on route switch
+let _planData = null;  // last plan response, for per-card map drawing
 let _planCoords = null;
-let _planOptIdx = 0;   // which option is currently drawn on the map
 
 function _leafletReady() { return typeof L !== "undefined"; }
 
@@ -2361,30 +2346,6 @@ function _stopPinIcon(label, noLabel = false) {
   });
 }
 
-$("plan-map-locate-btn")?.addEventListener("click", () => {
-  if (!navigator.geolocation) { toast("Location not supported"); return; }
-  navigator.geolocation.getCurrentPosition(
-    ({ coords: { latitude: lat, longitude: lng } }) => { _planMap?.setView([lat, lng], 15); },
-    () => toast("Location permission needed"),
-    { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 }
-  );
-});
-
-$("plan-map-jump").addEventListener("click", () => {
-  const wrap = $("plan-map-wrap");
-  if (!wrap || wrap.classList.contains("hidden")) return;
-  wrap.classList.add("fullscreen");
-  show($("plan-map-fs-collapse")); hide($("plan-map-fs-expand"));
-  setTimeout(() => _planMap?.invalidateSize(), 50);
-});
-
-$("plan-map-fs-btn").addEventListener("click", () => {
-  const wrap = $("plan-map-wrap");
-  const isFs = wrap.classList.toggle("fullscreen");
-  show(isFs ? $("plan-map-fs-collapse") : $("plan-map-fs-expand"));
-  hide(isFs ? $("plan-map-fs-expand")  : $("plan-map-fs-collapse"));
-  setTimeout(() => _planMap?.invalidateSize(), 50);
-});
 
 // Line colors for MRT (matches mrt_data.py line_color values)
 const MRT_COLORS = {
@@ -2576,36 +2537,34 @@ function _legColor(leg, busIdx = 0) {
   return BUS_COLORS[Math.min(busIdx, BUS_COLORS.length - 1)];
 }
 
-function _preinitPlanMap() {
-  if (_planMap || !_leafletReady()) return;
-  const container = $("plan-map");
-  _planMap = L.map(container, { zoomControl: true, attributionControl: false })
-             .setView([1.3521, 103.8198], 13);
-  _sgTiles().addTo(_planMap);
+function updatePlanMap(data, coords, optIdx = 0) {
+  _planData = data; _planCoords = coords;
 }
 
-function updatePlanMap(data, coords, optIdx = 0) {
-  if (!_leafletReady()) { _whenLeaflet(() => updatePlanMap(data, coords, optIdx)); return; }
-  _planData = data; _planCoords = coords; _planOptIdx = optIdx;
+function _openCardMap(card, data, coords, optIdx) {
+  if (!_leafletReady()) { _whenLeaflet(() => _openCardMap(card, data, coords, optIdx)); return; }
+  const container = card.querySelector(".jcard-map");
+  if (!container) return;
+  if (!card._jmap) {
+    card._jmap = L.map(container, { zoomControl: false, attributionControl: false })
+                  .setView([1.3521, 103.8198], 13);
+    _sgTiles().addTo(card._jmap);
+  }
+  _drawOnMap(card._jmap, data, coords, optIdx);
+  // Wait for the card expand animation (0.3s) before invalidating size
+  setTimeout(() => card._jmap?.invalidateSize(), 350);
+}
+
+function _drawOnMap(map, data, coords, optIdx = 0) {
+  map.eachLayer((l) => { if (!(l instanceof L.TileLayer)) l.remove(); });
+
   let { fLat, fLng, tLat, tLng, fromName, toName } = coords;
-  const wrap = $("plan-map-wrap");
   // Fall back to coords in the response (bus-only plan has them in data.from/to)
-  const rLat = fLat ?? data?.from?.lat, rLng = fLng ?? data?.from?.lng;
-  const dLat = tLat ?? data?.to?.lat,   dLng = tLng ?? data?.to?.lng;
-  fLat = rLat; fLng = rLng; tLat = dLat; tLng = dLng;
+  fLat = fLat ?? data?.from?.lat; fLng = fLng ?? data?.from?.lng;
+  tLat = tLat ?? data?.to?.lat;   tLng = tLng ?? data?.to?.lng;
   fromName = fromName || data?.from?.name || "Origin";
   toName   = toName   || data?.to?.name   || "Destination";
-  if (!fLat || !tLat) { hide(wrap); return; }
-
-  show(wrap);
-  const container = $("plan-map");
-  if (!_planMap) {
-    _planMap = L.map(container, { zoomControl: true, attributionControl: false })
-               .setView([(fLat + tLat) / 2, (fLng + tLng) / 2], 13);
-    _sgTiles().addTo(_planMap);
-  } else {
-    _planMap.eachLayer((l) => { if (!(l instanceof L.TileLayer)) l.remove(); });
-  }
+  if (!fLat || !tLat) return;
 
   const bounds = [];
 
@@ -2618,15 +2577,15 @@ function updatePlanMap(data, coords, optIdx = 0) {
   });
   L.marker([fLat, fLng], { icon: pinIcon("#3b82f6", "A") })
    .bindPopup(`<b>From:</b> ${esc(fromName || "Origin")}`)
-   .addTo(_planMap);
+   .addTo(map);
   bounds.push([fLat, fLng]);
 
   L.marker([tLat, tLng], { icon: pinIcon("#e5282a", "B") })
    .bindPopup(`<b>To:</b> ${esc(toName || "Destination")}`)
-   .addTo(_planMap);
+   .addTo(map);
   bounds.push([tLat, tLng]);
 
-  // Draw the selected option's legs (defaults to the first/best option)
+  // Draw the selected option's legs
   const safeIdx = Math.min(Math.max(0, optIdx), (data.options?.length || 1) - 1);
   const option = data.options?.[safeIdx];
   if (option?.legs) {
@@ -2634,14 +2593,13 @@ function updatePlanMap(data, coords, optIdx = 0) {
     // Track the explicit endpoint/startpoint of each leg (from leg fields, NOT
     // from waypoint array — DB waypoints may exclude stops missing coordinates,
     // so the array endpoint can be a mid-route stop rather than the real alight stop).
-    const _legEdges = []; // [{start:[lat,lng], end:[lat,lng]}]
-    option.legs.forEach((leg, li) => {
+    const _legEdges = [];
+    option.legs.forEach((leg) => {
       const busIdx = leg.type === "bus" ? _busIdx++ : 0;
       const color = _legColor(leg, busIdx);
       const isWalk = leg.type === "walk";
       const points = _legPoints(leg);
 
-      // Derive the explicit start/end from leg metadata (source of truth for stitching)
       let edgeStart = null, edgeEnd = null;
       if (leg.type === "bus") {
         edgeStart = leg.board_stop?.lat  ? [leg.board_stop.lat,  leg.board_stop.lng]  : points[0] ?? null;
@@ -2654,7 +2612,7 @@ function updatePlanMap(data, coords, optIdx = 0) {
         edgeEnd   = leg.to_lat   != null ? [leg.to_lat,   leg.to_lng]   : points[points.length-1] ?? null;
       }
       if (edgeStart && edgeEnd) _legEdges.push({ start: edgeStart, end: edgeEnd });
-      // MRT: curve the line through the stations so it follows the track shape.
+
       const drawPoints = leg.type === "mrt" ? _smoothLine(points) : points;
       if (points.length >= 2) {
         const poly = L.polyline(drawPoints, {
@@ -2662,12 +2620,11 @@ function updatePlanMap(data, coords, optIdx = 0) {
           weight: isWalk ? 2 : 5,
           dashArray: isWalk ? "4,7" : null,
           lineCap: "round", lineJoin: "round",
-        }).addTo(_planMap);
+        }).addTo(map);
         // Async-replace with real geometry so lines follow actual rail/road curves.
         if (leg.type === "mrt") {
-          const map = _planMap;
           _osmMrtTrack(leg).then(track => {
-            if (track?.length > 2 && map === _planMap) {
+            if (track?.length > 2) {
               poly.setLatLngs([
                 [leg.board_lat, leg.board_lng],
                 ...track,
@@ -2677,9 +2634,9 @@ function updatePlanMap(data, coords, optIdx = 0) {
           });
         }
         if (leg.type === "bus") {
-          const map = _planMap, bl = leg.board_stop, al = leg.alight_stop;
+          const bl = leg.board_stop, al = leg.alight_stop;
           _busOsrmTrack(leg).then(track => {
-            if (track?.length > 2 && map === _planMap) {
+            if (track?.length > 2) {
               poly.setLatLngs([
                 [bl.lat, bl.lng],
                 ...track,
@@ -2692,8 +2649,8 @@ function updatePlanMap(data, coords, optIdx = 0) {
 
         // Compact route badge at midpoint
         const mid = points[Math.floor(points.length / 2)];
-        let badge = leg.type === "bus" ? (leg.service_no || "Bus")
-                  : leg.type === "mrt" ? (leg.line || "MRT") : "";
+        const badge = leg.type === "bus" ? (leg.service_no || "Bus")
+                    : leg.type === "mrt" ? (leg.line || "MRT") : "";
         if (badge) {
           L.marker(mid, {
             icon: L.divIcon({
@@ -2702,35 +2659,32 @@ function updatePlanMap(data, coords, optIdx = 0) {
               iconAnchor: [0, 0],
             }),
             interactive: false,
-          }).addTo(_planMap);
+          }).addTo(map);
         }
       }
       // Small board/alight dots for transit legs only
       if (leg.type === "bus" && leg.board_stop?.lat) {
-        L.circleMarker([leg.board_stop.lat, leg.board_stop.lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
-        L.circleMarker([leg.alight_stop.lat, leg.alight_stop.lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
+        L.circleMarker([leg.board_stop.lat, leg.board_stop.lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(map);
+        L.circleMarker([leg.alight_stop.lat, leg.alight_stop.lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(map);
       }
       if (leg.type === "mrt" && leg.board_lat) {
-        L.circleMarker([leg.board_lat, leg.board_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
-        L.circleMarker([leg.alight_lat, leg.alight_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_planMap);
+        L.circleMarker([leg.board_lat, leg.board_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(map);
+        L.circleMarker([leg.alight_lat, leg.alight_lng], { radius: 4, color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(map);
       }
     });
 
-    // Stitch any gap between consecutive legs using the explicit alight/board
-    // coordinates (not waypoint array endpoints, which may skip stops that have
-    // no lat/lng in the DB, leaving the last waypoint short of the real alight stop).
+    // Stitch any gap between consecutive legs
     for (let i = 1; i < _legEdges.length; i++) {
       const a = _legEdges[i - 1].end, b = _legEdges[i].start;
       if (a && b && (Math.abs(a[0] - b[0]) > 5e-5 || Math.abs(a[1] - b[1]) > 5e-5)) {
         L.polyline([a, b], {
           color: "#aaa", opacity: 0.7, weight: 2, dashArray: "3,6", lineCap: "round",
-        }).addTo(_planMap);
+        }).addTo(map);
       }
     }
   }
 
-  if (bounds.length) _planMap.fitBounds(bounds, { padding: [36, 36] });
-  setTimeout(() => _planMap.invalidateSize(), 100);
+  if (bounds.length) map.fitBounds(bounds, { padding: [24, 24] });
 }
 
 function _legPoints(leg) {
