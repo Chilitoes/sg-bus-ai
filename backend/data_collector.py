@@ -77,11 +77,12 @@ _rotation_cursor = 0
 
 def _is_service_hours() -> bool:
     """
-    Singapore bus services run roughly 05:30–00:30 SGT.
-    Skip data collection between 01:00 and 05:00 SGT when no buses run.
+    Singapore bus services run roughly 05:15–00:30 SGT.
+    Dead zone: 00:30–05:15 (30–315 minutes past midnight SGT).
     """
-    hour = datetime.now(_SGT).hour
-    return not (1 <= hour < 5)
+    now_sgt = datetime.now(_SGT)
+    total_min = now_sgt.hour * 60 + now_sgt.minute
+    return not (30 <= total_min < 315)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
