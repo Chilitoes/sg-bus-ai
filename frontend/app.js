@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.4";
+const APP_VERSION = "1.1.5";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1882,7 +1882,7 @@ function renderMultimodalCard(opt, idx = 0) {
   const active = opt.legs.filter((l) => l.type !== "walk");
   const badgesHtml = active.map((l, i, a) => {
     const badge = l.type === "mrt"
-      ? `<span class="jcard-badge mrt-badge" style="background:${esc(l.line_color)}">${esc(l.line)}</span>`
+      ? `<span class="jcard-badge mrt-badge" style="border-color:${esc(l.line_color)};color:${esc(l.line_color)}">${esc(l.line)}</span>`
       : `<span class="jcard-badge">${esc(l.service_no)}</span>`;
     return badge + (i < a.length - 1
       ? `<svg class="jcard-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`
@@ -1976,7 +1976,7 @@ function renderMrtLeg(leg) {
   return `
     <div class="journey-leg mrt-leg" style="--leg-color:${esc(leg.line_color)}">
       <div class="leg-top">
-        <span class="leg-route mrt-route" style="background:${esc(leg.line_color)};color:#fff">${esc(leg.line)}</span>
+        <span class="leg-route mrt-route" style="border-color:${esc(leg.line_color)};color:${esc(leg.line_color)}">${esc(leg.line)}</span>
         <span class="leg-stops">${leg.stations_count} stops · ~${leg.est_ride_min} min</span>
         <span class="leg-wait ${waitClass}">${waitTxt}</span>
       </div>
@@ -2344,16 +2344,16 @@ function _isDark() {
 
 function _sgTiles() {
   return L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-    { maxZoom: 19, subdomains: "abcd", detectRetina: false, keepBuffer: 3,
+    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    { maxZoom: 19, subdomains: "abcd", detectRetina: true, keepBuffer: 3,
       attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>' }
   );
 }
 
 function _darkTiles() {
   return L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-    { maxZoom: 19, subdomains: "abcd", detectRetina: false, keepBuffer: 3,
+    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    { maxZoom: 19, subdomains: "abcd", detectRetina: true, keepBuffer: 3,
       attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>' }
   );
 }
@@ -2697,7 +2697,7 @@ function updatePlanMap(data, coords, optIdx = 0) {
           L.marker(mid, {
             icon: L.divIcon({
               className: "",
-              html: `<div style="background:${color};color:#fff;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">${esc(badge)}</div>`,
+              html: `<div style="background:#1c1c1e;color:${color};border:1.5px solid ${color};padding:2px 7px;border-radius:99px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.5)">${esc(badge)}</div>`,
               iconAnchor: [0, 0],
             }),
             interactive: false,

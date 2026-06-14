@@ -51,9 +51,9 @@
     --shadow:    0 2px 12px rgba(0,0,0,.45);
     --topbar-bg: rgba(28, 28, 30, 0.85);
     --nav-bg:    #1c1c1e;
-    --glass:        rgba(44, 44, 46, 0.70);
-    --glass-strong: rgba(44, 44, 46, 0.88);
-    --glass-line:   rgba(255, 255, 255, 0.10);
+    --glass:        rgba(20, 20, 22, 0.42);
+    --glass-strong: rgba(20, 20, 22, 0.72);
+    --glass-line:   rgba(255, 255, 255, 0.08);
   }
 }
 [data-theme="dark"] {
@@ -76,9 +76,9 @@
   --shadow:    0 2px 12px rgba(0,0,0,.45);
   --topbar-bg: rgba(28, 28, 30, 0.85);
   --nav-bg:    #1c1c1e;
-  --glass:        rgba(44, 44, 46, 0.70);
-  --glass-strong: rgba(44, 44, 46, 0.88);
-  --glass-line:   rgba(255, 255, 255, 0.10);
+  --glass:        rgba(20, 20, 22, 0.42);
+  --glass-strong: rgba(20, 20, 22, 0.72);
+  --glass-line:   rgba(255, 255, 255, 0.08);
 }
 
 html { font-size: 16px; }
@@ -726,7 +726,7 @@ th.num, td.num { text-align: right; }
 }
 .plan-time-input:focus { outline: none; }
 .plan-day-select {
-  flex-shrink: 0;
+  flex-shrink: 0; min-width: 6.6rem;
   background: transparent; border: none; border-left: 1.5px solid var(--accent);
   color: var(--ink);
   padding: .52rem .85rem .52rem .55rem; font-size: .88rem; font-family: inherit;
@@ -788,13 +788,12 @@ th.num, td.num { text-align: right; }
 .plan-map-jump {
   display: inline-flex; align-items: center; gap: .3rem;
   margin: 0 0 .85rem;
-  border: 1px solid var(--line); border-radius: 999px;
-  background: var(--surface); color: var(--accent);
-  padding: .42rem .85rem .42rem .65rem;
+  border: 1.5px solid var(--accent); border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+  padding: .38rem .85rem .38rem .65rem;
   font: inherit; font-size: .82rem; font-weight: 600; cursor: pointer;
-  box-shadow: var(--shadow-sm);
 }
-.plan-map-jump:active { background: var(--surface-2); }
+.plan-map-jump:active { opacity: .7; }
 
 /* Journey cards */
 #plan-results { display: flex; flex-direction: column; gap: 2.2rem; margin-top: 1rem; }
@@ -985,7 +984,9 @@ th.num, td.num { text-align: right; }
   font-size: .72rem; font-weight: 600; margin-top: .3rem;
 }
 .jcard-badge.mrt-badge {
-  font-size: .62rem; font-weight: 800; letter-spacing: .03em; color: #fff !important;
+  font-size: .62rem; font-weight: 800; letter-spacing: .03em;
+  background: none !important;
+  border: 1.5px solid currentColor;
 }
 .jcard-badge.jcard-walk-only {
   background: var(--surface-2); color: var(--ink-2) !important;
@@ -1082,9 +1083,12 @@ th.num, td.num { text-align: right; }
   pointer-events: none;
   line-height: 1.4;
 }
-/* Apple Maps-style dark tiles. 210° hue-rotate gives cooler teal-navy tint.
-   Leaflet container bg set dark so the grey loading flash doesn't appear. */
+/* Apple Maps-style dark tiles: invert(85%) = white land becomes dark charcoal.
+   210 deg hue-rotate = cooler teal-navy tint matching Apple Maps palette.
+   Dark bg + GPU layer + margin-bottom overlap prevent flash and seam lines. */
 .leaflet-container { background: #1c1c1e; }
+.leaflet-tile-pane { transform: translateZ(0); }
+.leaflet-tile { will-change: transform; margin-bottom: -1px; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .leaflet-tile-pane {
     filter: invert(85%) hue-rotate(210deg) brightness(1.0) saturate(1.15);
@@ -1335,8 +1339,8 @@ th.num, td.num { text-align: right; }
   height: var(--sheet-h);
   display: flex; flex-direction: column;
   background: var(--glass);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(36px) saturate(200%);
+  backdrop-filter: blur(36px) saturate(200%);
   border-radius: 22px 22px 0 0;
   border: 1px solid var(--glass-line);
   border-bottom: none;
