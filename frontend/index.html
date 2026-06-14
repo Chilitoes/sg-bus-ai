@@ -10,7 +10,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=1.0.2" />
+  <link rel="stylesheet" href="styles.css?v=1.0.3" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -177,6 +177,36 @@
             <p>Ground truth comes from tracking each bus across successive polls
             until it arrives. The model retrains itself hourly.</p>
             <div id="model-info" class="model-info"></div>
+          </div>
+        </details>
+
+        <!-- Legend -->
+        <details id="legend-details" class="panel hidden">
+          <summary>
+            <span>What the labels mean</span>
+            <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="panel-body arr-legend">
+            <div class="stg-legend-group">
+              <div class="stg-legend-head">Bus type</div>
+              <div class="stg-legend-row"><span class="tag">DD</span><span class="stg-legend-txt">Double-deck bus</span></div>
+              <div class="stg-legend-row"><span class="tag">BD</span><span class="stg-legend-txt">Bendy (articulated) bus</span></div>
+              <div class="stg-legend-row"><span class="stg-legend-na">SD</span><span class="stg-legend-txt">Single-deck bus — the default, shown without a tag</span></div>
+            </div>
+            <div class="stg-legend-group">
+              <div class="stg-legend-head">Accessibility</div>
+              <div class="stg-legend-row"><span class="tag wab">♿</span><span class="stg-legend-txt">Wheelchair-accessible bus</span></div>
+            </div>
+            <div class="stg-legend-group">
+              <div class="stg-legend-head">Crowding</div>
+              <div class="stg-legend-row"><span class="load-pill SEA">Seats</span><span class="stg-legend-txt">Seats available</span></div>
+              <div class="stg-legend-row"><span class="load-pill SDA">Standing</span><span class="stg-legend-txt">Standing only</span></div>
+              <div class="stg-legend-row"><span class="load-pill LSD">Crowded</span><span class="stg-legend-txt">Limited standing — packed</span></div>
+            </div>
+            <div class="stg-legend-group">
+              <div class="stg-legend-head">Timing</div>
+              <div class="stg-legend-row"><span class="stg-legend-ai">AI</span><span class="stg-legend-txt">Machine-learning adjusted arrival, refining the raw LTA estimate</span></div>
+            </div>
           </div>
         </details>
 
@@ -458,13 +488,6 @@
         <div class="stg-section-title">Legend</div>
         <div class="stg-card stg-legend">
           <div class="stg-legend-group">
-            <div class="stg-legend-head">Operator</div>
-            <div class="stg-legend-row"><span class="stg-legend-op">SBST</span><span class="stg-legend-txt">SBS Transit</span></div>
-            <div class="stg-legend-row"><span class="stg-legend-op">SMRT</span><span class="stg-legend-txt">SMRT Buses</span></div>
-            <div class="stg-legend-row"><span class="stg-legend-op">TTS</span><span class="stg-legend-txt">Tower Transit Singapore</span></div>
-            <div class="stg-legend-row"><span class="stg-legend-op">GAS</span><span class="stg-legend-txt">Go-Ahead Singapore</span></div>
-          </div>
-          <div class="stg-legend-group">
             <div class="stg-legend-head">Bus type</div>
             <div class="stg-legend-row"><span class="tag">DD</span><span class="stg-legend-txt">Double-deck bus</span></div>
             <div class="stg-legend-row"><span class="tag">BD</span><span class="stg-legend-txt">Bendy (articulated) bus</span></div>
@@ -493,7 +516,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">1.0.2</span>
+            <span class="stg-row-val" id="stg-version-val">1.0.3</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -614,6 +637,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1.0.2"></script>
+<script src="app.js?v=1.0.3"></script>
 </body>
 </html>

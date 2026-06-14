@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.0.2";
+const APP_VERSION = "1.0.3";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -656,7 +656,6 @@ function svcCard(svc) {
       <button class="svc-head">
         <span class="route-badge">${esc(svc.service_no)}</span>
         <span class="svc-mid">
-          <span class="svc-op">${esc(svc.operator || "")}</span>
           <span class="svc-tags">${tags}</span>
         </span>
         <span class="svc-eta">
@@ -775,6 +774,7 @@ async function loadStop(code) {
     renderArrivals(arrivals);
     show($("stats-details"));
     show($("about-details"));
+    show($("legend-details"));
     prepareStats(stats);
     syncSaveBtn();
     pushRecent(code, info);
