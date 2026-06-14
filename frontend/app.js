@@ -1159,6 +1159,40 @@ async function loadData() {
       <td>${fmtWhen(r.collection_time)}</td>${delayCell(r.delay_seconds)}
       <td>${r.bus_load ? (LOAD_LABEL[r.bus_load] || esc(r.bus_load)) : "–"}</td></tr>`).join("");
     $("records-block").classList.toggle("hidden", !rec.length);
+
+    // Leaderboards
+    const lb = d.leaderboard || {};
+    const fmtDelay = (s) => {
+      if (s === null || s === undefined) return "–";
+      const sign = s > 0 ? "+" : "";
+      const abs = Math.abs(s);
+      return abs >= 60
+        ? `${sign}${(s / 60).toFixed(1)}m`
+        : `${sign}${Math.round(s)}s`;
+    };
+    const medal = (i) => ["🥇","🥈","🥉"][i] ?? `${i+1}`;
+    const buses = lb.top_buses || [];
+    $("lb-buses-tbody").innerHTML = buses.map((b, i) => `
+      <tr>
+        <td class="num">${medal(i)}</td>
+        <td><strong>${esc(b.service)}</strong></td>
+        <td class="num delay-pos">${fmtDelay(b.avg_delay_sec)}</td>
+        <td class="num">${b.n.toLocaleString()}</td>
+      </tr>`).join("");
+    $("leaderboard-block").classList.toggle("hidden", !buses.length);
+
+    const stops = lb.top_stops || [];
+    $("lb-stops-tbody").innerHTML = stops.map((s, i) => `
+      <tr>
+        <td class="num">${medal(i)}</td>
+        <td>
+          <div style="font-weight:600">${esc(s.stop_name)}</div>
+          <div style="font-size:.72rem;color:var(--ink-3)">${esc(s.stop_code)}</div>
+        </td>
+        <td class="num delay-pos">${fmtDelay(s.avg_delay_sec)}</td>
+        <td class="num">${s.n.toLocaleString()}</td>
+      </tr>`).join("");
+    $("leaderboard-stops-block").classList.toggle("hidden", !stops.length);
   } catch (err) {
     $("data-grid").innerHTML = "";
     const el = $("data-error");
@@ -1376,10 +1410,21 @@ $("plan-results").addEventListener("click", (e) => {
   const go = e.target.closest(".jcard-go");
   if (go) {
     const card = go.closest(".journey-card");
-    card.classList.toggle("open");
-    // Redraw the map to show this route option
-    const idx = parseInt(card.dataset.optIndex, 10);
-    if (!isNaN(idx) && _planData && _planCoords) updatePlanMap(_planData, _planCoords, idx);
+    const nowOpen = card.classList.toggle("open");
+    if (_planData && _planCoords) {
+      if (nowOpen) {
+        // Card just opened: draw its route.
+        const idx = parseInt(card.dataset.optIndex, 10);
+        if (!isNaN(idx)) updatePlanMap(_planData, _planCoords, idx);
+      } else {
+        // Card just closed: switch the map to whichever other card is still open.
+        const other = document.querySelector("#plan-results .journey-card.open");
+        if (other) {
+          const idx = parseInt(other.dataset.optIndex, 10);
+          if (!isNaN(idx)) updatePlanMap(_planData, _planCoords, idx);
+        }
+      }
+    }
     return;
   }
 

@@ -1292,9 +1292,9 @@ th.num, td.num { text-align: right; }
 #arr-stops-list { display: flex; flex-direction: column; gap: .4rem; }
 
 .arr-stop-item {
-  display: flex; align-items: center; gap: .75rem;
+  display: flex; align-items: center; gap: .9rem;
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: .85rem 1rem;
+  border-radius: var(--radius); padding: 1.05rem 1.1rem;
   cursor: pointer; box-shadow: var(--shadow-sm);
   text-align: left; width: 100%;
   transition: background .1s;
@@ -1302,13 +1302,14 @@ th.num, td.num { text-align: right; }
 .arr-stop-item:active { background: var(--surface-2); }
 
 .arr-stop-code-badge {
-  font-variant-numeric: tabular-nums; font-size: .7rem;
+  font-variant-numeric: tabular-nums; font-size: .78rem;
   font-weight: 700; color: var(--ink-2);
   background: var(--surface-2); border: 1px solid var(--line);
-  padding: .15rem .4rem; border-radius: 6px; flex-shrink: 0;
+  padding: .28rem .55rem; border-radius: 8px; flex-shrink: 0;
+  min-width: 46px; text-align: center;
 }
 .arr-stop-info { flex: 1; min-width: 0; }
-.arr-stop-name { font-size: .95rem; font-weight: 600; color: var(--ink); }
+.arr-stop-name { font-size: 1rem; font-weight: 600; color: var(--ink); }
 .arr-stop-road { font-size: .72rem; color: var(--ink-3); margin-top: .05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .arr-stop-dist {
   font-size: .72rem; font-weight: 600; color: var(--ink-3);

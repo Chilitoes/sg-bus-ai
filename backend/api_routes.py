@@ -1592,6 +1592,62 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
         for s in db.query(MonitoredStop).filter_by(is_active=True).all()
     ]
 
+    # ── Leaderboards (last 30 days, min 20 observations) ─────────────────
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+
+    top_buses_q = (
+        db.query(
+            BusArrivalRecord.bus_service,
+            func.avg(BusArrivalRecord.delay_seconds).label("avg_delay"),
+            func.count(BusArrivalRecord.id).label("n"),
+        )
+        .filter(
+            BusArrivalRecord.delay_seconds.isnot(None),
+            BusArrivalRecord.collection_time >= thirty_days_ago,
+        )
+        .group_by(BusArrivalRecord.bus_service)
+        .having(func.count(BusArrivalRecord.id) >= 20)
+        .order_by(func.avg(BusArrivalRecord.delay_seconds).desc())
+        .limit(10)
+        .all()
+    )
+    top_buses = [
+        {"service": r.bus_service, "avg_delay_sec": round(r.avg_delay, 1), "n": r.n}
+        for r in top_buses_q
+    ]
+
+    top_stops_q = (
+        db.query(
+            BusArrivalRecord.bus_stop_code,
+            func.avg(BusArrivalRecord.delay_seconds).label("avg_delay"),
+            func.count(BusArrivalRecord.id).label("n"),
+        )
+        .filter(
+            BusArrivalRecord.delay_seconds.isnot(None),
+            BusArrivalRecord.collection_time >= thirty_days_ago,
+        )
+        .group_by(BusArrivalRecord.bus_stop_code)
+        .having(func.count(BusArrivalRecord.id) >= 20)
+        .order_by(func.avg(BusArrivalRecord.delay_seconds).desc())
+        .limit(10)
+        .all()
+    )
+    # Enrich with stop names
+    stop_codes = [r.bus_stop_code for r in top_stops_q]
+    stop_name_map = {
+        s.bus_stop_code: s.description
+        for s in db.query(BusStop).filter(BusStop.bus_stop_code.in_(stop_codes)).all()
+    }
+    top_stops = [
+        {
+            "stop_code": r.bus_stop_code,
+            "stop_name": stop_name_map.get(r.bus_stop_code, r.bus_stop_code),
+            "avg_delay_sec": round(r.avg_delay, 1),
+            "n": r.n,
+        }
+        for r in top_stops_q
+    ]
+
     return {
         "database": {
             "type":           db_type,
@@ -1602,6 +1658,10 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
         },
         "model":       global_model.status(),
         "monitored_stops": monitored,
+        "leaderboard": {
+            "top_buses": top_buses,
+            "top_stops": top_stops,
+        },
         "recent_records":  recent,
         "recent_tracking": tracking,
     }

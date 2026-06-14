@@ -11,7 +11,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=48" />
+  <link rel="stylesheet" href="styles.css?v=49" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -337,6 +337,27 @@
         <tbody id="records-tbody"></tbody></table>
       </div>
     </div>
+
+    <div id="leaderboard-block" class="block hidden">
+      <div class="block-head">🏆 Most delayed buses <span class="panel-badge">last 30 days</span></div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th class="num">#</th><th>Route</th><th class="num">Avg delay</th><th class="num">Trips</th></tr></thead>
+          <tbody id="lb-buses-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="leaderboard-stops-block" class="block hidden">
+      <div class="block-head">🏆 Most delayed stops <span class="panel-badge">last 30 days</span></div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th class="num">#</th><th>Stop</th><th class="num">Avg delay</th><th class="num">Records</th></tr></thead>
+          <tbody id="lb-stops-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+      </div>
   </section>
 
   <!-- ════ SETTINGS VIEW ════ -->
@@ -388,7 +409,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val">v48</span>
+            <span class="stg-row-val">v49</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -515,6 +536,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=48"></script>
+<script src="app.js?v=49"></script>
 </body>
 </html>
