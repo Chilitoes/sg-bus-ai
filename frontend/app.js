@@ -18,6 +18,7 @@ const RECENT_KEY = "sgbus_recent";
 const THEME_KEY  = "sgbus_theme";
 const TOKEN_KEY  = "sgbus_token";
 const USER_KEY   = "sgbus_user";
+const APP_VERSION = "60";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -115,6 +116,8 @@ async function api(path, opts = {}) {
 function applyTheme(t) {
   document.documentElement.setAttribute("data-theme", t);
   try { localStorage.setItem(THEME_KEY, t); } catch {}
+  const meta = document.getElementById("theme-color-meta");
+  if (meta) meta.content = t === "light" ? "#f2f3f5" : "#0d0e10";
 }
 function initTheme() {
   const saved = localStorage.getItem(THEME_KEY);
@@ -167,6 +170,8 @@ function _updateSettingsUI() {
   const cur = document.documentElement.getAttribute("data-theme") || "dark";
   document.querySelectorAll(".theme-seg-btn").forEach((b) =>
     b.classList.toggle("active", b.dataset.themeOpt === cur));
+  const ver = $("stg-version-val");
+  if (ver) ver.textContent = APP_VERSION;
   _updateSettingsHomeUI();
 }
 
@@ -639,7 +644,6 @@ function svcCard(svc) {
   const tags = [
     next.type && next.type !== "SD" ? `<span class="tag" title="${TYPE_LABEL[next.type] || next.type}">${esc(next.type)}</span>` : "",
     next.feature === "WAB" ? `<span class="tag wab" title="Wheelchair accessible">♿</span>` : "",
-    next.load ? `<span class="load-dot ${esc(next.load)}" title="${LOAD_LABEL[next.load] || ""}"></span>` : "",
   ].join("");
   return `
     <div class="svc" data-svc="${esc(svc.service_no)}">

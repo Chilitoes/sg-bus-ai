@@ -186,6 +186,7 @@ button { font-family: inherit; cursor: pointer; }
   flex: 1; border: none; outline: none; background: none;
   font: inherit; font-size: 16px;
   color: var(--ink); padding: .75rem 0;
+  text-overflow: ellipsis;
 }
 .search-box input::placeholder { color: var(--ink-3); }
 .search-clear {
@@ -695,10 +696,10 @@ th.num, td.num { text-align: right; }
 .plan-chip svg { color: var(--accent); flex-shrink: 0; }
 .plan-chip:active { background: var(--surface-2); }
 .plan-chip-ghost {
-  background: transparent; border-style: dashed;
-  color: var(--ink-3); box-shadow: none;
+  background: var(--accent-soft); border-style: dashed; border-color: var(--accent);
+  color: var(--accent); box-shadow: none;
 }
-.plan-chip-ghost svg { color: var(--ink-3); }
+.plan-chip-ghost svg { color: var(--accent); }
 .plan-chip-ghost:active { background: var(--surface-2); color: var(--ink); }
 
 /* ── Plan view ───────────────────────────────────────── */
@@ -1275,7 +1276,7 @@ th.num, td.num { text-align: right; }
 
 .arr-locate-btn {
   position: fixed; right: 14px;
-  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--sheet-h) + 12px);
+  bottom: calc(var(--sheet-h) + 12px);
   z-index: 12;
   width: 42px; height: 42px; border-radius: 50%;
   background: var(--glass-strong);
@@ -1311,7 +1312,7 @@ th.num, td.num { text-align: right; }
 /* Liquid-glass bottom sheet */
 .arr-sheet {
   position: fixed; left: 0; right: 0;
-  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  bottom: 0;
   z-index: 15;
   max-width: 640px; margin: 0 auto;
   height: var(--sheet-h);
@@ -1348,7 +1349,7 @@ th.num, td.num { text-align: right; }
 .arr-sheet-scroll {
   flex: 1; min-height: 0;
   overflow-y: auto; -webkit-overflow-scrolling: touch;
-  padding: 0 1rem 1rem;
+  padding: 0 1rem calc(var(--nav-h) + env(safe-area-inset-bottom) + 1rem);
   overscroll-behavior: contain;
 }
 .arr-below { padding-top: .25rem; }
@@ -1423,7 +1424,7 @@ th.num, td.num { text-align: right; }
 }
 .stg-card {
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); overflow: hidden;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
 }
 .stg-row {
@@ -1439,7 +1440,7 @@ th.num, td.num { text-align: right; }
 }
 .stg-row-val { font-size: .84rem; color: var(--ink-3); }
 /* Home location edit panel */
-.stg-home-edit { padding: .55rem 0 .35rem; border-top: 1px solid var(--line); }
+.stg-home-edit { padding: .55rem 1rem .35rem; border-top: 1px solid var(--line); }
 .stg-home-search-wrap { position: relative; margin-bottom: .3rem; }
 .stg-home-clear-btn {
   display: flex; align-items: center; gap: .4rem;
