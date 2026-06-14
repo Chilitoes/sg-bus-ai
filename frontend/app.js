@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.0.8";
+const APP_VERSION = "1.0.9";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -2054,25 +2054,87 @@ async function checkBackend() {
 }
 
 // ── Change password ───────────────────────────────────────
-$("pw-change-btn")?.addEventListener("click", async () => {
-  const cur = $("pw-current").value;
-  const nw  = $("pw-new").value;
+function _clearPwForm() {
+  ["pw-current", "pw-new", "pw-confirm"].forEach((id) => {
+    const el = $(id);
+    if (el) { el.value = ""; el.type = "password"; }
+  });
+  const hint = $("pw-match-hint");
+  if (hint) { hint.textContent = ""; hint.className = "pw-match-hint hidden"; }
   const err = $("pw-error");
-  hide(err);
-  if (nw.length < 8) {
-    err.textContent = "New password must be at least 8 characters.";
-    show(err); return;
+  if (err) hide(err);
+}
+
+document.querySelectorAll(".pw-eye").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const input = $(btn.dataset.target);
+    if (!input) return;
+    const shown = input.type === "text";
+    input.type = shown ? "password" : "text";
+    btn.setAttribute("aria-label", shown ? "Show password" : "Hide password");
+    if (shown) {
+      btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    } else {
+      btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+    }
+  });
+});
+
+$("pw-confirm")?.addEventListener("input", () => {
+  const nw   = $("pw-new")?.value || "";
+  const conf = $("pw-confirm")?.value || "";
+  const hint = $("pw-match-hint");
+  if (!hint) return;
+  if (!conf) { hint.textContent = ""; hint.className = "pw-match-hint hidden"; return; }
+  if (conf === nw) {
+    hint.textContent = "Passwords match";
+    hint.className = "pw-match-hint match";
+  } else {
+    hint.textContent = "Passwords don't match";
+    hint.className = "pw-match-hint mismatch";
   }
+});
+
+$("pw-cancel-btn")?.addEventListener("click", () => {
+  const details = document.querySelector(".pw-change");
+  if (details) details.open = false;
+  _clearPwForm();
+});
+
+$("pw-change-btn")?.addEventListener("click", async () => {
+  const cur  = $("pw-current")?.value.trim() || "";
+  const nw   = $("pw-new")?.value || "";
+  const conf = $("pw-confirm")?.value || "";
+  const err  = $("pw-error");
+  const btn  = $("pw-change-btn");
+  hide(err);
+  if (!cur) {
+    err.textContent = "Please enter your current password."; show(err); return;
+  }
+  if (nw.length < 8) {
+    err.textContent = "New password must be at least 8 characters."; show(err); return;
+  }
+  if (nw !== conf) {
+    err.textContent = "New passwords don't match."; show(err); return;
+  }
+  btn.disabled = true; btn.textContent = "Saving…";
   try {
     await api("/api/auth/change-password", {
       method: "POST",
       body: JSON.stringify({ current_password: cur, new_password: nw }),
     });
-    $("pw-current").value = ""; $("pw-new").value = "";
-    toast("Password updated");
+    const details = document.querySelector(".pw-change");
+    if (details) details.open = false;
+    _clearPwForm();
+    toast("Password changed — signing you out…");
+    setTimeout(() => {
+      clearAuth();
+      setTimeout(() => openSheet(), 400);
+    }, 1800);
   } catch (e) {
     err.textContent = e.message || "Couldn't update password.";
     show(err);
+    btn.disabled = false; btn.textContent = "Save";
   }
 });
 

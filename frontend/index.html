@@ -10,7 +10,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=1.0.8" />
+  <link rel="stylesheet" href="styles.css?v=1.0.9" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -524,7 +524,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">1.0.8</span>
+            <span class="stg-row-val" id="stg-version-val">1.0.9</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -623,17 +623,45 @@
     </div>
 
     <details class="pw-change">
-      <summary>Change password</summary>
-      <label class="field">
-        <span>Current password</span>
-        <input id="pw-current" type="password" autocomplete="current-password" />
-      </label>
-      <label class="field">
-        <span>New password</span>
-        <input id="pw-new" type="password" autocomplete="new-password" />
-      </label>
-      <p id="pw-error" class="error-note hidden"></p>
-      <button id="pw-change-btn" class="bigbtn outline" type="button">Update password</button>
+      <summary>
+        <span>Change password</span>
+        <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </summary>
+      <div class="pw-form">
+        <label class="field">
+          <span>Current password</span>
+          <div class="pw-input-wrap">
+            <input id="pw-current" type="password" autocomplete="current-password" placeholder="Enter current password" />
+            <button type="button" class="pw-eye" data-target="pw-current" aria-label="Show password">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </label>
+        <label class="field">
+          <span>New password</span>
+          <div class="pw-input-wrap">
+            <input id="pw-new" type="password" autocomplete="new-password" placeholder="At least 8 characters" />
+            <button type="button" class="pw-eye" data-target="pw-new" aria-label="Show password">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </label>
+        <label class="field">
+          <span>Confirm new password</span>
+          <div class="pw-input-wrap">
+            <input id="pw-confirm" type="password" autocomplete="new-password" placeholder="Repeat new password" />
+            <button type="button" class="pw-eye" data-target="pw-confirm" aria-label="Show password">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <span id="pw-match-hint" class="pw-match-hint hidden"></span>
+        </label>
+        <p id="pw-error" class="error-note hidden"></p>
+        <div class="pw-btn-row">
+          <button id="pw-cancel-btn" class="bigbtn outline" type="button">Cancel</button>
+          <button id="pw-change-btn" class="bigbtn" type="button">Save</button>
+        </div>
+      </div>
     </details>
 
     <button id="logout-btn" class="bigbtn outline">
@@ -645,6 +673,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1.0.8"></script>
+<script src="app.js?v=1.0.9"></script>
 </body>
 </html>
