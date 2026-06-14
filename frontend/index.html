@@ -10,7 +10,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=61" />
+  <link rel="stylesheet" href="styles.css?v=1.0.1" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -453,13 +453,40 @@
         </div>
       </div>
 
+      <!-- Legend -->
+      <div class="stg-section">
+        <div class="stg-section-title">Legend</div>
+        <div class="stg-card stg-legend">
+          <div class="stg-legend-group">
+            <div class="stg-legend-head">Bus type</div>
+            <div class="stg-legend-row"><span class="tag">DD</span><span class="stg-legend-txt">Double-deck bus</span></div>
+            <div class="stg-legend-row"><span class="tag">BD</span><span class="stg-legend-txt">Bendy (articulated) bus</span></div>
+            <div class="stg-legend-row"><span class="stg-legend-na">SD</span><span class="stg-legend-txt">Single-deck bus — the default, shown without a tag</span></div>
+          </div>
+          <div class="stg-legend-group">
+            <div class="stg-legend-head">Accessibility</div>
+            <div class="stg-legend-row"><span class="tag wab">♿</span><span class="stg-legend-txt">Wheelchair-accessible bus (WAB)</span></div>
+          </div>
+          <div class="stg-legend-group">
+            <div class="stg-legend-head">Crowding</div>
+            <div class="stg-legend-row"><span class="load-pill SEA">Seats</span><span class="stg-legend-txt">Seats available (SEA)</span></div>
+            <div class="stg-legend-row"><span class="load-pill SDA">Standing</span><span class="stg-legend-txt">Standing only (SDA)</span></div>
+            <div class="stg-legend-row"><span class="load-pill LSD">Crowded</span><span class="stg-legend-txt">Limited standing — packed (LSD)</span></div>
+          </div>
+          <div class="stg-legend-group">
+            <div class="stg-legend-head">Timing</div>
+            <div class="stg-legend-row"><span class="stg-legend-ai">AI</span><span class="stg-legend-txt">Machine-learning adjusted arrival — refines the raw LTA estimate using live traffic &amp; history</span></div>
+          </div>
+        </div>
+      </div>
+
       <!-- About -->
       <div class="stg-section">
         <div class="stg-section-title">About</div>
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">61</span>
+            <span class="stg-row-val" id="stg-version-val">1.0.1</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -580,6 +607,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=61"></script>
+<script src="app.js?v=1.0.1"></script>
 </body>
 </html>

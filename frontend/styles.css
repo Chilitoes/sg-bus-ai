@@ -1433,6 +1433,28 @@ th.num, td.num { text-align: right; }
   font-size: .9rem; font-weight: 500; color: var(--ink);
 }
 .stg-row-val { font-size: .84rem; color: var(--ink-3); }
+/* Legend */
+.stg-legend { padding: .35rem 0; }
+.stg-legend-group { padding: .6rem 1rem; }
+.stg-legend-group + .stg-legend-group { border-top: 1px solid var(--line); }
+.stg-legend-head {
+  font-size: .66rem; font-weight: 600; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .08em; margin-bottom: .5rem;
+}
+.stg-legend-row {
+  display: flex; align-items: flex-start; gap: .65rem;
+  padding: .28rem 0;
+}
+.stg-legend-row > :first-child { flex-shrink: 0; margin-top: .1rem; min-width: 30px; text-align: center; }
+.stg-legend-txt { font-size: .82rem; color: var(--ink-2); line-height: 1.4; }
+.stg-legend-na {
+  font-size: .72rem; font-weight: 700; color: var(--ink-3);
+  border: 1px dashed var(--line); border-radius: 5px; padding: .05rem .35rem;
+}
+.stg-legend-ai {
+  font-size: .72rem; font-weight: 700; color: var(--accent);
+  background: var(--accent-soft); border-radius: 5px; padding: .05rem .4rem;
+}
 /* Home location edit panel */
 .stg-home-edit { padding: .55rem 1rem .35rem; border-top: 1px solid var(--line); }
 .stg-home-search-wrap { position: relative; margin-bottom: .3rem; }
