@@ -220,7 +220,7 @@ button { font-family: inherit; cursor: pointer; }
 .chips-area { margin-bottom: 1rem; }
 .chips-label {
   font-size: .68rem; font-weight: 700; letter-spacing: .09em;
-  text-transform: uppercase; color: var(--ink-2);
+  text-transform: uppercase; color: var(--accent);
   margin: 0 0 .45rem .05rem;
 }
 .chips-row {
@@ -783,6 +783,18 @@ th.num, td.num { text-align: right; }
   text-align: center; color: var(--ink-3);
   font-size: .84rem; padding: 2rem .5rem; line-height: 1.6;
 }
+
+/* Plan map jump button */
+.plan-map-jump {
+  display: flex; align-items: center; gap: .4rem;
+  margin: .85rem auto 0;
+  border: none; border-radius: 999px;
+  background: var(--ink); color: var(--bg);
+  padding: .55rem 1.1rem;
+  font: inherit; font-size: .82rem; font-weight: 600; cursor: pointer;
+  box-shadow: 0 2px 14px rgba(0,0,0,.22);
+}
+.plan-map-jump:active { opacity: .8; }
 
 /* Journey cards */
 #plan-results { display: flex; flex-direction: column; gap: 2.2rem; margin-top: 1rem; }
@@ -1474,6 +1486,8 @@ th.num, td.num { text-align: right; }
   font-size: .9rem; font-weight: 500; color: var(--ink);
 }
 .stg-row-val { font-size: .84rem; color: var(--ink-3); }
+.stg-row-chev { color: var(--ink-3); flex-shrink: 0; transition: transform .2s; }
+#stg-home-row.open .stg-row-chev { transform: rotate(180deg); }
 /* Legend */
 .stg-legend { padding: .35rem 0; }
 .stg-legend-group { padding: .6rem 1rem; }

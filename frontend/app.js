@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.0.5";
+const APP_VERSION = "1.0.6";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -295,8 +295,9 @@ $("plan-home-chip").addEventListener("click", () => {
 
 $("stg-home-row").addEventListener("click", () => {
   const edit = $("stg-home-edit");
-  const open = edit.classList.toggle("hidden");
-  if (!open) setTimeout(() => $("stg-home-input").focus(), 50);
+  const nowHidden = edit.classList.toggle("hidden");
+  $("stg-home-row").classList.toggle("open", !nowHidden);
+  if (!nowHidden) setTimeout(() => $("stg-home-input").focus(), 50);
   else $("stg-home-ac").innerHTML = "";
 });
 
@@ -304,6 +305,7 @@ $("stg-home-clear-btn").addEventListener("click", () => {
   showConfirm("Remove your saved home location?", "Remove", () => {
     clearHome();
     $("stg-home-edit").classList.add("hidden");
+    $("stg-home-row").classList.remove("open");
   });
 });
 
@@ -1680,6 +1682,7 @@ async function doJourneyPlan() {
   const res  = $("plan-results");
   const load = $("plan-loading");
   hide(err); res.innerHTML = ""; show(load);
+  hide($("plan-map-jump"));
   $("plan-btn").disabled = true;
 
   try {
@@ -1720,6 +1723,7 @@ async function doJourneyPlan() {
     if (planData) {
       updatePlanMap(planData, { fLat, fLng, tLat, tLng, fromName, toName });
       updateShareUrl();
+      show($("plan-map-jump"));
     }
     updateJourneyCardSaveBtns();
     pushRecent();
@@ -2313,6 +2317,10 @@ $("plan-map-locate-btn")?.addEventListener("click", () => {
     () => toast("Location permission needed"),
     { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 }
   );
+});
+
+$("plan-map-jump").addEventListener("click", () => {
+  $("plan-map-wrap").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
 $("plan-map-fs-btn").addEventListener("click", () => {
