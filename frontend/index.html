@@ -11,7 +11,7 @@
   <title>SG Bus — live arrivals</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="styles.css?v=50" />
+  <link rel="stylesheet" href="styles.css?v=51" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -225,6 +225,14 @@
       <p class="plan-hero-sub">Bus &amp; MRT routes with live arrival times</p>
     </div>
 
+    <!-- Quick-fill chips (shown when home is set) -->
+    <div id="plan-chips" class="plan-chips hidden">
+      <button id="plan-home-chip" class="plan-chip">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span id="plan-home-chip-name">Home</span>
+      </button>
+    </div>
+
     <div class="plan-form">
       <!-- From -->
       <div class="plan-row">
@@ -233,7 +241,7 @@
           <div class="search-row">
             <div class="search-box">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <input id="plan-from-input" type="text" inputmode="search" placeholder="Address, landmark or stop" autocomplete="off" spellcheck="false" />
+              <input id="plan-from-input" type="text" inputmode="search" placeholder="Address or stop" autocomplete="off" spellcheck="false" />
               <button id="plan-from-clear" class="search-clear hidden" aria-label="Clear">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
               </button>
@@ -263,7 +271,7 @@
           <div class="search-row">
             <div class="search-box">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <input id="plan-to-input" type="text" inputmode="search" placeholder="Address, landmark or stop" autocomplete="off" spellcheck="false" />
+              <input id="plan-to-input" type="text" inputmode="search" placeholder="Address or stop" autocomplete="off" spellcheck="false" />
               <button id="plan-to-clear" class="search-clear hidden" aria-label="Clear">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
               </button>
@@ -394,6 +402,36 @@
         </div>
       </div>
 
+      <!-- Home location -->
+      <div class="stg-section">
+        <div class="stg-section-title">Home location</div>
+        <div class="stg-card">
+          <button class="stg-row stg-row-btn" id="stg-home-row">
+            <span class="stg-row-label">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              Home
+            </span>
+            <span id="stg-home-name" class="stg-row-val">Not set</span>
+          </button>
+          <div id="stg-home-edit" class="stg-home-edit hidden">
+            <div class="stg-home-search-wrap">
+              <div class="search-box">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input id="stg-home-input" type="text" inputmode="search" placeholder="Search address or stop" autocomplete="off" spellcheck="false" />
+                <button id="stg-home-input-clear" class="search-clear hidden" aria-label="Clear">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+              <div id="stg-home-ac" class="autocomplete" style="position:absolute;left:0;right:0;top:calc(100% + 4px)"></div>
+            </div>
+            <button id="stg-home-clear-btn" class="stg-home-clear-btn hidden">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+              Clear home
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Account -->
       <div class="stg-section">
         <div class="stg-section-title">Account</div>
@@ -414,7 +452,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val">v50</span>
+            <span class="stg-row-val">v51</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -541,6 +579,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=50"></script>
+<script src="app.js?v=51"></script>
 </body>
 </html>

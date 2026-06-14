@@ -164,11 +164,115 @@ function _updateSettingsUI() {
   const loggedIn = !!S.token;
   const lbl = $("stg-account-label");
   if (lbl) lbl.textContent = loggedIn ? S.username : "Sign in";
-  // Highlight active theme button
   const cur = document.documentElement.getAttribute("data-theme") || "dark";
   document.querySelectorAll(".theme-seg-btn").forEach((b) =>
     b.classList.toggle("active", b.dataset.themeOpt === cur));
+  _updateSettingsHomeUI();
 }
+
+// ── Home location ─────────────────────────────────────────────────────────────
+const HOME_KEY = "sgbus_home";
+
+function getHome() {
+  try { return JSON.parse(localStorage.getItem(HOME_KEY)); } catch { return null; }
+}
+function saveHome(name, lat, lng) {
+  localStorage.setItem(HOME_KEY, JSON.stringify({ name, lat, lng }));
+  _updatePlanHomeChip();
+  _updateSettingsHomeUI();
+}
+function clearHome() {
+  localStorage.removeItem(HOME_KEY);
+  _updatePlanHomeChip();
+  _updateSettingsHomeUI();
+}
+function _updatePlanHomeChip() {
+  const h = getHome();
+  const row = $("plan-chips");
+  if (!row) return;
+  if (h) {
+    $("plan-home-chip-name").textContent = h.name;
+    row.classList.remove("hidden");
+  } else {
+    row.classList.add("hidden");
+  }
+}
+function _updateSettingsHomeUI() {
+  const h = getHome();
+  const nameEl = $("stg-home-name");
+  const clearBtn = $("stg-home-clear-btn");
+  if (nameEl) nameEl.textContent = h ? h.name : "Not set";
+  if (clearBtn) clearBtn.classList.toggle("hidden", !h);
+}
+
+function setupHomeSearch() {
+  const input = $("stg-home-input");
+  const clear = $("stg-home-input-clear");
+  const ac    = $("stg-home-ac");
+  let tmr;
+
+  input.addEventListener("input", () => {
+    const v = input.value.trim();
+    v ? show(clear) : hide(clear);
+    clearTimeout(tmr);
+    tmr = setTimeout(async () => {
+      if (!v || v.length < 2) { ac.innerHTML = ""; return; }
+      const [stops, places] = await Promise.all([
+        api(`/api/stops/search?q=${encodeURIComponent(v)}&limit=4`).catch(() => ({ results: [] })),
+        oneMapSearch(v),
+      ]);
+      const stopHtml = (stops.results || []).map((s) => `
+        <div class="ac-item" data-lat="${s.latitude}" data-lng="${s.longitude}"
+             data-name="${esc(s.description || s.bus_stop_code)}">
+          <span class="ac-code">${esc(s.bus_stop_code)}</span>
+          <div><div class="ac-name">${esc(s.description || "Bus stop")}</div>
+          <div class="ac-road">${esc(s.road_name || "")}</div></div>
+        </div>`).join("");
+      const placeHtml = places.map((p) => `
+        <div class="ac-item ac-place" data-lat="${p.lat}" data-lng="${p.lng}"
+             data-name="${esc(p.name)}">
+          <svg class="ac-place-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+          <div><div class="ac-name">${esc(p.name)}</div>
+          <div class="ac-road">${esc(p.address)}</div></div>
+        </div>`).join("");
+      ac.innerHTML = stopHtml + placeHtml || `<div class="ac-empty">No results.</div>`;
+    }, 250);
+  });
+
+  clear.addEventListener("click", () => {
+    input.value = ""; hide(clear); ac.innerHTML = ""; input.focus();
+  });
+
+  ac.addEventListener("click", (e) => {
+    const item = e.target.closest(".ac-item");
+    if (!item) return;
+    const name = item.dataset.name;
+    const lat  = parseFloat(item.dataset.lat);
+    const lng  = parseFloat(item.dataset.lng);
+    if (!isNaN(lat) && !isNaN(lng)) saveHome(name, lat, lng);
+    input.value = ""; hide(clear); ac.innerHTML = "";
+    $("stg-home-edit").classList.add("hidden");
+  });
+}
+
+$("plan-home-chip").addEventListener("click", () => {
+  const h = getHome();
+  if (!h) return;
+  if (!planState.fromLat) setPlanLocation("from", null, h.name, h.lat, h.lng);
+  else                    setPlanLocation("to",   null, h.name, h.lat, h.lng);
+});
+
+$("stg-home-row").addEventListener("click", () => {
+  const edit = $("stg-home-edit");
+  const open = edit.classList.toggle("hidden");
+  if (!open) setTimeout(() => $("stg-home-input").focus(), 50);
+  else $("stg-home-ac").innerHTML = "";
+});
+
+$("stg-home-clear-btn").addEventListener("click", () => {
+  clearHome();
+  $("stg-home-edit").classList.add("hidden");
+});
 
 function openSheet() {
   show($("sheet-backdrop")); show($("account-sheet"));
@@ -2713,8 +2817,10 @@ hydrateServerFavs();
 checkBackend();
 setupPlanField("from");
 setupPlanField("to");
+setupHomeSearch();
 renderRecents();
 _updateSettingsUI();
+_updatePlanHomeChip();
 _initSheetDrag();
 _whenLeaflet(initArrMap);
 if ("serviceWorker" in navigator) {
