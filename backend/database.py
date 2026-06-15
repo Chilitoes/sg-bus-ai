@@ -212,10 +212,13 @@ class Feedback(Base):
     """User-submitted feedback (anonymous; no auth required)."""
     __tablename__ = "feedback"
 
-    id         = Column(Integer, primary_key=True)
-    rating     = Column(Integer, nullable=True)   # 1–5
-    message    = Column(String(2000), nullable=True)
-    context    = Column(String(50),   nullable=True)   # e.g. "arrivals", "plan"
+    id           = Column(Integer, primary_key=True)
+    rating       = Column(Integer, nullable=True)         # 1–5
+    message      = Column(String(2000), nullable=True)
+    context      = Column(String(50),   nullable=True)    # e.g. "arrivals", "plan"
+    username     = Column(String(50),   nullable=True)    # logged-in user, if any
+    ip_address   = Column(String(45),   nullable=True)    # IPv4 or IPv6
+    user_agent   = Column(String(300),  nullable=True)
     submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -228,6 +231,23 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _migrate_feedback_columns() -> None:
+    """Add username/ip_address/user_agent to a pre-existing feedback table."""
+    insp = inspect(engine)
+    if "feedback" not in insp.get_table_names():
+        return
+    existing = {c["name"] for c in insp.get_columns("feedback")}
+    additions = {
+        "username":   "VARCHAR(50)",
+        "ip_address": "VARCHAR(45)",
+        "user_agent": "VARCHAR(300)",
+    }
+    with engine.begin() as conn:
+        for name, ddl in additions.items():
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE feedback ADD COLUMN {name} {ddl}"))
 
 
 def _migrate_user_columns() -> None:
@@ -261,6 +281,7 @@ def init_db(seed_stops: list[str] | None = None) -> None:
     """Create all tables and optionally seed the monitored-stops list."""
     Base.metadata.create_all(bind=engine)
     _migrate_user_columns()
+    _migrate_feedback_columns()
     if seed_stops:
         db = SessionLocal()
         try:

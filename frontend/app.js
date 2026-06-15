@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.22";
+const APP_VERSION = "1.1.23";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1629,6 +1629,32 @@ async function loadData() {
         <td class="num">${s.n.toLocaleString()}</td>
       </tr>`).join("");
     $("leaderboard-stops-block").classList.toggle("hidden", !stops.length);
+
+    // Feedback (admin only)
+    try {
+      const fb = await api("/api/feedback?limit=200");
+      const items = fb.items || [];
+      $("feedback-admin-count").textContent = items.length;
+      const stars = (n) => n ? "★".repeat(n) + "☆".repeat(5 - n) : "–";
+      const fmtDate = (iso) => new Date(iso + "Z").toLocaleString("en-SG", {
+        day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+        hour12: false, timeZone: "Asia/Singapore",
+      });
+      $("feedback-admin-list").innerHTML = items.length
+        ? items.map((f) => `
+          <div class="fb-admin-card">
+            <div class="fb-admin-top">
+              <span class="fb-admin-stars">${esc(stars(f.rating))}</span>
+              <span class="fb-admin-ctx${f.context ? "" : " hidden"}">${esc(f.context || "")}</span>
+              <span class="fb-admin-who">${f.username ? `<strong>${esc(f.username)}</strong>` : "Anonymous"}</span>
+              <span class="fb-admin-time">${esc(fmtDate(f.submitted_at))}</span>
+            </div>
+            ${f.message ? `<div class="fb-admin-msg">${esc(f.message)}</div>` : ""}
+            <div class="fb-admin-meta">${esc(f.ip_address || "–")} · ${esc((f.user_agent || "–").slice(0, 80))}</div>
+          </div>`).join("")
+        : `<p class="fb-admin-empty">No feedback yet.</p>`;
+      show($("feedback-admin-block"));
+    } catch { /* not admin or endpoint unavailable */ }
   } catch (err) {
     $("data-grid").innerHTML = "";
     const el = $("data-error");

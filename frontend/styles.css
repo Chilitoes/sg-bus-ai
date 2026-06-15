@@ -1695,6 +1695,26 @@ th.num, td.num { text-align: right; }
   text-align: center;
 }
 
+/* ── Admin feedback list ─────────────────────────────── */
+.feedback-admin-list { display: flex; flex-direction: column; gap: .6rem; padding: .2rem 0; }
+.fb-admin-card {
+  background: var(--surface-2); border-radius: 10px;
+  padding: .65rem .85rem; display: flex; flex-direction: column; gap: .3rem;
+}
+.fb-admin-top {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+}
+.fb-admin-stars { color: var(--warn); font-size: .85rem; letter-spacing: .05em; }
+.fb-admin-ctx {
+  font-size: .7rem; font-weight: 600; background: var(--accent-soft);
+  color: var(--accent); border-radius: 4px; padding: .1rem .35rem;
+}
+.fb-admin-who { font-size: .78rem; color: var(--ink-2); margin-left: auto; }
+.fb-admin-time { font-size: .72rem; color: var(--ink-3); }
+.fb-admin-msg { font-size: .85rem; color: var(--ink); line-height: 1.4; }
+.fb-admin-meta { font-size: .68rem; color: var(--ink-3); word-break: break-all; }
+.fb-admin-empty { font-size: .83rem; color: var(--ink-3); padding: .5rem 0; }
+
 /* ── Route viewer sheet ───────────────────────────────── */
 .route-sheet-backdrop {
   position: fixed; inset: 0;

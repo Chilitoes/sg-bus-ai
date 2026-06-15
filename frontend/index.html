@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.1.22" />
+  <link rel="stylesheet" href="styles.css?v=1.1.23" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -470,6 +470,11 @@
         </table>
       </div>
     </div>
+
+    <div id="feedback-admin-block" class="block hidden">
+      <div class="block-head">Feedback <span id="feedback-admin-count" class="panel-badge"></span></div>
+      <div id="feedback-admin-list" class="feedback-admin-list"></div>
+    </div>
       </div>
   </section>
 
@@ -785,6 +790,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1.1.22"></script>
+<script src="app.js?v=1.1.23"></script>
 </body>
 </html>

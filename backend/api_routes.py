@@ -1821,15 +1821,31 @@ async def checkpoint_traffic() -> dict:
 
 @router.post("/feedback")
 def submit_feedback(
+    request: Request,
     rating:  int | None = Query(None, ge=1, le=5),
     message: str | None = Query(None, max_length=2000),
     context: str | None = Query(None, max_length=50),
+    authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Accept anonymous feedback from app users. No auth required."""
+    """Accept feedback from app users. Auth optional — username captured if logged in."""
     if not rating and not message:
         raise HTTPException(status_code=422, detail="Provide at least a rating or a message.")
-    row = Feedback(rating=rating, message=message, context=context)
+    # Resolve username from token if present (best-effort, never blocks submission)
+    username: str | None = None
+    if authorization and authorization.startswith("Bearer "):
+        from database import UserSession
+        token = authorization.removeprefix("Bearer ").strip()
+        session = db.query(UserSession).filter_by(token=token).first()
+        if session:
+            from database import User as _User
+            u = db.query(_User).filter_by(id=session.user_id).first()
+            if u:
+                username = u.username
+    ip = request.client.host if request.client else None
+    ua = (request.headers.get("user-agent") or "")[:300] or None
+    row = Feedback(rating=rating, message=message, context=context,
+                   username=username, ip_address=ip, user_agent=ua)
     db.add(row)
     db.commit()
     return {"ok": True}
@@ -1856,6 +1872,9 @@ def list_feedback(
                 "rating":       r.rating,
                 "message":      r.message,
                 "context":      r.context,
+                "username":     r.username,
+                "ip_address":   r.ip_address,
+                "user_agent":   r.user_agent,
                 "submitted_at": r.submitted_at.isoformat(),
             }
             for r in rows
