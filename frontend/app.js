@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.28";
+const APP_VERSION = "1.1.29";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -3449,7 +3449,7 @@ if (hasShareParams) {
     if (msg)     params.set("message", msg);
     if (overlay._ctx) params.set("context", overlay._ctx);
     try {
-      await api(`/api/feedback?${params}`);
+      await api(`/api/feedback?${params}`, { method: "POST" });
       _closeFeedback();
       toast("Thanks for your feedback!");
     } catch (e) {
