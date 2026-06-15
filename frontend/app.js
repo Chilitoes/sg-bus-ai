@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.26";
+const APP_VERSION = "1.1.27";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -2281,14 +2281,20 @@ function renderMultimodalResult(data) {
 
 function renderMultimodalCard(opt, idx = 0) {
   const active = opt.legs.filter((l) => l.type !== "walk");
-  const badgesHtml = active.map((l, i, a) => {
-    const badge = l.type === "mrt"
-      ? `<span class="jcard-badge mrt-badge" style="border-color:${esc(l.line_color)};color:${esc(l.line_color)}">${esc(l.line)}</span>`
-      : `<span class="jcard-badge">${esc(l.service_no)}</span>`;
-    return badge + (i < a.length - 1
-      ? `<svg class="jcard-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`
-      : "");
-  }).join("") || `<span class="jcard-badge jcard-walk-only">Walk</span>`;
+  const ARROW = `<svg class="jcard-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`;
+  const mkBadge = (l) => l.type === "mrt"
+    ? `<span class="jcard-badge mrt-badge" style="border-color:${esc(l.line_color)};color:${esc(l.line_color)}">${esc(l.line)}</span>`
+    : `<span class="jcard-badge">${esc(l.service_no)}</span>`;
+  let badgesHtml;
+  if (!active.length) {
+    badgesHtml = `<span class="jcard-badge jcard-walk-only">Walk</span>`;
+  } else if (active.length <= 3) {
+    badgesHtml = active.map((l, i, a) => mkBadge(l) + (i < a.length - 1 ? ARROW : "")).join("");
+  } else {
+    badgesHtml = mkBadge(active[0]) + ARROW
+      + `<span class="jcard-badge jcard-more">+${active.length - 2}</span>` + ARROW
+      + mkBadge(active[active.length - 1]);
+  }
 
   const firstActive = active[0];
   const fw = firstActive?.wait_min;
@@ -3399,11 +3405,9 @@ if (hasShareParams) {
   function _openFeedback(ctx = "") {
     overlay._ctx = ctx;
     overlay.classList.remove("hidden");
-    document.body.style.overflow = "hidden";
   }
   function _closeFeedback() {
     overlay.classList.add("hidden");
-    document.body.style.overflow = "";
   }
 
   // Star rating

@@ -844,14 +844,7 @@ th.num, td.num { text-align: right; }
   border-radius: 5px; padding: .07rem .38rem;
 }
 
-/* "Should I run?" verdict on journey cards */
-.jcard-catch {
-  display: block; margin-top: .2rem;
-  font-size: .72rem; font-weight: 600;
-}
-.jcard-catch.make  { color: var(--good); }
-.jcard-catch.tight { color: #d97706; }
-.jcard-catch.miss  { color: var(--bad); }
+/* "Should I run?" verdict — defined later with truncation */
 .unavailable-card {
   opacity: .55;
   border-style: dashed;
@@ -1020,6 +1013,17 @@ th.num, td.num { text-align: right; }
   background: var(--surface-2); color: var(--ink-2) !important;
   border: 1px solid var(--line);
 }
+.jcard-badge.jcard-more {
+  background: var(--surface-2); color: var(--ink-2);
+  border: 1px solid var(--line); font-size: .76rem; min-width: 32px;
+}
+.jcard-catch {
+  font-size: .72rem; font-weight: 600; margin-top: .2rem; display: block;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.jcard-catch.make  { color: var(--good); }
+.jcard-catch.tight { color: #d97706; }
+.jcard-catch.miss  { color: var(--bad); }
 
 /* Walk leg */
 .walk-leg { background: var(--surface-2); }
