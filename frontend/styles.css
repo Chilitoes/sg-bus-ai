@@ -1695,6 +1695,21 @@ th.num, td.num { text-align: right; }
   text-align: center;
 }
 
+/* ── Camera direction tabs ───────────────────────────── */
+.cp-cam-dir-tabs {
+  display: flex; gap: .4rem; margin-bottom: .5rem;
+}
+.cp-cam-dir-tab {
+  font-size: .8rem; font-weight: 600; border: none;
+  background: var(--surface-2); color: var(--ink-2);
+  border-radius: 20px; padding: .28rem .75rem; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.cp-cam-dir-tab.active { background: var(--accent); color: #fff; }
+.cp-cam-dir-note {
+  font-size: .68rem; color: var(--ink-3); margin-bottom: .5rem;
+}
+
 /* ── Admin feedback list ─────────────────────────────── */
 .feedback-admin-list { display: flex; flex-direction: column; gap: .6rem; padding: .2rem 0; }
 .fb-admin-card {

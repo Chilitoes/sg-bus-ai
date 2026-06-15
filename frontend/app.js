@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.23";
+const APP_VERSION = "1.1.24";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -572,11 +572,22 @@ document.querySelectorAll(".nav-item").forEach((b) =>
 // ── Checkpoint view ───────────────────────────────────────
 const CP_CAM_LABELS = {
   "2702": "Woodlands Checkpoint",
-  "2701": "Woodlands Causeway (SG)",
-  "2704": "Woodlands Road Approach",
+  "2701": "Woodlands Causeway",
+  "2704": "Woodlands Road",
   "4713": "Tuas Second Link",
   "4703": "Tuas Checkpoint",
   "4712": "Tuas Approach Road",
+};
+
+// Split Woodlands cameras by direction (all SG-side — no JB feeds available)
+// 2704: approach road from SG city heading to checkpoint (outbound queue)
+// 2702: at the checkpoint gates (both directions)
+// 2701: at the causeway / returning from JB (inbound queue)
+const CP_CAM_DIRS = {
+  "woodlands": [
+    { label: "Towards JB",    ids: ["2702", "2704"] },
+    { label: "Into Singapore", ids: ["2701"] },
+  ],
 };
 
 // Bus timing config for Woodlands checkpoint
@@ -703,19 +714,53 @@ function _renderCarpark(cp) {
   show(el);
 }
 
+function _renderCamGrid(camEl, cameras, bust) {
+  if (!cameras.length) {
+    camEl.innerHTML = `<p class="empty" style="font-size:.82rem;padding:.5rem 0">No camera feeds found.</p>`;
+    return;
+  }
+  camEl.innerHTML = cameras.map((c) => `
+    <div class="cp-camera-card">
+      <img class="cp-camera-img" src="${esc(c.url + bust)}" alt="Traffic camera" loading="lazy" />
+      <div class="cp-camera-label">${esc(CP_CAM_LABELS[c.id] || `Camera ${c.id}`)}</div>
+    </div>`).join("");
+}
+
 function _renderCpPanel(key, cp) {
   if (!cp) return;
-  const bust = `?t=${Date.now()}`;
-
-  // Camera images
+  const bust  = `?t=${Date.now()}`;
   const camEl = $(`cp-cameras-${key}`);
   if (!camEl) return;
-  if (cp.cameras && cp.cameras.length) {
-    camEl.innerHTML = cp.cameras.map((c) => `
-      <div class="cp-camera-card">
-        <img class="cp-camera-img" src="${esc(c.url + bust)}" alt="Traffic camera" loading="lazy" />
-        <div class="cp-camera-label">${esc(CP_CAM_LABELS[c.id] || `Camera ${c.id}`)}</div>
-      </div>`).join("");
+
+  const dirs = CP_CAM_DIRS[key];
+  if (dirs && cp.cameras && cp.cameras.length) {
+    // Build a direction-tab layout inside camEl
+    const camMap = Object.fromEntries(cp.cameras.map((c) => [c.id, c]));
+    let activeDir = 0;
+    const tabsHtml = dirs.map((d, i) =>
+      `<button class="cp-cam-dir-tab${i === 0 ? " active" : ""}" data-dir="${i}">${esc(d.label)}</button>`
+    ).join("");
+
+    camEl.innerHTML = `
+      <div class="cp-cam-dir-tabs">${tabsHtml}</div>
+      <div class="cp-cam-dir-note">SG-side cameras only</div>
+      <div class="cp-cam-dir-body"></div>`;
+
+    function showDir(idx) {
+      activeDir = idx;
+      camEl.querySelectorAll(".cp-cam-dir-tab").forEach((b, i) =>
+        b.classList.toggle("active", i === idx));
+      const body = camEl.querySelector(".cp-cam-dir-body");
+      const cams = dirs[idx].ids.map((id) => camMap[id]).filter(Boolean);
+      _renderCamGrid(body, cams, bust);
+    }
+    camEl.addEventListener("click", (e) => {
+      const btn = e.target.closest(".cp-cam-dir-tab");
+      if (btn) showDir(parseInt(btn.dataset.dir));
+    });
+    showDir(0);
+  } else if (cp.cameras && cp.cameras.length) {
+    _renderCamGrid(camEl, cp.cameras, bust);
   } else {
     camEl.innerHTML = `<p class="empty" style="font-size:.82rem;padding:.5rem 0">No camera feeds found for this checkpoint.</p>`;
   }
