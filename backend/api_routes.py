@@ -1720,24 +1720,40 @@ async def checkpoint_traffic() -> dict:
         return _cp_cache
 
     cameras_raw: list[dict] = []
+    carpark_data: dict | None = None
     async with httpx.AsyncClient(timeout=15) as client:
-        try:
-            r = await client.get("https://api.data.gov.sg/v1/transport/traffic-images")
-            if r.status_code == 200:
-                items = r.json().get("items", [])
-                if items:
-                    for cam in items[0].get("cameras", []):
-                        loc = cam.get("location", {})
-                        cameras_raw.append({
-                            "CameraID":  cam.get("camera_id", ""),
-                            "ImageLink": cam.get("image", ""),
-                            "Latitude":  loc.get("latitude", 0),
-                            "Longitude": loc.get("longitude", 0),
-                        })
-        except Exception:
-            pass
+        img_r, cp_r = await asyncio.gather(
+            client.get("https://api.data.gov.sg/v1/transport/traffic-images"),
+            client.get("https://api.data.gov.sg/v1/transport/carpark-availability"),
+            return_exceptions=True,
+        )
+    if not isinstance(img_r, Exception) and img_r.status_code == 200:
+        items = img_r.json().get("items", [])
+        if items:
+            for cam in items[0].get("cameras", []):
+                loc = cam.get("location", {})
+                cameras_raw.append({
+                    "CameraID":  cam.get("camera_id", ""),
+                    "ImageLink": cam.get("image", ""),
+                    "Latitude":  loc.get("latitude", 0),
+                    "Longitude": loc.get("longitude", 0),
+                })
+    if not isinstance(cp_r, Exception) and cp_r.status_code == 200:
+        items = cp_r.json().get("items", [])
+        if items:
+            for cp_entry in items[0].get("carpark_data", []):
+                if cp_entry.get("carpark_number") == "W11M":
+                    info = cp_entry.get("carpark_info", [{}])[0]
+                    carpark_data = {
+                        "id":         "W11M",
+                        "name":       "Blk 29A Marsiling Dr MSCP",
+                        "available":  int(info.get("lots_available", 0)),
+                        "total":      int(info.get("total_lots", 0)),
+                        "updated_at": cp_entry.get("update_datetime", ""),
+                    }
+                    break
 
-    out: dict = {"_debug": {"cameras_fetched": len(cameras_raw)}}
+    out: dict = {"_debug": {"cameras_fetched": len(cameras_raw)}, "carpark": carpark_data}
 
     # Build a lookup dict: camera_id → normalised camera record
     cam_by_id = {c["CameraID"]: c for c in cameras_raw}
