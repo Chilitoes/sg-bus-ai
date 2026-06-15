@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from sqlalchemy import case, func, or_, text
 from sqlalchemy.orm import Session
 
@@ -1838,8 +1838,7 @@ def submit_feedback(
         token = authorization.removeprefix("Bearer ").strip()
         session = db.query(UserSession).filter_by(token=token).first()
         if session:
-            from database import User as _User
-            u = db.query(_User).filter_by(id=session.user_id).first()
+            u = db.query(User).filter_by(id=session.user_id).first()
             if u:
                 username = u.username
     ip = request.client.host if request.client else None
