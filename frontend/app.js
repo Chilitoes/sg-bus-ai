@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.29";
+const APP_VERSION = "1.1.30";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -325,6 +325,7 @@ function openSheet() {
         ?.classList.toggle("hidden", me.auth_provider === "google");
     })
     .catch(() => {});
+  loadNotifications();
 }
 function closeSheet() { hide($("sheet-backdrop")); hide($("account-sheet")); }
 
@@ -451,7 +452,56 @@ $("logout-btn").addEventListener("click", async () => {
   try { await api("/api/auth/logout", { method: "POST" }); } catch {}
   clearAuth();
   closeSheet();
+  hide($("notif-section"));
   toast("Logged out");
+});
+
+// ── Notifications ──────────────────────────────────────────────────────────────
+
+async function loadNotifications() {
+  if (!S.token) return;
+  try {
+    const data = await api("/api/notifications");
+    const items = data.items || [];
+    const unread = data.unread || 0;
+
+    const dot = $("stg-notif-dot");
+    const badge = $("notif-unread-badge");
+    const markBtn = $("notif-mark-read");
+
+    if (dot) dot.classList.toggle("hidden", unread === 0);
+    if (badge) { badge.textContent = unread; badge.classList.toggle("hidden", unread === 0); }
+    if (markBtn) markBtn.classList.toggle("hidden", unread === 0);
+
+    const list = $("notif-list");
+    if (!list) return;
+    const fmtDate = (iso) => new Date(iso + "Z").toLocaleString("en-SG", {
+      day: "numeric", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore",
+    });
+    const levelIcon = { info: "ℹ️", update: "🆕", warning: "⚠️" };
+    list.innerHTML = items.length
+      ? items.map((n) => `
+          <div class="notif-item${n.read ? " notif-read" : ""}">
+            <div class="notif-item-head">
+              <span class="notif-level-icon">${levelIcon[n.level] || "ℹ️"}</span>
+              <span class="notif-title">${esc(n.title)}</span>
+              ${!n.read ? `<span class="notif-dot-new"></span>` : ""}
+            </div>
+            ${n.body ? `<div class="notif-body">${esc(n.body)}</div>` : ""}
+            <div class="notif-time">${esc(fmtDate(n.created_at))}</div>
+          </div>`).join("")
+      : `<p class="notif-empty">No notifications yet.</p>`;
+
+    show($("notif-section"));
+  } catch { /* not logged in or API unavailable */ }
+}
+
+$("notif-mark-read")?.addEventListener("click", async () => {
+  try {
+    await api("/api/notifications/mark-read", { method: "POST" });
+    await loadNotifications();
+  } catch (e) { toast("Could not mark read: " + e.message); }
 });
 
 async function hydrateServerFavs() {
@@ -1741,26 +1791,61 @@ async function loadData() {
       const fb = await api("/api/feedback?limit=200");
       const items = fb.items || [];
       $("feedback-admin-count").textContent = items.length;
-      const stars = (n) => n ? "★".repeat(n) + "☆".repeat(5 - n) : "–";
       const fmtDate = (iso) => new Date(iso + "Z").toLocaleString("en-SG", {
-        day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
-        hour12: false, timeZone: "Asia/Singapore",
+        day: "numeric", month: "short", year: "numeric",
+        hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore",
       });
-      $("feedback-admin-list").innerHTML = items.length
-        ? items.map((f) => `
-          <div class="fb-admin-card">
+      const starHtml = (n) => n
+        ? `<span class="fb-admin-stars">${"★".repeat(n)}<span class="fb-admin-empty-stars">${"★".repeat(5 - n)}</span></span>`
+        : "";
+      const list = $("feedback-admin-list");
+      if (!items.length) {
+        list.innerHTML = `<p class="fb-admin-empty">No feedback yet.</p>`;
+      } else {
+        list.innerHTML = items.map((f) => `
+          <div class="fb-admin-card" data-fbid="${f.id}">
             <div class="fb-admin-top">
-              <span class="fb-admin-stars">${esc(stars(f.rating))}</span>
-              <span class="fb-admin-ctx${f.context ? "" : " hidden"}">${esc(f.context || "")}</span>
-              <span class="fb-admin-who">${f.username ? `<strong>${esc(f.username)}</strong>` : "Anonymous"}</span>
+              ${starHtml(f.rating)}
+              ${f.context ? `<span class="fb-admin-ctx">${esc(f.context)}</span>` : ""}
               <span class="fb-admin-time">${esc(fmtDate(f.submitted_at))}</span>
+              <div class="fb-admin-actions">
+                ${f.email ? `<a class="fb-admin-reply" href="mailto:${esc(f.email)}?subject=${encodeURIComponent("Re: Your SG Bus feedback")}" title="Reply by email">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l7.89 5.26a2 2 0 0 0 2.22 0L21 8M5 19h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2z"/></svg>
+                </a>` : ""}
+                <button class="fb-admin-del" data-del-fb="${f.id}" aria-label="Delete">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="fb-admin-who">
+              ${f.username ? `<strong>${esc(f.username)}</strong>` : `<span class="fb-admin-anon">Anonymous</span>`}
+              ${f.email ? `<span class="fb-admin-email">&lt;${esc(f.email)}&gt;</span>` : ""}
             </div>
             ${f.message ? `<div class="fb-admin-msg">${esc(f.message)}</div>` : ""}
             <div class="fb-admin-meta">${esc(f.ip_address || "–")} · ${esc((f.user_agent || "–").slice(0, 80))}</div>
-          </div>`).join("")
-        : `<p class="fb-admin-empty">No feedback yet.</p>`;
+          </div>`).join("");
+        // Wire up delete buttons
+        list.querySelectorAll("[data-del-fb]").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const id = btn.dataset.delFb;
+            if (!confirm("Delete this feedback entry?")) return;
+            try {
+              await api(`/api/feedback/${id}`, { method: "DELETE" });
+              btn.closest(".fb-admin-card").remove();
+              const cnt = $("feedback-admin-count");
+              cnt.textContent = Math.max(0, parseInt(cnt.textContent || "0") - 1);
+            } catch (e) { toast("Could not delete: " + e.message); }
+          });
+        });
+      }
       show($("feedback-admin-block"));
     } catch { /* not admin or endpoint unavailable */ }
+
+    // Notifications admin block
+    try {
+      await _loadAdminNotifications();
+      show($("notif-admin-block"));
+    } catch { /* not admin */ }
   } catch (err) {
     $("data-grid").innerHTML = "";
     const el = $("data-error");
@@ -1768,6 +1853,60 @@ async function loadData() {
     show(el);
   }
 }
+
+// ── Admin notifications ────────────────────────────────────────────────────────
+
+async function _loadAdminNotifications() {
+  const data = await api("/api/notifications");
+  const items = data.items || [];
+  const fmtDate = (iso) => new Date(iso + "Z").toLocaleString("en-SG", {
+    day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore",
+  });
+  const adminList = $("notif-admin-list");
+  adminList.innerHTML = items.length
+    ? items.map((n) => `
+        <div class="notif-admin-item" data-nid="${n.id}">
+          <div class="notif-admin-meta">
+            <span class="notif-admin-level notif-level-${esc(n.level)}">${esc(n.level)}</span>
+            <strong>${esc(n.title)}</strong>
+            <span class="fb-admin-time">${esc(fmtDate(n.created_at))}</span>
+            <button class="fb-admin-del" data-del-notif="${n.id}" aria-label="Delete">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/></svg>
+            </button>
+          </div>
+          ${n.body ? `<div class="notif-admin-body">${esc(n.body)}</div>` : ""}
+        </div>`).join("")
+    : `<p class="fb-admin-empty">No notifications sent yet.</p>`;
+
+  adminList.querySelectorAll("[data-del-notif]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.delNotif;
+      try {
+        await api(`/api/notifications/${id}`, { method: "DELETE" });
+        btn.closest(".notif-admin-item").remove();
+      } catch (e) { toast("Could not delete: " + e.message); }
+    });
+  });
+}
+
+$("notif-create-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const title = $("notif-title").value.trim();
+  const body  = $("notif-body").value.trim() || null;
+  const level = $("notif-level").value;
+  if (!title) return;
+  try {
+    await api("/api/notifications", {
+      method: "POST",
+      body: JSON.stringify({ title, body, level }),
+    });
+    $("notif-title").value = "";
+    $("notif-body").value = "";
+    toast("Notification sent!");
+    await _loadAdminNotifications();
+  } catch (e) { toast("Failed: " + e.message); }
+});
 
 // ── Saved journeys ────────────────────────────────────────
 function journeyKey(fLat, fLng, tLat, tLng) {
@@ -2986,7 +3125,7 @@ function _openCardMap(card, data, coords, optIdx) {
       const btn = document.createElement("button");
       btn.className = "jcard-map-fit";
       btn.title = "Fit route";
-      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>`;
       btn.addEventListener("click", () => {
         if (card._jmapBounds?.length) card._jmap.fitBounds(card._jmapBounds, { padding: [24, 24] });
       });
@@ -3375,6 +3514,7 @@ afterFavsChanged();
 renderChips();
 loadModelInfo();
 hydrateServerFavs();
+loadNotifications();
 checkBackend();
 setupPlanField("from");
 setupPlanField("to");

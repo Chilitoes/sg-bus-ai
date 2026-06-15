@@ -35,8 +35,10 @@ _FB_WINDOW_SEC  = 60 * 60      # 1 hour
 _FB_LIMIT       = 5
 
 import httpx
+import pydantic
 import re as _re
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Path, Query, Request
+from pydantic import BaseModel
 from sqlalchemy import case, func, or_, text
 
 _STOP_CODE_RE = _re.compile(r"^[A-Za-z0-9]{1,10}$")
@@ -51,7 +53,7 @@ from sqlalchemy.orm import Session
 from auth_routes import get_current_user, require_admin
 from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL, DATABASE_URL
 from data_collector import persist_arrival_payload
-from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, Feedback, MonitoredStop, User, get_db
+from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, Feedback, MonitoredStop, SystemNotification, User, UserSession, get_db
 from ml_model import model as global_model
 
 logger = logging.getLogger(__name__)
@@ -1893,6 +1895,13 @@ def list_feedback(
         .limit(limit)
         .all()
     )
+    # Enrich with email from the users table where available
+    username_to_email: dict[str, str] = {}
+    usernames = {r.username for r in rows if r.username}
+    if usernames:
+        users = db.query(User).filter(User.username.in_(usernames)).all()
+        username_to_email = {u.username: u.email for u in users if u.email}
+
     return {
         "count": len(rows),
         "items": [
@@ -1902,6 +1911,7 @@ def list_feedback(
                 "message":      r.message,
                 "context":      r.context,
                 "username":     r.username,
+                "email":        username_to_email.get(r.username) if r.username else None,
                 "ip_address":   r.ip_address,
                 "user_agent":   r.user_agent,
                 "submitted_at": r.submitted_at.isoformat(),
@@ -1909,3 +1919,100 @@ def list_feedback(
             for r in rows
         ],
     }
+
+
+@router.delete("/feedback/{feedback_id}")
+def delete_feedback(
+    feedback_id: int,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Delete a feedback entry. Admin only."""
+    row = db.query(Feedback).filter_by(id=feedback_id).first()
+    if row:
+        db.delete(row)
+        db.commit()
+    return {"status": "deleted", "id": feedback_id}
+
+
+# ── System notifications ───────────────────────────────────────────────────────
+
+class NotificationIn(BaseModel):
+    title: str = pydantic.Field(..., max_length=120)
+    body: str | None = pydantic.Field(None, max_length=2000)
+    level: str = pydantic.Field("info", pattern="^(info|warning|update)$")
+
+
+@router.post("/notifications")
+def create_notification(
+    body: NotificationIn,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Create a system notification broadcast to all users. Admin only."""
+    notif = SystemNotification(title=body.title, body=body.body, level=body.level)
+    db.add(notif)
+    db.commit()
+    db.refresh(notif)
+    return {
+        "id": notif.id,
+        "title": notif.title,
+        "body": notif.body,
+        "level": notif.level,
+        "created_at": notif.created_at.isoformat(),
+    }
+
+
+@router.delete("/notifications/{notif_id}")
+def delete_notification(
+    notif_id: int,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Delete a system notification. Admin only."""
+    row = db.query(SystemNotification).filter_by(id=notif_id).first()
+    if row:
+        db.delete(row)
+        db.commit()
+    return {"status": "deleted", "id": notif_id}
+
+
+@router.get("/notifications")
+def list_notifications(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Return all system notifications, newest first, with unread count."""
+    notifs = (
+        db.query(SystemNotification)
+        .order_by(SystemNotification.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    seen_at = user.notifications_seen_at
+    unread = sum(1 for n in notifs if seen_at is None or n.created_at > seen_at)
+    return {
+        "unread": unread,
+        "items": [
+            {
+                "id":         n.id,
+                "title":      n.title,
+                "body":       n.body,
+                "level":      n.level,
+                "created_at": n.created_at.isoformat(),
+                "read":       seen_at is not None and n.created_at <= seen_at,
+            }
+            for n in notifs
+        ],
+    }
+
+
+@router.post("/notifications/mark-read")
+def mark_notifications_read(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Mark all notifications as read for the current user."""
+    user.notifications_seen_at = datetime.utcnow()
+    db.commit()
+    return {"status": "ok"}

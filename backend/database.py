@@ -163,6 +163,10 @@ class User(Base):
     google_sub    = Column(String(64), unique=True, index=True, nullable=True)
     auth_provider = Column(String(20), default="password", nullable=True)
 
+    # Notifications: all system notifications created after this timestamp are
+    # "unread" for this user. NULL means never checked → all are unread.
+    notifications_seen_at = Column(DateTime, nullable=True)
+
 
 class UserSession(Base):
     """Opaque bearer tokens. One row per logged-in device; revocable."""
@@ -222,6 +226,17 @@ class Feedback(Base):
     submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class SystemNotification(Base):
+    """Admin-created system notifications visible to all logged-in users."""
+    __tablename__ = "system_notifications"
+
+    id         = Column(Integer, primary_key=True)
+    title      = Column(String(120), nullable=False)
+    body       = Column(String(2000), nullable=True)
+    level      = Column(String(10), default="info", nullable=False)  # info | warning | update
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def get_db():
@@ -277,11 +292,23 @@ def _migrate_user_columns() -> None:
         ))
 
 
+def _migrate_notifications_column() -> None:
+    """Add notifications_seen_at to a pre-existing users table."""
+    insp = inspect(engine)
+    if "users" not in insp.get_table_names():
+        return
+    existing = {c["name"] for c in insp.get_columns("users")}
+    if "notifications_seen_at" not in existing:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN notifications_seen_at DATETIME"))
+
+
 def init_db(seed_stops: list[str] | None = None) -> None:
     """Create all tables and optionally seed the monitored-stops list."""
     Base.metadata.create_all(bind=engine)
     _migrate_user_columns()
     _migrate_feedback_columns()
+    _migrate_notifications_column()
     if seed_stops:
         db = SessionLocal()
         try:
