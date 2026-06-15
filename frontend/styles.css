@@ -1035,6 +1035,11 @@ th.num, td.num { text-align: right; }
   height: 1px; background: var(--line);
   margin: .2rem 0;
 }
+.ac-svc-badge {
+  background: var(--accent); color: #fff;
+  border-radius: 6px; padding: .15rem .45rem;
+  font-size: .72rem; font-weight: 700; letter-spacing: .03em;
+}
 
 /* ── Saved view section headers ────────────────────────── */
 .saved-section-hd {

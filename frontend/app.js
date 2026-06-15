@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.25";
+const APP_VERSION = "1.1.26";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -917,20 +917,49 @@ function hideAc() { hide($("autocomplete")); $("autocomplete").innerHTML = ""; }
 async function runAc(q) {
   if (!q || q.length < 2) { hideAc(); return; }
   try {
-    const d = await api(`/api/stops/search?q=${encodeURIComponent(q)}&limit=8`);
-    const box = $("autocomplete");
-    if (!d.results.length) {
-      box.innerHTML = `<div class="ac-empty">No stops match “${esc(q)}”.</div>`;
-    } else {
-      box.innerHTML = d.results.map((s) => `
-        <div class="ac-item" data-code="${esc(s.bus_stop_code)}">
-          <span class="ac-code">${esc(s.bus_stop_code)}</span>
-          <div>
-            <div class="ac-name">${esc(s.description || "Bus stop")}</div>
-            <div class="ac-road">${esc(s.road_name || "")}</div>
-          </div>
-        </div>`).join("");
+    const isSvcNum = /^\d{1,3}[A-Z]?$/i.test(q.trim());
+    const [stopsData, places] = await Promise.all([
+      api(`/api/stops/search?q=${encodeURIComponent(q)}&limit=6`).catch(() => ({ results: [] })),
+      q.length >= 3 ? oneMapSearch(q) : Promise.resolve([]),
+    ]);
+    const box = $(“autocomplete”);
+    let html = “”;
+
+    if (isSvcNum) {
+      const svc = q.trim().toUpperCase();
+      html += `<div class=”ac-item ac-route” data-svc=”${esc(svc)}”>
+        <span class=”ac-code ac-svc-badge”>${esc(svc)}</span>
+        <div>
+          <div class=”ac-name”>Bus route ${esc(svc)}</div>
+          <div class=”ac-road”>View all stops on this route</div>
+        </div>
+      </div>`;
     }
+
+    const stopItems = stopsData.results || [];
+    html += stopItems.map((s) => `
+      <div class=”ac-item” data-code=”${esc(s.bus_stop_code)}”>
+        <span class=”ac-code”>${esc(s.bus_stop_code)}</span>
+        <div>
+          <div class=”ac-name”>${esc(s.description || “Bus stop”)}</div>
+          <div class=”ac-road”>${esc(s.road_name || “”)}</div>
+        </div>
+      </div>`).join(“”);
+
+    const filteredPlaces = places
+      .filter((p) => !stopItems.some((s) => s.description === p.name))
+      .slice(0, 4);
+    if (filteredPlaces.length && (stopItems.length || isSvcNum)) html += `<div class=”ac-divider”></div>`;
+    html += filteredPlaces.map((p) => `
+      <div class=”ac-item ac-place” data-lat=”${p.lat}” data-lng=”${p.lng}” data-name=”${esc(p.name)}”>
+        <svg class=”ac-place-icon” width=”14” height=”14” viewBox=”0 0 24 24” fill=”none” stroke=”currentColor” stroke-width=”2” stroke-linecap=”round” stroke-linejoin=”round”><path d=”M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z”/><circle cx=”12” cy=”10” r=”3”/></svg>
+        <div>
+          <div class=”ac-name”>${esc(p.name)}</div>
+          <div class=”ac-road”>${esc(p.address)}</div>
+        </div>
+      </div>`).join(“”);
+
+    box.innerHTML = html || `<div class=”ac-empty”>No results for “${esc(q)}”.</div>`;
     show(box);
   } catch { hideAc(); }
 }
@@ -952,9 +981,20 @@ input.addEventListener("keydown", (e) => {
 $("search-clear").addEventListener("click", () => {
   input.value = ""; hide($("search-clear")); hideAc(); input.focus();
 });
-$("autocomplete").addEventListener("click", (e) => {
+$("autocomplete").addEventListener("click", async (e) => {
   const item = e.target.closest(".ac-item");
-  if (item) { input.value = ""; hide($("search-clear")); hideAc(); loadStop(item.dataset.code); input.blur(); }
+  if (!item) return;
+  input.value = ""; hide($("search-clear")); hideAc(); input.blur();
+  if (item.dataset.svc) { loadBusRoute(item.dataset.svc); return; }
+  if (item.dataset.lat) {
+    try {
+      const near = await api(`/api/stops/nearby?lat=${item.dataset.lat}&lng=${item.dataset.lng}&limit=1`);
+      const s = (near.results || [])[0];
+      if (s) loadStop(s.bus_stop_code); else toast("No nearby bus stops");
+    } catch { toast("Couldn't find nearby stops"); }
+    return;
+  }
+  if (item.dataset.code) loadStop(item.dataset.code);
 });
 document.addEventListener("click", (e) => {
   if (!$("autocomplete").contains(e.target) && e.target !== input
@@ -3390,9 +3430,13 @@ if (hasShareParams) {
     if (overlay._ctx) params.set("context", overlay._ctx);
     try {
       await api(`/api/feedback?${params}`);
-    } catch (_) { /* best-effort */ }
-    toast("Thanks for your feedback! 🙏");
-    _closeFeedback();
+      toast("Thanks for your feedback!");
+      _closeFeedback();
+    } catch (_) {
+      toast("Couldn't send feedback — please try again");
+      submitBtn.disabled = false;
+      return;
+    }
     // Reset
     _rating = 0;
     starsEl?.querySelectorAll(".fb-star").forEach((b) => b.classList.remove("selected"));
