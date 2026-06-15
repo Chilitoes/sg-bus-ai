@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.30";
+const APP_VERSION = "1.1.31";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -452,28 +452,46 @@ $("logout-btn").addEventListener("click", async () => {
   try { await api("/api/auth/logout", { method: "POST" }); } catch {}
   clearAuth();
   closeSheet();
-  hide($("notif-section"));
+  hide($("notif-bell-btn"));
   toast("Logged out");
 });
 
 // ── Notifications ──────────────────────────────────────────────────────────────
 
+const _notifBell  = $("notif-bell-btn");
+const _notifPanel = $("notif-panel");
+
+function _openNotifPanel()  { show(_notifPanel); }
+function _closeNotifPanel() { hide(_notifPanel); }
+
+_notifBell?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (_notifPanel.classList.contains("hidden")) _openNotifPanel();
+  else _closeNotifPanel();
+});
+$("notif-panel-close")?.addEventListener("click", _closeNotifPanel);
+document.addEventListener("click", (e) => {
+  if (!_notifPanel?.classList.contains("hidden") &&
+      !_notifPanel.contains(e.target) && e.target !== _notifBell) {
+    _closeNotifPanel();
+  }
+});
+
 async function loadNotifications() {
-  if (!S.token) return;
+  if (!S.token) { hide(_notifBell); return; }
   try {
     const data = await api("/api/notifications");
     const items = data.items || [];
     const unread = data.unread || 0;
 
-    const dot = $("stg-notif-dot");
-    const badge = $("notif-unread-badge");
-    const markBtn = $("notif-mark-read");
+    const badge = $("notif-bell-badge");
+    const markBtn = $("notif-panel-mark-read");
 
-    if (dot) dot.classList.toggle("hidden", unread === 0);
+    show(_notifBell);
     if (badge) { badge.textContent = unread; badge.classList.toggle("hidden", unread === 0); }
     if (markBtn) markBtn.classList.toggle("hidden", unread === 0);
 
-    const list = $("notif-list");
+    const list = $("notif-panel-list");
     if (!list) return;
     const fmtDate = (iso) => new Date(iso + "Z").toLocaleString("en-SG", {
       day: "numeric", month: "short", year: "numeric",
@@ -492,12 +510,10 @@ async function loadNotifications() {
             <div class="notif-time">${esc(fmtDate(n.created_at))}</div>
           </div>`).join("")
       : `<p class="notif-empty">No notifications yet.</p>`;
-
-    show($("notif-section"));
-  } catch { /* not logged in or API unavailable */ }
+  } catch { hide(_notifBell); }
 }
 
-$("notif-mark-read")?.addEventListener("click", async () => {
+$("notif-panel-mark-read")?.addEventListener("click", async () => {
   try {
     await api("/api/notifications/mark-read", { method: "POST" });
     await loadNotifications();
@@ -2875,10 +2891,11 @@ let _planCoords = null;
 
 function _leafletReady() { return typeof L !== "undefined"; }
 
-// Retry a map call once Leaflet has loaded (for hash/URL auto-loads that run before defer scripts)
+// Leaflet is now a synchronous script loaded before app.js, so it's always
+// ready by the time any of this code runs. The fallback is kept for safety.
 function _whenLeaflet(fn) {
   if (_leafletReady()) { fn(); return; }
-  window.addEventListener("load", fn, { once: true });
+  document.addEventListener("DOMContentLoaded", fn, { once: true });
 }
 
 function _isDark() {
@@ -3133,8 +3150,12 @@ function _openCardMap(card, data, coords, optIdx) {
     }
   }
   card._jmapBounds = _drawOnMap(card._jmap, data, coords, optIdx);
-  // Wait for the card expand animation (0.3s) before invalidating size
-  setTimeout(() => card._jmap?.invalidateSize(), 350);
+  // Invalidate size as soon as the max-height expand transition ends (fires in
+  // ~300 ms). Falls back to 320 ms if the event never fires (e.g. prefers-reduced-motion).
+  const detail = card.querySelector(".jcard-detail");
+  const onEnd = () => { card._jmap?.invalidateSize(); detail?.removeEventListener("transitionend", onEnd); };
+  detail?.addEventListener("transitionend", onEnd, { once: true });
+  setTimeout(onEnd, 320);
 }
 
 function _drawOnMap(map, data, coords, optIdx = 0) {
