@@ -1303,6 +1303,12 @@ th.num, td.num { text-align: right; }
   width: min(640px, calc(100% - 1.5rem));
   margin: 0; z-index: 30;
 }
+.arr-search-row {
+  display: flex; align-items: center; gap: .5rem;
+}
+.arr-search-row .search-box {
+  flex: 1; min-width: 0;
+}
 /* High-contrast solid-ish background so the search box is always readable
    over both light and dark maps. */
 .arr-search-wrap .search-box {
@@ -1893,22 +1899,22 @@ th.num, td.num { text-align: right; }
 .route-stop-meta { font-size: .7rem; color: var(--ink-3); }
 .route-stop-dist { font-size: .72rem; font-weight: 600; color: var(--ink-3); flex-shrink: 0; }
 
-/* ── Notification bell (top-right, home page) ────────────── */
+/* ── Notification bell (inline with search bar) ──────────── */
 .notif-bell-btn {
-  position: fixed; top: env(safe-area-inset-top, 0);
-  right: .75rem; margin-top: .55rem;
-  z-index: 300;
-  width: 38px; height: 38px; border-radius: 50%;
-  background: var(--surface); border: 1.5px solid var(--line);
+  position: relative; flex-shrink: 0;
+  width: 42px; height: 42px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line);
   color: var(--ink-2);
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,.14);
-  cursor: pointer; position: fixed;
+  box-shadow: 0 4px 20px rgba(0,0,0,.35);
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
   transition: background .12s, color .12s;
 }
 .notif-bell-btn:active { background: var(--surface-2); }
 .notif-bell-badge {
-  position: absolute; top: -3px; right: -3px;
+  position: absolute; top: -4px; right: -4px;
   background: var(--accent); color: #fff;
   font-size: .58rem; font-weight: 700;
   border-radius: 999px; padding: 1px 4px; min-width: 14px; text-align: center;
@@ -1916,8 +1922,8 @@ th.num, td.num { text-align: right; }
   pointer-events: none;
 }
 .notif-panel {
-  position: fixed; top: calc(env(safe-area-inset-top, 0px) + 3rem);
-  right: .6rem; width: min(340px, calc(100vw - 1.2rem));
+  position: fixed; top: calc(env(safe-area-inset-top, 0px) + 58px);
+  right: .75rem; width: min(340px, calc(100vw - 1.5rem));
   max-height: 70vh; overflow-y: auto;
   background: var(--surface); border: 1px solid var(--line);
   border-radius: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.18);
