@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.1.13" />
+  <link rel="stylesheet" href="styles.css?v=1.1.22" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -376,18 +376,51 @@
     <div id="cp-error" class="error-note hidden"></div>
 
     <div id="cp-panel-woodlands" class="cp-panel">
-      <div id="cp-cong-woodlands" class="cp-cong-card"></div>
-      <div class="cp-section-hd cp-cam-hd">Live cameras <span class="cp-cam-note">~90 s refresh by LTA</span></div>
+      <div id="cp-carpark" class="cp-carpark-card hidden"></div>
+      <div class="cp-section-hd cp-bus-hd">Bus to checkpoint</div>
+      <details class="cp-bus-acc" id="cp-bus-acc-kranji">
+        <summary class="cp-bus-sum">
+          <div class="cp-bus-sum-left">
+            <span class="cp-bus-origin">From Kranji</span>
+            <button class="cp-bus-stop-btn" data-stop="45139" aria-label="Open stop 45139">45139 ↗</button>
+          </div>
+          <span class="cp-bus-preview" id="cp-bus-pre-kranji"></span>
+          <svg class="cp-bus-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </summary>
+        <div class="cp-bus-body" id="cp-bus-body-kranji"></div>
+      </details>
+      <details class="cp-bus-acc" id="cp-bus-acc-marsiling">
+        <summary class="cp-bus-sum">
+          <div class="cp-bus-sum-left">
+            <span class="cp-bus-origin">From Marsiling</span>
+            <button class="cp-bus-stop-btn" data-stop="47009" aria-label="Open stop 47009">47009 ↗</button>
+          </div>
+          <span class="cp-bus-preview" id="cp-bus-pre-marsiling"></span>
+          <svg class="cp-bus-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </summary>
+        <div class="cp-bus-body" id="cp-bus-body-marsiling"></div>
+      </details>
+      <details class="cp-bus-acc" id="cp-bus-acc-wdlint">
+        <summary class="cp-bus-sum">
+          <div class="cp-bus-sum-left">
+            <span class="cp-bus-origin">From Woodlands Int</span>
+            <button class="cp-bus-stop-btn" data-stop="46211" aria-label="Open stop 46211">46211 ↗</button>
+          </div>
+          <span class="cp-bus-preview" id="cp-bus-pre-wdlint"></span>
+          <svg class="cp-bus-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </summary>
+        <div class="cp-bus-body" id="cp-bus-body-wdlint"></div>
+      </details>
+      <div class="cp-section-hd cp-cam-hd" style="margin-top:1.1rem">Live cameras <span class="cp-cam-note">~90 s refresh by LTA</span></div>
       <div id="cp-cameras-woodlands" class="cp-cameras"></div>
     </div>
 
     <div id="cp-panel-tuas" class="cp-panel hidden">
-      <div id="cp-cong-tuas" class="cp-cong-card"></div>
       <div class="cp-section-hd cp-cam-hd">Live cameras <span class="cp-cam-note">~90 s refresh by LTA</span></div>
       <div id="cp-cameras-tuas" class="cp-cameras"></div>
     </div>
 
-    <p class="cp-note">Travel times are for Singapore-side expressways only · Data from LTA DataMall</p>
+    <p class="cp-note">Live camera feeds from data.gov.sg · Images refresh every ~90 s</p>
   </section>
 
   <!-- ════ DATA VIEW ════ -->
@@ -547,7 +580,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">1.1.13</span>
+            <span class="stg-row-val" id="stg-version-val">1.1.21</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -728,8 +761,30 @@
   </div>
 </div>
 
+<!-- Route viewer sheet (global overlay) -->
+<div id="route-sheet-backdrop" class="route-sheet-backdrop hidden"></div>
+<div id="route-sheet" class="route-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="route-sheet-title">
+  <div class="route-sheet-handle"></div>
+  <div class="route-sheet-head">
+    <div class="route-sheet-info">
+      <span class="route-sheet-badge" id="route-sheet-badge"></span>
+      <div>
+        <div class="route-sheet-title" id="route-sheet-title">Bus Route</div>
+        <div class="route-sheet-sub" id="route-sheet-sub"></div>
+      </div>
+    </div>
+    <button class="route-sheet-close iconbtn" id="route-sheet-close" aria-label="Close route viewer">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="route-sheet-tabs hidden" id="route-sheet-tabs"></div>
+  <div class="route-sheet-body" id="route-sheet-body">
+    <div class="route-sheet-loading">Loading route…</div>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1.1.13"></script>
+<script src="app.js?v=1.1.22"></script>
 </body>
 </html>

@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.13";
+const APP_VERSION = "1.1.22";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -570,9 +570,72 @@ document.querySelectorAll(".nav-item").forEach((b) =>
   b.addEventListener("click", () => switchView(b.dataset.view)));
 
 // ── Checkpoint view ───────────────────────────────────────
+const CP_CAM_LABELS = {
+  "2702": "Woodlands Checkpoint",
+  "2701": "Woodlands Causeway (SG)",
+  "2704": "Woodlands Road Approach",
+  "4713": "Tuas Second Link",
+  "4703": "Tuas Checkpoint",
+  "4712": "Tuas Approach Road",
+};
+
+// Bus timing config for Woodlands checkpoint
+// services: only cross-border routes that go to Woodlands Causeway
+const CP_BUS_STOPS = [
+  { id: "kranji",    label: "From Kranji",        stop: "45139", services: ["160", "170"] },
+  { id: "marsiling", label: "From Marsiling",     stop: "47009", services: ["950", "950A"] },
+  { id: "wdlint",    label: "From Woodlands Int", stop: "46211", services: ["950", "950A", "170X"] },
+];
+
 let _cpData = null;
 let _cpTab  = "woodlands";
 let _cpRefreshTmr = null;
+
+function _waitText(bus) {
+  const min = parseInt(bus.api_wait_min, 10);
+  if (isNaN(min)) return bus.api_wait_min || "–";
+  if (min <= 1) return "Arr";
+  return `${min} min`;
+}
+
+function loadCpBus() {
+  for (const cfg of CP_BUS_STOPS) {
+    const preEl  = $(`cp-bus-pre-${cfg.id}`);
+    const bodyEl = $(`cp-bus-body-${cfg.id}`);
+    if (!preEl || !bodyEl) continue;
+    preEl.textContent = "Loading…";
+    bodyEl.innerHTML  = "";
+    api(`/api/arrivals/${cfg.stop}`)
+      .then((data) => {
+        const svcs = (data.services || []).filter(s => cfg.services.includes(s.service_no));
+        if (!svcs.length) {
+          preEl.textContent = "No service";
+          bodyEl.innerHTML  = `<p class="cp-bus-empty">No cross-checkpoint buses at this stop right now.</p>`;
+          return;
+        }
+        // Preview: first service + first arrival
+        const firstBus = svcs[0].buses?.[0];
+        preEl.textContent = firstBus
+          ? `${svcs[0].service_no} · ${_waitText(firstBus)}`
+          : svcs[0].service_no;
+        // Body: one row per service
+        bodyEl.innerHTML = svcs.map((s) => {
+          const pills = (s.buses || []).slice(0, 3).map((b) => {
+            const t = _waitText(b);
+            return `<span class="cp-bus-pill${t === "Arr" ? " due" : ""}">${esc(t)}</span>`;
+          }).join("");
+          return `<div class="cp-bus-row">
+            <button class="cp-bus-badge" data-service="${esc(s.service_no)}">${esc(s.service_no)}</button>
+            <div class="cp-bus-times">${pills || "<span class=\"cp-bus-empty\">No data</span>"}</div>
+          </div>`;
+        }).join("");
+      })
+      .catch(() => {
+        preEl.textContent = "–";
+        bodyEl.innerHTML  = `<p class="cp-bus-empty">Could not load timings.</p>`;
+      });
+  }
+}
 
 function loadCheckpoint(force = false) {
   if (_cpData && !force) { _renderCheckpoint(_cpData); return; }
@@ -582,6 +645,7 @@ function loadCheckpoint(force = false) {
       _cpData = data;
       hide($("cp-loading"));
       _renderCheckpoint(data);
+      loadCpBus();
       clearTimeout(_cpRefreshTmr);
       _cpRefreshTmr = setTimeout(() => {
         _cpData = null;
@@ -599,39 +663,49 @@ function loadCheckpoint(force = false) {
 function _renderCheckpoint(data) {
   if (data.fetched_at) {
     const t = new Date(data.fetched_at + "Z");
-    $("cp-updated").textContent =
-      `Updated ${fmtClock(t)} · LTA DataMall`;
+    $("cp-updated").textContent = `Updated ${fmtClock(t)} · data.gov.sg`;
   }
+  _renderCarpark(data.carpark);
   _renderCpPanel("woodlands", data.woodlands);
   _renderCpPanel("tuas",      data.tuas);
+}
+
+function _renderCarpark(cp) {
+  const el = $("cp-carpark");
+  if (!el) return;
+  if (!cp) { hide(el); return; }
+  const pct    = cp.total > 0 ? Math.round((cp.available / cp.total) * 100) : 0;
+  // green = lots free (>25%), orange = getting full (10-25%), red = almost full (<10%)
+  const status = pct > 25 ? "good" : pct > 10 ? "warn" : "bad";
+  const t      = cp.updated_at ? fmtClock(new Date(cp.updated_at.replace(" ", "T"))) : "";
+  el.innerHTML = `
+    <div class="cp-cp-row">
+      <div class="cp-cp-info">
+        <div class="cp-cp-name">Blk 29A Marsiling MSCP</div>
+        <div class="cp-cp-time">Drive here · take bus to checkpoint${t ? ` · Updated ${esc(t)}` : ""}</div>
+      </div>
+      <div class="cp-cp-right">
+        <div class="cp-cp-lots">
+          <span class="cp-cp-avail ${status}">${cp.available}</span>
+          <span class="cp-cp-sep">/ ${cp.total}</span>
+        </div>
+        <button class="cp-cp-refresh iconbtn" aria-label="Refresh carpark">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="cp-cp-bar-track">
+      <div class="cp-cp-bar-fill ${status}" style="width:${pct}%"></div>
+    </div>`;
+  el.querySelector(".cp-cp-refresh").addEventListener("click", () => {
+    _cpData = null; loadCheckpoint(true);
+  });
+  show(el);
 }
 
 function _renderCpPanel(key, cp) {
   if (!cp) return;
   const bust = `?t=${Date.now()}`;
-
-  // Congestion card
-  const congEl = $(`cp-cong-${key}`);
-  if (congEl) {
-    if (cp.congestion) {
-      const labels = { light: "Light traffic", moderate: "Moderate traffic", heavy: "Heavy traffic" };
-      const label  = labels[cp.congestion] || cp.congestion;
-      const speed  = cp.speed_range
-        ? `<div class="cp-cong-speed">Road speed: ${cp.speed_range.min}–${cp.speed_range.max} km/h on approach road</div>`
-        : "";
-      congEl.innerHTML = `
-        <div class="cp-cong-row">
-          <span class="cp-cong-label">Approach road</span>
-          <span class="cp-cong-badge">
-            <span class="cp-cong-dot ${cp.congestion}"></span>${esc(label)}
-          </span>
-        </div>
-        ${speed}
-        <div class="cp-cong-note">Queue at checkpoint not included — check cameras below</div>`;
-    } else {
-      congEl.innerHTML = `<div class="cp-cong-note" style="padding:.1rem 0">Traffic speed data unavailable · Use cameras to assess queue</div>`;
-    }
-  }
 
   // Camera images
   const camEl = $(`cp-cameras-${key}`);
@@ -640,6 +714,7 @@ function _renderCpPanel(key, cp) {
     camEl.innerHTML = cp.cameras.map((c) => `
       <div class="cp-camera-card">
         <img class="cp-camera-img" src="${esc(c.url + bust)}" alt="Traffic camera" loading="lazy" />
+        <div class="cp-camera-label">${esc(CP_CAM_LABELS[c.id] || `Camera ${c.id}`)}</div>
       </div>`).join("");
   } else {
     camEl.innerHTML = `<p class="empty" style="font-size:.82rem;padding:.5rem 0">No camera feeds found for this checkpoint.</p>`;
@@ -655,7 +730,118 @@ document.querySelectorAll(".cp-tab").forEach((btn) => {
   });
 });
 
-$("cp-refresh-btn").addEventListener("click", () => { _cpData = null; loadCheckpoint(true); });
+$("cp-refresh-btn").addEventListener("click", () => { _cpData = null; loadCheckpoint(true); loadCpBus(); });
+
+// ── Bus route viewer ──────────────────────────────────────
+function closeRouteSheet() {
+  const sheet = $("route-sheet");
+  sheet.classList.remove("open");
+  setTimeout(() => { hide(sheet); hide($("route-sheet-backdrop")); }, 280);
+}
+
+async function loadBusRoute(serviceNo) {
+  if (!serviceNo) return;
+  switchView("arrivals");
+  const sheet    = $("route-sheet");
+  const backdrop = $("route-sheet-backdrop");
+  const bodyEl   = $("route-sheet-body");
+  const tabsEl   = $("route-sheet-tabs");
+  $("route-sheet-badge").textContent = serviceNo;
+  $("route-sheet-title").textContent = `Bus ${serviceNo}`;
+  $("route-sheet-sub").textContent   = "";
+  bodyEl.innerHTML = `<div class="route-sheet-loading">Loading route…</div>`;
+  tabsEl.innerHTML = "";
+  tabsEl.classList.add("hidden");
+  // Remove any previous direction tab listener clone
+  const freshTabs = tabsEl.cloneNode(false);
+  tabsEl.replaceWith(freshTabs);
+  const newTabsEl = $("route-sheet-tabs");
+  show(backdrop); show(sheet);
+  requestAnimationFrame(() => sheet.classList.add("open"));
+
+  function renderDir(stops) {
+    if (!stops.length) { bodyEl.innerHTML = `<p class="route-sheet-empty">No stops found.</p>`; return; }
+    bodyEl.innerHTML = stops.map((stop, i) => `
+      <div class="route-stop-row">
+        <div class="route-stop-line">
+          <div class="route-stop-dot${i === 0 ? " first" : i === stops.length - 1 ? " last" : ""}"></div>
+          ${i < stops.length - 1 ? `<div class="route-stop-seg"></div>` : ""}
+        </div>
+        <button class="route-stop-btn" data-code="${esc(stop.code)}">
+          <span class="route-stop-name">${esc(stop.name || stop.code)}</span>
+          <span class="route-stop-code">${esc(stop.code)}</span>
+        </button>
+      </div>`).join("");
+  }
+
+  try {
+    const data = await api(`/api/routes/${encodeURIComponent(serviceNo)}`);
+    const { directions } = data;
+    if (!directions.length) {
+      bodyEl.innerHTML = `<p class="route-sheet-empty">No route data for Bus ${esc(serviceNo)}. Route data may not be synced on the server yet.</p>`;
+      return;
+    }
+    const allStops = directions[0].stops;
+    if (allStops.length >= 2) {
+      const first = allStops[0].name || allStops[0].code;
+      const last  = allStops[allStops.length - 1].name || allStops[allStops.length - 1].code;
+      $("route-sheet-sub").textContent = `${allStops.length} stops · ${first} → ${last}`;
+    }
+    if (directions.length > 1) {
+      newTabsEl.classList.remove("hidden");
+      let activeIdx = 0;
+      function setTab(idx) {
+        activeIdx = idx;
+        newTabsEl.querySelectorAll(".route-dir-tab").forEach((b, i) =>
+          b.classList.toggle("active", i === idx));
+        const stops = directions[idx].stops;
+        renderDir(stops);
+        if (stops.length >= 2) {
+          const first = stops[0].name || stops[0].code;
+          const last  = stops[stops.length - 1].name || stops[stops.length - 1].code;
+          $("route-sheet-sub").textContent = `${stops.length} stops · ${first} → ${last}`;
+        }
+      }
+      newTabsEl.innerHTML = directions.map((d, i) => {
+        const dest = d.stops[d.stops.length - 1]?.name || `Dir ${d.direction}`;
+        return `<button class="route-dir-tab${i === 0 ? " active" : ""}" data-idx="${i}">To ${esc(dest)}</button>`;
+      }).join("");
+      newTabsEl.addEventListener("click", (e) => {
+        const btn = e.target.closest(".route-dir-tab");
+        if (btn) setTab(parseInt(btn.dataset.idx));
+      });
+      renderDir(directions[0].stops);
+    } else {
+      renderDir(directions[0].stops);
+    }
+  } catch (e) {
+    bodyEl.innerHTML = `<p class="route-sheet-empty">Route not available: ${esc(e.message)}</p>`;
+  }
+}
+
+$("route-sheet-close").addEventListener("click", closeRouteSheet);
+$("route-sheet-backdrop").addEventListener("click", closeRouteSheet);
+$("route-sheet-body").addEventListener("click", (e) => {
+  const btn = e.target.closest(".route-stop-btn");
+  if (btn) { closeRouteSheet(); loadStop(btn.dataset.code); }
+});
+
+// Checkpoint bus badges delegate (badges are rendered dynamically)
+document.getElementById("cp-panel-woodlands").addEventListener("click", (e) => {
+  const badge = e.target.closest(".cp-bus-badge[data-service]");
+  if (badge) loadBusRoute(badge.dataset.service);
+});
+document.getElementById("cp-panel-tuas").addEventListener("click", (e) => {
+  const badge = e.target.closest(".cp-bus-badge[data-service]");
+  if (badge) loadBusRoute(badge.dataset.service);
+});
+
+document.querySelectorAll(".cp-bus-stop-btn").forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation(); // don't toggle the <details>
+    loadStop(btn.dataset.stop);
+  });
+});
 
 // ── Search + autocomplete ─────────────────────────────────
 const input = $("stop-input");
@@ -827,6 +1013,13 @@ function renderArrivals(data) {
 }
 
 $("rows").addEventListener("click", (e) => {
+  // Clicking the route badge opens the route viewer instead of toggling expand
+  const badge = e.target.closest(".route-badge");
+  if (badge) {
+    const svc = badge.closest(".svc");
+    if (svc) loadBusRoute(svc.dataset.svc);
+    return;
+  }
   const head = e.target.closest(".svc-head");
   if (head) head.closest(".svc").classList.toggle("open");
 });

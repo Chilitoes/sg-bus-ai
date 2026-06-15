@@ -780,6 +780,40 @@ async def sync_routes(admin: User = Depends(require_admin)) -> dict:
     return {"status": "ok", "routes_synced": total}
 
 
+@router.get("/routes/{service_no}")
+def get_route_stops(service_no: str, db: Session = Depends(get_db)) -> dict:
+    """Return all stops for a bus service in sequence, for each direction."""
+    directions = []
+    for direction in [1, 2]:
+        rows = (
+            db.query(BusRoute, BusStop)
+            .outerjoin(BusStop, BusStop.bus_stop_code == BusRoute.bus_stop_code)
+            .filter(BusRoute.service_no == service_no, BusRoute.direction == direction)
+            .order_by(BusRoute.stop_sequence)
+            .all()
+        )
+        if rows:
+            directions.append({
+                "direction": direction,
+                "stops": [
+                    {
+                        "sequence":    r.BusRoute.stop_sequence,
+                        "code":        r.BusRoute.bus_stop_code,
+                        "name":        r.BusStop.description if r.BusStop else None,
+                        "road":        r.BusStop.road_name   if r.BusStop else None,
+                        "distance_km": r.BusRoute.distance_km,
+                    }
+                    for r in rows
+                ],
+            })
+    if not directions:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No route data for service {service_no}. Call POST /api/routes/sync first.",
+        )
+    return {"service_no": service_no, "directions": directions}
+
+
 @router.get("/journey/plan")
 async def plan_journey(
     from_code: str = Query(..., description="Origin bus stop code"),

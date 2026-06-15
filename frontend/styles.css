@@ -308,6 +308,7 @@ button { font-family: inherit; cursor: pointer; }
   min-width: 52px; height: 40px; border-radius: 10px;
   background: var(--ink); color: var(--bg);
   display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
   font-size: 1.1rem; font-weight: 700; letter-spacing: -.02em;
   padding: 0 .45rem; flex-shrink: 0;
   font-variant-numeric: tabular-nums;
@@ -1591,6 +1592,10 @@ th.num, td.num { text-align: right; }
 .cp-cong-note {
   font-size: .72rem; color: var(--ink-3); margin-top: .3rem;
 }
+.cp-cong-divider {
+  border: none; border-top: 1px solid var(--border); margin: .55rem 0;
+}
+.cp-cong-na { color: var(--ink-3); font-weight: 400; }
 .cp-cameras { display: flex; flex-direction: column; gap: .75rem; }
 .cp-camera-card {
   border-radius: 10px; overflow: hidden;
@@ -1600,8 +1605,176 @@ th.num, td.num { text-align: right; }
   width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover;
   background: var(--surface-2);
 }
+.cp-camera-label {
+  font-size: .72rem; color: var(--ink-3);
+  padding: .3rem .65rem .4rem;
+}
+/* Carpark card */
+.cp-carpark-card {
+  background: var(--surface); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); padding: .75rem 1rem; margin-bottom: .65rem;
+}
+.cp-cp-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.cp-cp-name { font-size: .88rem; font-weight: 600; }
+.cp-cp-time { font-size: .72rem; color: var(--ink-3); margin-top: .15rem; }
+.cp-cp-right { display: flex; align-items: center; gap: .4rem; flex-shrink: 0; }
+.cp-cp-lots { display: flex; align-items: baseline; gap: .15rem; }
+.cp-cp-avail { font-size: 1.35rem; font-weight: 700; }
+.cp-cp-refresh { color: var(--ink-3); }
+.cp-cp-avail.good { color: var(--good); }
+.cp-cp-avail.warn { color: var(--warn); }
+.cp-cp-avail.bad  { color: var(--bad); }
+.cp-cp-sep { font-size: .8rem; color: var(--ink-3); }
+.cp-cp-bar-track {
+  height: 4px; border-radius: 2px; background: var(--surface-2); margin-top: .55rem;
+}
+.cp-cp-bar-fill {
+  height: 100%; border-radius: 2px; transition: width .4s;
+}
+.cp-cp-bar-fill.good { background: var(--good); }
+.cp-cp-bar-fill.warn { background: var(--warn); }
+.cp-cp-bar-fill.bad  { background: var(--bad); }
+
+/* Bus timing accordions */
+.cp-bus-acc {
+  background: var(--surface); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); margin-bottom: .45rem;
+  overflow: hidden;
+}
+.cp-bus-acc summary { list-style: none; }
+.cp-bus-acc summary::-webkit-details-marker { display: none; }
+.cp-bus-sum {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .75rem 1rem; cursor: pointer; user-select: none;
+}
+.cp-bus-sum:active { background: var(--surface-2); }
+.cp-bus-sum-left { display: flex; align-items: center; gap: .5rem; flex: 1; min-width: 0; }
+.cp-bus-origin { font-size: .9rem; font-weight: 600; }
+.cp-bus-stop-btn {
+  font-size: .7rem; color: var(--accent); background: none; border: none;
+  padding: .1rem .2rem; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+}
+.cp-bus-preview {
+  font-size: .8rem; color: var(--ink-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%;
+}
+.cp-bus-chev {
+  flex-shrink: 0; color: var(--ink-3);
+  transition: transform .2s;
+}
+.cp-bus-acc[open] .cp-bus-chev { transform: rotate(180deg); }
+.cp-bus-body {
+  padding: .1rem .85rem .85rem;
+  display: flex; flex-direction: column; gap: .55rem;
+}
+.cp-bus-row {
+  display: flex; align-items: center; gap: .75rem;
+}
+.cp-bus-badge {
+  min-width: 44px; height: 34px; border-radius: 8px;
+  background: var(--ink); color: var(--bg);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: .95rem; font-weight: 700; padding: 0 .4rem; flex-shrink: 0;
+  border: none; cursor: pointer;
+  transition: opacity .15s;
+}
+.cp-bus-badge:active { opacity: .7; }
+.cp-bus-times {
+  display: flex; gap: .35rem; flex-wrap: wrap;
+}
+.cp-bus-pill {
+  font-size: .78rem; font-weight: 600; color: var(--ink);
+  background: var(--surface-2); border-radius: 6px;
+  padding: .18rem .5rem;
+}
+.cp-bus-pill.due { color: var(--good); }
+.cp-bus-empty { font-size: .8rem; color: var(--ink-3); padding: .2rem 0 .3rem; }
 .cp-note {
   font-size: .72rem; color: var(--ink-3);
   padding: .5rem 1rem 1.5rem;
   text-align: center;
 }
+
+/* ── Route viewer sheet ───────────────────────────────── */
+.route-sheet-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.45); backdrop-filter: blur(2px);
+  z-index: 250;
+}
+.route-sheet {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--surface);
+  border-radius: 18px 18px 0 0;
+  max-height: 82dvh; display: flex; flex-direction: column;
+  z-index: 251;
+  box-shadow: 0 -4px 24px rgba(0,0,0,.25);
+  transform: translateY(100%);
+  transition: transform .28s cubic-bezier(.4,0,.2,1);
+}
+.route-sheet.open { transform: translateY(0); }
+.route-sheet-handle {
+  width: 36px; height: 4px; border-radius: 2px;
+  background: var(--line); margin: .55rem auto .1rem; flex-shrink: 0;
+}
+.route-sheet-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .55rem 1rem .6rem; flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+.route-sheet-info { display: flex; align-items: center; gap: .7rem; }
+.route-sheet-badge {
+  min-width: 46px; height: 38px; border-radius: 10px;
+  background: var(--ink); color: var(--bg);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: .95rem; font-weight: 700; padding: 0 .5rem; flex-shrink: 0;
+}
+.route-sheet-title { font-size: 1rem; font-weight: 700; color: var(--ink); }
+.route-sheet-sub   { font-size: .75rem; color: var(--ink-3); margin-top: .05rem; }
+.route-sheet-tabs {
+  display: flex; gap: .4rem; padding: .55rem 1rem .4rem; flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+.route-dir-tab {
+  font-size: .8rem; font-weight: 600; border: none; background: var(--surface-2);
+  color: var(--ink-2); border-radius: 20px; padding: .3rem .75rem; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.route-dir-tab.active { background: var(--accent); color: #fff; }
+.route-sheet-body {
+  overflow-y: auto; padding: .5rem 0 1.5rem; flex: 1 1 auto;
+  overscroll-behavior: contain;
+}
+.route-sheet-loading {
+  text-align: center; font-size: .85rem; color: var(--ink-3); padding: 2rem 1rem;
+}
+.route-sheet-empty {
+  font-size: .83rem; color: var(--ink-3); padding: 1.5rem 1rem; text-align: center;
+}
+.route-stop-row {
+  display: flex; align-items: stretch; gap: 0;
+  min-height: 44px;
+}
+.route-stop-line {
+  display: flex; flex-direction: column; align-items: center;
+  width: 36px; flex-shrink: 0; padding: 4px 0 0;
+}
+.route-stop-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--ink-3); border: 2px solid var(--surface); flex-shrink: 0;
+  margin-top: 2px;
+}
+.route-stop-dot.first, .route-stop-dot.last { background: var(--accent); }
+.route-stop-seg {
+  width: 2px; background: var(--line); flex: 1 1 auto; margin-top: 2px;
+}
+.route-stop-btn {
+  display: flex; flex-direction: column; justify-content: center;
+  gap: .08rem; flex: 1 1 auto; padding: .5rem .9rem .5rem .4rem;
+  background: none; border: none; cursor: pointer; text-align: left;
+  border-bottom: 1px solid var(--line);
+  transition: background .12s;
+}
+.route-stop-btn:active { background: var(--surface-2); }
+.route-stop-row:last-child .route-stop-btn { border-bottom: none; }
+.route-stop-name { font-size: .88rem; font-weight: 500; color: var(--ink); }
+.route-stop-code { font-size: .72rem; color: var(--ink-3); }
