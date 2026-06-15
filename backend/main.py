@@ -17,9 +17,11 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from api_routes import router
 from auth_routes import router as auth_router, hash_password, verify_password
@@ -87,25 +89,50 @@ async def lifespan(app: FastAPI):
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
+_PRODUCTION = not os.getenv("DEBUG")
+
 app = FastAPI(
     title="Singapore AI Bus Predictor",
     description="Real-time bus arrivals with ML-adjusted predictions.",
     version="1.0.0",
     lifespan=lifespan,
+    # Disable interactive docs in production — they expose the full API surface
+    # and let anyone fire requests from a browser UI without credentials.
+    docs_url=None if _PRODUCTION else "/docs",
+    redoc_url=None if _PRODUCTION else "/redoc",
+    openapi_url=None if _PRODUCTION else "/openapi.json",
 )
+
+_ALLOWED_ORIGINS = [
+    "https://alstonshi.com",
+    "https://www.alstonshi.com",
+    "https://alston-b550mh.tail8c7cb3.ts.net",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://alstonshi.com",
-        "https://www.alstonshi.com",
-        "https://alston-b550mh.tail8c7cb3.ts.net",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Inject defensive HTTP response headers on every reply."""
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+        # Remove the server banner so version-fingerprinting is harder
+        response.headers.pop("server", None)
+        return response
+
+
+app.add_middleware(_SecurityHeadersMiddleware)
 
 app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api")

@@ -28,12 +28,27 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+# Simple in-process rate-limiter for the anonymous feedback endpoint.
+# Keyed by client IP; 5 submissions per hour per IP.
+_fb_attempts: dict[str, list[float]] = defaultdict(list)
+_FB_WINDOW_SEC  = 60 * 60      # 1 hour
+_FB_LIMIT       = 5
+
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
+import re as _re
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Path, Query, Request
 from sqlalchemy import case, func, or_, text
+
+_STOP_CODE_RE = _re.compile(r"^[A-Za-z0-9]{1,10}$")
+
+
+def _check_stop_code(code: str) -> str:
+    if not _STOP_CODE_RE.match(code):
+        raise HTTPException(status_code=400, detail="Invalid bus stop code format.")
+    return code
 from sqlalchemy.orm import Session
 
-from auth_routes import require_admin
+from auth_routes import get_current_user, require_admin
 from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL, DATABASE_URL
 from data_collector import persist_arrival_payload
 from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, Feedback, MonitoredStop, User, get_db
@@ -120,10 +135,11 @@ async def _call_lta(stop_code: str) -> dict:
 
 @router.get("/arrivals/{stop_code}")
 async def get_arrivals(
-    stop_code: str,
     background_tasks: BackgroundTasks,
+    stop_code: str = Path(..., max_length=10),
     db: Session = Depends(get_db),
 ) -> dict:
+    stop_code = _check_stop_code(stop_code)
     """
     Fetch real-time arrivals from LTA and augment each bus slot with an
     AI-adjusted prediction.
@@ -408,7 +424,7 @@ def get_stats(stop_code: str, db: Session = Depends(get_db)) -> dict:
 # ── ML model ──────────────────────────────────────────────────────────
 
 @router.get("/model/status")
-def model_status() -> dict:
+def model_status(admin: User = Depends(require_admin)) -> dict:
     return global_model.status()
 
 
@@ -426,8 +442,8 @@ async def retrain_model(admin: User = Depends(require_admin)) -> dict:
 
 @router.get("/stops/search")
 def search_stops(
-    q: str = Query(..., min_length=1, description="Stop code or partial name/road"),
-    limit: int = Query(10, le=30),
+    q: str = Query(..., min_length=1, max_length=100, description="Stop code or partial name/road"),
+    limit: int = Query(10, ge=1, le=30),
     db: Session = Depends(get_db),
 ) -> dict:
     """
@@ -521,7 +537,8 @@ def nearby_stops(
 
 
 @router.get("/stops/{stop_code}")
-def get_stop(stop_code: str, db: Session = Depends(get_db)) -> dict:
+def get_stop(stop_code: str = Path(..., max_length=10), db: Session = Depends(get_db)) -> dict:
+    stop_code = _check_stop_code(stop_code)
     stop = db.query(BusStop).filter_by(bus_stop_code=stop_code).first()
     if not stop:
         return {"bus_stop_code": stop_code, "description": None, "road_name": None}
@@ -589,13 +606,14 @@ async def _sync_stops_impl() -> dict:
 # ── Monitored stops ──────────────────────────────────────────────────
 
 @router.get("/monitor")
-def list_monitored(db: Session = Depends(get_db)) -> dict:
+def list_monitored(admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
     stops = db.query(MonitoredStop).filter_by(is_active=True).all()
     return {"stops": [s.bus_stop_code for s in stops]}
 
 
 @router.post("/monitor/{stop_code}")
-def add_monitored(stop_code: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def add_monitored(stop_code: str = Path(..., max_length=10), admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+    stop_code = _check_stop_code(stop_code)
     existing = db.query(MonitoredStop).filter_by(bus_stop_code=stop_code).first()
     if existing:
         existing.is_active = True
@@ -606,7 +624,8 @@ def add_monitored(stop_code: str, admin: User = Depends(require_admin), db: Sess
 
 
 @router.delete("/monitor/{stop_code}")
-def remove_monitored(stop_code: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def remove_monitored(stop_code: str = Path(..., max_length=10), admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+    stop_code = _check_stop_code(stop_code)
     row = db.query(MonitoredStop).filter_by(bus_stop_code=stop_code).first()
     if row:
         row.is_active = False
@@ -1788,7 +1807,7 @@ async def checkpoint_traffic() -> dict:
                     }
                     break
 
-    out: dict = {"_debug": {"cameras_fetched": len(cameras_raw)}, "carpark": carpark_data}
+    out: dict = {"carpark": carpark_data}
 
     # Build a lookup dict: camera_id → normalised camera record
     cam_by_id = {c["CameraID"]: c for c in cameras_raw}
@@ -1804,8 +1823,6 @@ async def checkpoint_traffic() -> dict:
                 except (TypeError, ValueError):
                     d = 0.0
                 cameras.append({"id": cid, "url": c["ImageLink"], "dist_km": round(d, 1)})
-
-        out["_debug"][f"{key}_cameras_found"] = len(cameras)
 
         out[key] = {
             "name":    cp["name"],
@@ -1832,6 +1849,19 @@ def submit_feedback(
     """Accept feedback from app users. Auth optional — username captured if logged in."""
     if not rating and not message:
         raise HTTPException(status_code=422, detail="Provide at least a rating or a message.")
+
+    # Rate-limit anonymous submissions: 5 per hour per IP.
+    ip = request.client.host if request.client else "unknown"
+    now_ts = _time.time()
+    _fb_attempts[ip] = [t for t in _fb_attempts[ip] if now_ts - t < _FB_WINDOW_SEC]
+    if len(_fb_attempts[ip]) >= _FB_LIMIT:
+        raise HTTPException(status_code=429, detail="Too many feedback submissions. Try again later.")
+    _fb_attempts[ip].append(now_ts)
+    if len(_fb_attempts) > 5000:
+        cutoff = now_ts - _FB_WINDOW_SEC
+        for stale in [k for k, v in _fb_attempts.items() if not v or v[-1] < cutoff]:
+            del _fb_attempts[stale]
+
     # Resolve username from token if present (best-effort, never blocks submission)
     username: str | None = None
     if authorization and authorization.startswith("Bearer "):
@@ -1842,7 +1872,6 @@ def submit_feedback(
             u = db.query(User).filter_by(id=session.user_id).first()
             if u:
                 username = u.username
-    ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent") or "")[:300] or None
     row = Feedback(rating=rating, message=message, context=context,
                    username=username, ip_address=ip, user_agent=ua)

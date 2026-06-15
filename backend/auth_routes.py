@@ -30,7 +30,8 @@ import httpx
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request
+import pydantic
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -53,6 +54,16 @@ MAX_SAVED_JOURNEYS = 30
 _attempts: dict[str, list[float]] = defaultdict(list)
 _ATTEMPT_WINDOW_SEC = 15 * 60
 _ATTEMPT_LIMIT = 20
+
+# Per-account ceiling that does NOT depend on the source IP. The X-Forwarded-For
+# header is client-supplied and trivially spoofable, so an attacker could rotate
+# it to mint a fresh per-IP bucket on every request and brute-force a single
+# account without limit. This IP-independent bucket caps attempts against one
+# username regardless of where they come from — the standard mitigation for
+# online password guessing. Slightly higher than the per-IP limit so a few
+# honest users behind one shared IP aren't punished for one fat-fingered login.
+_account_attempts: dict[str, list[float]] = defaultdict(list)
+_ACCOUNT_ATTEMPT_LIMIT = 30
 
 # Sessions idle longer than this are rejected and deleted.
 SESSION_TTL_DAYS = 30
@@ -86,6 +97,9 @@ def unusable_password_hash() -> str:
     return hash_password(secrets.token_hex(32))
 
 
+_DUMMY_HASH = unusable_password_hash()
+
+
 def _client_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for")
     if fwd:
@@ -93,18 +107,35 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _throttle(request: Request, username: str = "") -> None:
-    key = f"{_client_ip(request)}|{username.strip().lower()}"
+def _throttle(request: Request, username: str = "", account_scope: bool = False) -> None:
+    uname = username.strip().lower()
+    key = f"{_client_ip(request)}|{uname}"
     now = time.monotonic()
     _attempts[key] = [t for t in _attempts[key] if now - t < _ATTEMPT_WINDOW_SEC]
     if len(_attempts[key]) >= _ATTEMPT_LIMIT:
         raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
+
+    # IP-independent ceiling for attacks aimed at one specific account (login,
+    # password change). Defeats X-Forwarded-For rotation, which would otherwise
+    # reset the per-IP bucket on every request.
+    if account_scope and uname:
+        _account_attempts[uname] = [
+            t for t in _account_attempts[uname] if now - t < _ATTEMPT_WINDOW_SEC
+        ]
+        if len(_account_attempts[uname]) >= _ACCOUNT_ATTEMPT_LIMIT:
+            raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
+        _account_attempts[uname].append(now)
+
     _attempts[key].append(now)
-    # Keep the table from growing forever
+    # Keep the tables from growing forever
     if len(_attempts) > 2000:
         for stale in [k for k, v in _attempts.items()
                       if not v or now - v[-1] > _ATTEMPT_WINDOW_SEC]:
             del _attempts[stale]
+    if len(_account_attempts) > 2000:
+        for stale in [k for k, v in _account_attempts.items()
+                      if not v or now - v[-1] > _ATTEMPT_WINDOW_SEC]:
+            del _account_attempts[stale]
 
 
 # ── Auth dependency ───────────────────────────────────────────────────────────
@@ -192,6 +223,8 @@ def register(creds: Credentials, request: Request, db: Session = Depends(get_db)
         raise HTTPException(status_code=409, detail="That username is taken.")
     if len(creds.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    if len(creds.password) > 128:
+        raise HTTPException(status_code=400, detail="Password must be at most 128 characters.")
     exists = db.query(User).filter(func.lower(User.username) == username.lower()).first()
     if exists:
         raise HTTPException(status_code=409, detail="That username is taken.")
@@ -204,10 +237,15 @@ def register(creds: Credentials, request: Request, db: Session = Depends(get_db)
 
 @router.post("/auth/login")
 def login(creds: Credentials, request: Request, db: Session = Depends(get_db)) -> dict:
-    _throttle(request, creds.username)
+    _throttle(request, creds.username, account_scope=True)
     username = creds.username.strip()
     user = db.query(User).filter(func.lower(User.username) == username.lower()).first()
-    if user is None or not verify_password(creds.password, user.password_hash):
+    # Always run a PBKDF2 verification, even when the user doesn't exist, so the
+    # response time doesn't reveal which usernames are registered (timing-based
+    # account enumeration). _DUMMY_HASH is a real hash of a random secret.
+    stored = user.password_hash if user else _DUMMY_HASH
+    ok = verify_password(creds.password, stored)
+    if user is None or not ok:
         raise HTTPException(status_code=401, detail="Wrong username or password.")
     return {"token": _issue_token(db, user.id), "username": user.username}
 
@@ -331,11 +369,13 @@ def change_password(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    _throttle(request, user.username)
+    _throttle(request, user.username, account_scope=True)
     if not verify_password(body.current_password, user.password_hash):
         raise HTTPException(status_code=401, detail="Current password is wrong.")
     if len(body.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    if len(body.new_password) > 128:
+        raise HTTPException(status_code=400, detail="Password must be at most 128 characters.")
     user.password_hash = hash_password(body.new_password)
     # Revoke every other session so a stolen token dies with the old password
     current_token = (authorization or "").removeprefix("Bearer ").strip()
@@ -376,13 +416,23 @@ def list_favourites(
     return {"favourites": [_fav_out(f) for f in favs]}
 
 
+_STOP_CODE_RE = re.compile(r"^[A-Za-z0-9]{1,10}$")
+
+
+def _validate_stop_code(code: str) -> str:
+    if not _STOP_CODE_RE.match(code):
+        raise HTTPException(status_code=400, detail="Invalid bus stop code.")
+    return code.upper()
+
+
 @router.post("/favourites/{stop_code}")
 def add_favourite(
-    stop_code: str,
+    stop_code: str = Path(..., max_length=10),
     body: FavouriteIn | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
+    stop_code = _validate_stop_code(stop_code)
     count = db.query(func.count(UserFavourite.id)).filter_by(user_id=user.id).scalar() or 0
     existing = (
         db.query(UserFavourite)
@@ -408,22 +458,23 @@ def add_favourite(
 
 @router.delete("/favourites/{stop_code}")
 def remove_favourite(
-    stop_code: str,
+    stop_code: str = Path(..., max_length=10),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
+    stop_code = _validate_stop_code(stop_code)
     db.query(UserFavourite).filter_by(user_id=user.id, bus_stop_code=stop_code).delete()
     db.commit()
     return {"status": "removed", "code": stop_code}
 
 
 class SavedJourneyIn(BaseModel):
-    from_name: str
-    from_lat: float
-    from_lng: float
-    to_name: str
-    to_lat: float
-    to_lng: float
+    from_name: str = pydantic.Field(..., max_length=200)
+    from_lat:  float = pydantic.Field(..., ge=-90,  le=90)
+    from_lng:  float = pydantic.Field(..., ge=-180, le=180)
+    to_name:   str = pydantic.Field(..., max_length=200)
+    to_lat:    float = pydantic.Field(..., ge=-90,  le=90)
+    to_lng:    float = pydantic.Field(..., ge=-180, le=180)
 
 
 def _journey_out(j: SavedJourney) -> dict:
