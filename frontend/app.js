@@ -612,27 +612,30 @@ function _renderCpPanel(key, cp) {
 
   // Congestion card
   const congEl = $(`cp-cong-${key}`);
-  if (cp.congestion) {
-    const labels = { light: "Light traffic", moderate: "Moderate traffic", heavy: "Heavy traffic" };
-    const label  = labels[cp.congestion] || cp.congestion;
-    const speed  = cp.speed_range
-      ? `<div class="cp-cong-speed">Road speed: ${cp.speed_range.min}–${cp.speed_range.max} km/h on approach road</div>`
-      : "";
-    congEl.innerHTML = `
-      <div class="cp-cong-row">
-        <span class="cp-cong-label">Approach road</span>
-        <span class="cp-cong-badge">
-          <span class="cp-cong-dot ${cp.congestion}"></span>${esc(label)}
-        </span>
-      </div>
-      ${speed}
-      <div class="cp-cong-note">Queue at checkpoint not included — check cameras below</div>`;
-  } else {
-    congEl.innerHTML = `<div class="cp-cong-note" style="padding:.1rem 0">Traffic speed data unavailable · Use cameras to assess queue</div>`;
+  if (congEl) {
+    if (cp.congestion) {
+      const labels = { light: "Light traffic", moderate: "Moderate traffic", heavy: "Heavy traffic" };
+      const label  = labels[cp.congestion] || cp.congestion;
+      const speed  = cp.speed_range
+        ? `<div class="cp-cong-speed">Road speed: ${cp.speed_range.min}–${cp.speed_range.max} km/h on approach road</div>`
+        : "";
+      congEl.innerHTML = `
+        <div class="cp-cong-row">
+          <span class="cp-cong-label">Approach road</span>
+          <span class="cp-cong-badge">
+            <span class="cp-cong-dot ${cp.congestion}"></span>${esc(label)}
+          </span>
+        </div>
+        ${speed}
+        <div class="cp-cong-note">Queue at checkpoint not included — check cameras below</div>`;
+    } else {
+      congEl.innerHTML = `<div class="cp-cong-note" style="padding:.1rem 0">Traffic speed data unavailable · Use cameras to assess queue</div>`;
+    }
   }
 
   // Camera images
   const camEl = $(`cp-cameras-${key}`);
+  if (!camEl) return;
   if (cp.cameras && cp.cameras.length) {
     camEl.innerHTML = cp.cameras.map((c) => `
       <div class="cp-camera-card">
