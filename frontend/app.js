@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.27";
+const APP_VERSION = "1.1.28";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -2980,8 +2980,20 @@ function _openCardMap(card, data, coords, optIdx) {
     card._jmap = L.map(container, { zoomControl: false, attributionControl: false })
                   .setView([1.3521, 103.8198], 13);
     _sgTiles().addTo(card._jmap);
+    // Add fit-to-route button
+    const wrap = card.querySelector(".jcard-map-wrap");
+    if (wrap) {
+      const btn = document.createElement("button");
+      btn.className = "jcard-map-fit";
+      btn.title = "Fit route";
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`;
+      btn.addEventListener("click", () => {
+        if (card._jmapBounds?.length) card._jmap.fitBounds(card._jmapBounds, { padding: [24, 24] });
+      });
+      wrap.appendChild(btn);
+    }
   }
-  _drawOnMap(card._jmap, data, coords, optIdx);
+  card._jmapBounds = _drawOnMap(card._jmap, data, coords, optIdx);
   // Wait for the card expand animation (0.3s) before invalidating size
   setTimeout(() => card._jmap?.invalidateSize(), 350);
 }
@@ -3116,6 +3128,7 @@ function _drawOnMap(map, data, coords, optIdx = 0) {
   }
 
   if (bounds.length) map.fitBounds(bounds, { padding: [24, 24] });
+  return bounds;
 }
 
 function _legPoints(leg) {
@@ -3425,8 +3438,11 @@ if (hasShareParams) {
     submitBtn.disabled = !_rating && !textEl.value.trim();
   });
 
+  const errEl = $("feedback-error");
   submitBtn?.addEventListener("click", async () => {
     submitBtn.disabled = true;
+    submitBtn.textContent = "Sending…";
+    hide(errEl);
     const msg = textEl?.value.trim() || null;
     const params = new URLSearchParams();
     if (_rating) params.set("rating", _rating);
@@ -3434,15 +3450,20 @@ if (hasShareParams) {
     if (overlay._ctx) params.set("context", overlay._ctx);
     try {
       await api(`/api/feedback?${params}`);
-      toast("Thanks for your feedback!");
       _closeFeedback();
-    } catch (_) {
-      toast("Couldn't send feedback — please try again");
+      toast("Thanks for your feedback!");
+    } catch (e) {
+      errEl.textContent = "Couldn't send — check your connection and try again.";
+      show(errEl);
       submitBtn.disabled = false;
+      submitBtn.textContent = "Send";
       return;
     }
     // Reset
     _rating = 0;
+    submitBtn.textContent = "Send";
+    submitBtn.disabled = true;
+    hide(errEl);
     starsEl?.querySelectorAll(".fb-star").forEach((b) => b.classList.remove("selected"));
     if (textEl) textEl.value = "";
   });

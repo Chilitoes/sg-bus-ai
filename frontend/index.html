@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.1.27" />
+  <link rel="stylesheet" href="styles.css?v=1.1.28" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
@@ -621,6 +621,7 @@
         <button class="fb-star" data-v="5" aria-label="5 stars">😄</button>
       </div>
       <textarea id="feedback-text" class="feedback-text" placeholder="Anything to improve? (optional)" rows="3" maxlength="2000"></textarea>
+      <p id="feedback-error" class="feedback-error hidden"></p>
       <button id="feedback-submit" class="feedback-submit" disabled>Send</button>
       <button id="feedback-later" class="feedback-later">Maybe later</button>
     </div>
@@ -790,6 +791,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1.1.27"></script>
+<script src="app.js?v=1.1.28"></script>
 </body>
 </html>
