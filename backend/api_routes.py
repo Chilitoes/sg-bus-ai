@@ -1787,7 +1787,10 @@ async def checkpoint_traffic() -> dict:
             if d <= cp["cam_radius_km"]:
                 cam_entries.append((d, c))
         cam_entries.sort(key=lambda x: x[0])
-        cameras = [{"id": c["CameraID"], "url": c["ImageLink"]} for _, c in cam_entries[:4]]
+        cameras = [
+            {"id": c["CameraID"], "url": c["ImageLink"], "dist_km": round(d, 1)}
+            for d, c in cam_entries[:6]
+        ]
 
         # Speed bands — distance-only filter (no road-name keyword requirement)
         nearby_bands: list[dict] = []
@@ -1825,11 +1828,17 @@ async def checkpoint_traffic() -> dict:
             except (ValueError, TypeError):
                 pass
 
+        _EST = {
+            "light":    {"label": "~15–25 min", "detail": "off-peak conditions"},
+            "moderate": {"label": "~30–50 min", "detail": "moderate queue"},
+            "heavy":    {"label": "60+ min",    "detail": "significant queue — plan ahead"},
+        }
         out[key] = {
-            "name":        cp["name"],
-            "cameras":     cameras,
-            "congestion":  congestion,
-            "speed_range": speed_range,
+            "name":              cp["name"],
+            "cameras":           cameras,
+            "congestion":        congestion,
+            "speed_range":       speed_range,
+            "crossing_estimate": _EST.get(congestion) if congestion else None,
         }
 
     out["fetched_at"] = datetime.utcnow().isoformat()
