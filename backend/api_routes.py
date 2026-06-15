@@ -1816,33 +1816,6 @@ async def checkpoint_traffic() -> dict:
     return out
 
 
-        if nearby_bands:
-            avg_band = sum(int(b.get("SpeedBand", 4)) for b in nearby_bands) / len(nearby_bands)
-            if avg_band >= 5:
-                congestion = "light"
-            elif avg_band >= 3:
-                congestion = "moderate"
-            else:
-                congestion = "heavy"
-            try:
-                speeds = [int(b.get("MinimumSpeed", 0)) for b in nearby_bands if b.get("MinimumSpeed")]
-                speed_range = {"min": min(speeds), "max": max(speeds)} if speeds else None
-            except (ValueError, TypeError):
-                pass
-
-        out[key] = {
-            "name":       cp["name"],
-            "cameras":    cameras,
-            "congestion": congestion,
-            "speed_range": speed_range,
-        }
-
-    out["fetched_at"] = datetime.utcnow().isoformat()
-    _cp_cache = out
-    _cp_cache_ts = now_ts
-    return out
-
-
 # ── Feedback ──────────────────────────────────────────────────────────────────
 
 @router.post("/feedback")
