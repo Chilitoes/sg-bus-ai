@@ -1685,16 +1685,14 @@ _CHECKPOINTS = {
     "woodlands": {
         "lat": 1.4476, "lng": 103.7679,
         "name": "Woodlands Causeway",
-        "cam_radius_km":   5.0,
-        "speed_radius_km": 3.0,
-        "speed_roads":     ["woodlands", "bke", "kje"],
+        "cam_radius_km":   15.0,
+        "speed_radius_km": 10.0,
     },
     "tuas": {
         "lat": 1.3440, "lng": 103.6366,
         "name": "Tuas Second Link",
-        "cam_radius_km":   6.0,
-        "speed_radius_km": 4.0,
-        "speed_roads":     ["tuas", "aye", "second link"],
+        "cam_radius_km":   15.0,
+        "speed_radius_km": 10.0,
     },
 }
 _cp_cache: dict | None = None
@@ -1720,55 +1718,104 @@ async def checkpoint_traffic() -> dict:
         return _cp_cache
 
     hdrs = {"AccountKey": LTA_API_KEY}
-    async with httpx.AsyncClient(timeout=10) as client:
-        imgs_r, spd_r = await asyncio.gather(
-            client.get(f"{LTA_BASE_URL}/Traffic-Images",    headers=hdrs),
-            client.get(f"{LTA_BASE_URL}/TrafficSpeedBands", headers=hdrs),
+
+    # Paginate traffic images — LTA default page is 500; SG has ~900+ cameras
+    cameras_raw: list[dict] = []
+    speed_raw:   list[dict] = []
+    img_status  = 0
+    spd_status  = 0
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Fetch cameras across two pages
+        img_r1, img_r2, spd_r = await asyncio.gather(
+            client.get(f"{LTA_BASE_URL}/Traffic-Images",            headers=hdrs),
+            client.get(f"{LTA_BASE_URL}/Traffic-Images?$skip=500",  headers=hdrs),
+            client.get(f"{LTA_BASE_URL}/TrafficSpeedBands",         headers=hdrs),
             return_exceptions=True,
         )
 
-    cameras_raw = (
-        imgs_r.json().get("value", [])
-        if not isinstance(imgs_r, Exception) and imgs_r.status_code == 200
-        else []
-    )
-    speed_raw = (
-        spd_r.json().get("value", [])
-        if not isinstance(spd_r, Exception) and spd_r.status_code == 200
-        else []
-    )
+    if not isinstance(img_r1, Exception):
+        img_status = img_r1.status_code
+        cameras_raw += img_r1.json().get("value", []) if img_r1.status_code == 200 else []
+    if not isinstance(img_r2, Exception) and img_r2.status_code == 200:
+        cameras_raw += img_r2.json().get("value", [])
+    if not isinstance(spd_r, Exception):
+        spd_status = spd_r.status_code
+        speed_raw  = spd_r.json().get("value", []) if spd_r.status_code == 200 else []
 
-    out: dict = {}
+    out: dict = {
+        "_debug": {
+            "cameras_fetched": len(cameras_raw),
+            "speed_bands_fetched": len(speed_raw),
+            "img_http_status": img_status,
+            "spd_http_status": spd_status,
+        }
+    }
+
     for key, cp in _CHECKPOINTS.items():
-        # Closest cameras within cam_radius_km
+        # All cameras with their distance; pick closest within cam_radius_km
         cam_entries: list[tuple[float, dict]] = []
+        nearest_cam_km: float = 9999.0
         for c in cameras_raw:
-            d = _haversine_km(cp["lat"], cp["lng"], c["Latitude"], c["Longitude"])
+            try:
+                d = _haversine_km(cp["lat"], cp["lng"], float(c["Latitude"]), float(c["Longitude"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            nearest_cam_km = min(nearest_cam_km, d)
             if d <= cp["cam_radius_km"]:
                 cam_entries.append((d, c))
         cam_entries.sort(key=lambda x: x[0])
         cameras = [{"id": c["CameraID"], "url": c["ImageLink"]} for _, c in cam_entries[:4]]
 
-        # Speed bands on relevant roads within speed_radius_km
-        road_kws = cp["speed_roads"]
+        # Speed bands — distance-only filter (no road-name keyword requirement)
         nearby_bands: list[dict] = []
+        nearest_spd_km: float = 9999.0
         for b in speed_raw:
-            road = b.get("RoadName", "").lower()
-            if not any(k in road for k in road_kws):
-                continue
             try:
                 slat, slng = float(b["StartLat"]), float(b["StartLon"])
                 elat, elng = float(b["EndLat"]),   float(b["EndLon"])
-            except (KeyError, ValueError):
+            except (KeyError, ValueError, TypeError):
                 continue
-            if (
-                _haversine_km(cp["lat"], cp["lng"], slat, slng) <= cp["speed_radius_km"] or
-                _haversine_km(cp["lat"], cp["lng"], elat, elng) <= cp["speed_radius_km"]
-            ):
+            ds = _haversine_km(cp["lat"], cp["lng"], slat, slng)
+            de = _haversine_km(cp["lat"], cp["lng"], elat, elng)
+            nearest_spd_km = min(nearest_spd_km, ds, de)
+            if ds <= cp["speed_radius_km"] or de <= cp["speed_radius_km"]:
                 nearby_bands.append(b)
+
+        out["_debug"][f"{key}_nearest_cam_km"]    = round(nearest_cam_km, 2)
+        out["_debug"][f"{key}_nearest_spd_km"]    = round(nearest_spd_km, 2)
+        out["_debug"][f"{key}_cameras_in_radius"]  = len(cam_entries)
+        out["_debug"][f"{key}_speed_bands_in_radius"] = len(nearby_bands)
 
         congestion: str | None = None
         speed_range: dict | None = None
+        if nearby_bands:
+            avg_band = sum(int(b.get("SpeedBand", 4)) for b in nearby_bands) / len(nearby_bands)
+            if avg_band >= 5:
+                congestion = "light"
+            elif avg_band >= 3:
+                congestion = "moderate"
+            else:
+                congestion = "heavy"
+            try:
+                speeds = [int(b["MinimumSpeed"]) for b in nearby_bands if b.get("MinimumSpeed")]
+                speed_range = {"min": min(speeds), "max": max(speeds)} if speeds else None
+            except (ValueError, TypeError):
+                pass
+
+        out[key] = {
+            "name":        cp["name"],
+            "cameras":     cameras,
+            "congestion":  congestion,
+            "speed_range": speed_range,
+        }
+
+    out["fetched_at"] = datetime.utcnow().isoformat()
+    _cp_cache = out
+    _cp_cache_ts = now_ts
+    return out
+
+
         if nearby_bands:
             avg_band = sum(int(b.get("SpeedBand", 4)) for b in nearby_bands) / len(nearby_bands)
             if avg_band >= 5:
