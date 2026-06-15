@@ -1717,38 +1717,60 @@ async def checkpoint_traffic() -> dict:
     if _cp_cache and (now_ts - _cp_cache_ts) < _CP_CACHE_SEC:
         return _cp_cache
 
-    hdrs = {"AccountKey": LTA_API_KEY}
+    # Traffic Images and Speed Bands are on data.gov.sg, not LTA DataMall — no API key needed
+    _DG = "https://api.data.gov.sg/v1/transport"
 
-    # Paginate traffic images — LTA default page is 500; SG has ~900+ cameras
     cameras_raw: list[dict] = []
     speed_raw:   list[dict] = []
     img_status  = 0
     spd_status  = 0
 
     async with httpx.AsyncClient(timeout=15) as client:
-        # Fetch cameras across two pages
-        img_r1, img_r2, spd_r = await asyncio.gather(
-            client.get(f"{LTA_BASE_URL}/Traffic-Images",            headers=hdrs),
-            client.get(f"{LTA_BASE_URL}/Traffic-Images?$skip=500",  headers=hdrs),
-            client.get(f"{LTA_BASE_URL}/TrafficSpeedBands",         headers=hdrs),
+        img_r, spd_r = await asyncio.gather(
+            client.get(f"{_DG}/traffic-images"),
+            client.get(f"{_DG}/traffic-speed-bands"),
             return_exceptions=True,
         )
 
-    if not isinstance(img_r1, Exception):
-        img_status = img_r1.status_code
-        cameras_raw += img_r1.json().get("value", []) if img_r1.status_code == 200 else []
-    if not isinstance(img_r2, Exception) and img_r2.status_code == 200:
-        cameras_raw += img_r2.json().get("value", [])
+    # Normalise traffic-images response → list of {CameraID, Latitude, Longitude, ImageLink}
+    if not isinstance(img_r, Exception):
+        img_status = img_r.status_code
+        if img_r.status_code == 200:
+            items = img_r.json().get("items", [])
+            if items:
+                for cam in items[0].get("cameras", []):
+                    loc = cam.get("location", {})
+                    cameras_raw.append({
+                        "CameraID":  cam.get("camera_id", ""),
+                        "ImageLink": cam.get("image", ""),
+                        "Latitude":  loc.get("latitude", 0),
+                        "Longitude": loc.get("longitude", 0),
+                    })
+
+    # Normalise traffic-speed-bands response → list of {SpeedBand, StartLat, StartLon, EndLat, EndLon, MinimumSpeed}
     if not isinstance(spd_r, Exception):
         spd_status = spd_r.status_code
-        speed_raw  = spd_r.json().get("value", []) if spd_r.status_code == 200 else []
+        if spd_r.status_code == 200:
+            items = spd_r.json().get("items", [])
+            if items:
+                for b in items[0].get("speed_bands", []):
+                    speed_raw.append({
+                        "SpeedBand":    b.get("speed_band", 4),
+                        "StartLat":     b.get("start_lat", 0),
+                        "StartLon":     b.get("start_lon", 0),
+                        "EndLat":       b.get("end_lat", 0),
+                        "EndLon":       b.get("end_lon", 0),
+                        "MinimumSpeed": str(b.get("minimum_speed", "")),
+                        "RoadName":     b.get("road_name", ""),
+                    })
 
     out: dict = {
         "_debug": {
-            "cameras_fetched": len(cameras_raw),
+            "cameras_fetched":     len(cameras_raw),
             "speed_bands_fetched": len(speed_raw),
-            "img_http_status": img_status,
-            "spd_http_status": spd_status,
+            "img_http_status":     img_status,
+            "spd_http_status":     spd_status,
+            "source":              "data.gov.sg",
         }
     }
 
