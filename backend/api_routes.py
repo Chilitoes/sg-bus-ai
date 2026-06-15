@@ -1685,14 +1685,16 @@ _CHECKPOINTS = {
     "woodlands": {
         "lat": 1.4476, "lng": 103.7679,
         "name": "Woodlands Causeway",
-        "radius_km": 1.5,
-        "keywords": ["woodlands", "bke", "kje"],
+        "cam_radius_km":   5.0,
+        "speed_radius_km": 3.0,
+        "speed_roads":     ["woodlands", "bke", "kje"],
     },
     "tuas": {
-        "lat": 1.3440, "lng": 103.6370,
+        "lat": 1.3440, "lng": 103.6366,
         "name": "Tuas Second Link",
-        "radius_km": 2.0,
-        "keywords": ["tuas", "second link", "aye"],
+        "cam_radius_km":   6.0,
+        "speed_radius_km": 4.0,
+        "speed_roads":     ["tuas", "aye", "second link"],
     },
 }
 _cp_cache: dict | None = None
@@ -1711,7 +1713,7 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 @router.get("/checkpoint/traffic")
 async def checkpoint_traffic() -> dict:
-    """Live LTA camera feeds + approach-road travel times for both checkpoints."""
+    """Live LTA camera feeds + approach-road congestion for both checkpoints."""
     global _cp_cache, _cp_cache_ts
     now_ts = _time.time()
     if _cp_cache and (now_ts - _cp_cache_ts) < _CP_CACHE_SEC:
@@ -1719,9 +1721,9 @@ async def checkpoint_traffic() -> dict:
 
     hdrs = {"AccountKey": LTA_API_KEY}
     async with httpx.AsyncClient(timeout=10) as client:
-        imgs_r, ett_r = await asyncio.gather(
-            client.get(f"{LTA_BASE_URL}/Traffic-Images",  headers=hdrs),
-            client.get(f"{LTA_BASE_URL}/EstTravelTimes",  headers=hdrs),
+        imgs_r, spd_r = await asyncio.gather(
+            client.get(f"{LTA_BASE_URL}/Traffic-Images",    headers=hdrs),
+            client.get(f"{LTA_BASE_URL}/TrafficSpeedBands", headers=hdrs),
             return_exceptions=True,
         )
 
@@ -1730,48 +1732,62 @@ async def checkpoint_traffic() -> dict:
         if not isinstance(imgs_r, Exception) and imgs_r.status_code == 200
         else []
     )
-    ett_raw = (
-        ett_r.json().get("value", [])
-        if not isinstance(ett_r, Exception) and ett_r.status_code == 200
+    speed_raw = (
+        spd_r.json().get("value", [])
+        if not isinstance(spd_r, Exception) and spd_r.status_code == 200
         else []
     )
 
     out: dict = {}
     for key, cp in _CHECKPOINTS.items():
-        cameras = sorted(
-            [
-                {
-                    "id":  c["CameraID"],
-                    "url": c["ImageLink"],
-                    "lat": c["Latitude"],
-                    "lng": c["Longitude"],
-                }
-                for c in cameras_raw
-                if _haversine_km(cp["lat"], cp["lng"], c["Latitude"], c["Longitude"]) <= cp["radius_km"]
-            ],
-            key=lambda c: _haversine_km(cp["lat"], cp["lng"], c["lat"], c["lng"]),
-        )
-        kws = cp["keywords"]
-        travel_times = [
-            {
-                "name":    e["Name"],
-                "start":   e["StartPoint"],
-                "end":     e["EndPoint"],
-                "est_min": e["EstTime"],
-            }
-            for e in ett_raw
-            if any(
-                k in (
-                    e.get("StartPoint", "") + e.get("EndPoint", "") +
-                    e.get("FarEndPoint", "") + e.get("Name", "")
-                ).lower()
-                for k in kws
-            )
-        ]
+        # Closest cameras within cam_radius_km
+        cam_entries: list[tuple[float, dict]] = []
+        for c in cameras_raw:
+            d = _haversine_km(cp["lat"], cp["lng"], c["Latitude"], c["Longitude"])
+            if d <= cp["cam_radius_km"]:
+                cam_entries.append((d, c))
+        cam_entries.sort(key=lambda x: x[0])
+        cameras = [{"id": c["CameraID"], "url": c["ImageLink"]} for _, c in cam_entries[:4]]
+
+        # Speed bands on relevant roads within speed_radius_km
+        road_kws = cp["speed_roads"]
+        nearby_bands: list[dict] = []
+        for b in speed_raw:
+            road = b.get("RoadName", "").lower()
+            if not any(k in road for k in road_kws):
+                continue
+            try:
+                slat, slng = float(b["StartLat"]), float(b["StartLon"])
+                elat, elng = float(b["EndLat"]),   float(b["EndLon"])
+            except (KeyError, ValueError):
+                continue
+            if (
+                _haversine_km(cp["lat"], cp["lng"], slat, slng) <= cp["speed_radius_km"] or
+                _haversine_km(cp["lat"], cp["lng"], elat, elng) <= cp["speed_radius_km"]
+            ):
+                nearby_bands.append(b)
+
+        congestion: str | None = None
+        speed_range: dict | None = None
+        if nearby_bands:
+            avg_band = sum(int(b.get("SpeedBand", 4)) for b in nearby_bands) / len(nearby_bands)
+            if avg_band >= 5:
+                congestion = "light"
+            elif avg_band >= 3:
+                congestion = "moderate"
+            else:
+                congestion = "heavy"
+            try:
+                speeds = [int(b.get("MinimumSpeed", 0)) for b in nearby_bands if b.get("MinimumSpeed")]
+                speed_range = {"min": min(speeds), "max": max(speeds)} if speeds else None
+            except (ValueError, TypeError):
+                pass
+
         out[key] = {
-            "name":         cp["name"],
-            "cameras":      cameras[:4],
-            "travel_times": travel_times[:8],
+            "name":       cp["name"],
+            "cameras":    cameras,
+            "congestion": congestion,
+            "speed_range": speed_range,
         }
 
     out["fetched_at"] = datetime.utcnow().isoformat()

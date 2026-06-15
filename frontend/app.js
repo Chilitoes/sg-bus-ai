@@ -610,20 +610,28 @@ function _renderCpPanel(key, cp) {
   if (!cp) return;
   const bust = `?t=${Date.now()}`;
 
-  const timesEl = $(`cp-times-${key}`);
-  if (cp.travel_times && cp.travel_times.length) {
-    timesEl.innerHTML = cp.travel_times.map((t) => `
-      <div class="cp-time-row">
-        <div class="cp-time-route">
-          <span class="cp-time-name">${esc(t.name)}</span>
-          <span class="cp-time-seg">${esc(t.start)} → ${esc(t.end)}</span>
-        </div>
-        <span class="cp-time-min">${t.est_min} min</span>
-      </div>`).join("");
+  // Congestion card
+  const congEl = $(`cp-cong-${key}`);
+  if (cp.congestion) {
+    const labels = { light: "Light traffic", moderate: "Moderate traffic", heavy: "Heavy traffic" };
+    const label  = labels[cp.congestion] || cp.congestion;
+    const speed  = cp.speed_range
+      ? `<div class="cp-cong-speed">Road speed: ${cp.speed_range.min}–${cp.speed_range.max} km/h on approach road</div>`
+      : "";
+    congEl.innerHTML = `
+      <div class="cp-cong-row">
+        <span class="cp-cong-label">Approach road</span>
+        <span class="cp-cong-badge">
+          <span class="cp-cong-dot ${cp.congestion}"></span>${esc(label)}
+        </span>
+      </div>
+      ${speed}
+      <div class="cp-cong-note">Queue at checkpoint not included — check cameras below</div>`;
   } else {
-    timesEl.innerHTML = `<div class="cp-time-row"><span style="color:var(--ink-3);font-size:.82rem">No approach-road data available right now.</span></div>`;
+    congEl.innerHTML = `<div class="cp-cong-note" style="padding:.1rem 0">Traffic speed data unavailable · Use cameras to assess queue</div>`;
   }
 
+  // Camera images
   const camEl = $(`cp-cameras-${key}`);
   if (cp.cameras && cp.cameras.length) {
     camEl.innerHTML = cp.cameras.map((c) => `
@@ -631,7 +639,7 @@ function _renderCpPanel(key, cp) {
         <img class="cp-camera-img" src="${esc(c.url + bust)}" alt="Traffic camera" loading="lazy" />
       </div>`).join("");
   } else {
-    camEl.innerHTML = `<p class="empty" style="font-size:.82rem;padding:.5rem 0">No camera feeds available for this checkpoint.</p>`;
+    camEl.innerHTML = `<p class="empty" style="font-size:.82rem;padding:.5rem 0">No camera feeds found for this checkpoint.</p>`;
   }
 }
 

@@ -1566,22 +1566,30 @@ th.num, td.num { text-align: right; }
 }
 .cp-cam-hd { display: flex; align-items: center; gap: .5rem; }
 .cp-cam-note { font-size: .68rem; font-weight: 400; letter-spacing: 0; text-transform: none; }
-.cp-times-list {
+.cp-cong-card {
   background: var(--surface); border-radius: var(--radius);
-  box-shadow: var(--shadow-sm); overflow: hidden;
+  box-shadow: var(--shadow-sm); padding: .85rem 1rem;
+  margin-bottom: .5rem;
 }
-.cp-time-row {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: .65rem .9rem; gap: .5rem;
-  border-bottom: 1px solid var(--line);
+.cp-cong-row {
+  display: flex; align-items: center; justify-content: space-between; gap: .5rem;
 }
-.cp-time-row:last-child { border-bottom: none; }
-.cp-time-route { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
-.cp-time-name  { font-size: .82rem; font-weight: 700; color: var(--ink); }
-.cp-time-seg   { font-size: .72rem; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cp-time-min   {
-  font-size: .95rem; font-weight: 700; color: var(--accent);
-  white-space: nowrap; flex-shrink: 0;
+.cp-cong-label { font-size: .88rem; color: var(--ink-2); }
+.cp-cong-badge {
+  display: flex; align-items: center; gap: .35rem;
+  font-size: .88rem; font-weight: 700;
+}
+.cp-cong-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+}
+.cp-cong-dot.light    { background: var(--good); }
+.cp-cong-dot.moderate { background: var(--warn); }
+.cp-cong-dot.heavy    { background: var(--bad); }
+.cp-cong-speed {
+  font-size: .72rem; color: var(--ink-3); margin-top: .35rem;
+}
+.cp-cong-note {
+  font-size: .72rem; color: var(--ink-3); margin-top: .3rem;
 }
 .cp-cameras { display: flex; flex-direction: column; gap: .75rem; }
 .cp-camera-card {
