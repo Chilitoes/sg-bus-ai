@@ -922,44 +922,44 @@ async function runAc(q) {
       api(`/api/stops/search?q=${encodeURIComponent(q)}&limit=6`).catch(() => ({ results: [] })),
       q.length >= 3 ? oneMapSearch(q) : Promise.resolve([]),
     ]);
-    const box = $(“autocomplete”);
-    let html = “”;
+    const box = $("autocomplete");
+    let html = "";
 
     if (isSvcNum) {
       const svc = q.trim().toUpperCase();
-      html += `<div class=”ac-item ac-route” data-svc=”${esc(svc)}”>
-        <span class=”ac-code ac-svc-badge”>${esc(svc)}</span>
+      html += `<div class="ac-item ac-route" data-svc="${esc(svc)}">
+        <span class="ac-code ac-svc-badge">${esc(svc)}</span>
         <div>
-          <div class=”ac-name”>Bus route ${esc(svc)}</div>
-          <div class=”ac-road”>View all stops on this route</div>
+          <div class="ac-name">Bus route ${esc(svc)}</div>
+          <div class="ac-road">View all stops on this route</div>
         </div>
       </div>`;
     }
 
     const stopItems = stopsData.results || [];
     html += stopItems.map((s) => `
-      <div class=”ac-item” data-code=”${esc(s.bus_stop_code)}”>
-        <span class=”ac-code”>${esc(s.bus_stop_code)}</span>
+      <div class="ac-item" data-code="${esc(s.bus_stop_code)}">
+        <span class="ac-code">${esc(s.bus_stop_code)}</span>
         <div>
-          <div class=”ac-name”>${esc(s.description || “Bus stop”)}</div>
-          <div class=”ac-road”>${esc(s.road_name || “”)}</div>
+          <div class="ac-name">${esc(s.description || "Bus stop")}</div>
+          <div class="ac-road">${esc(s.road_name || "")}</div>
         </div>
-      </div>`).join(“”);
+      </div>`).join("");
 
     const filteredPlaces = places
       .filter((p) => !stopItems.some((s) => s.description === p.name))
       .slice(0, 4);
-    if (filteredPlaces.length && (stopItems.length || isSvcNum)) html += `<div class=”ac-divider”></div>`;
+    if (filteredPlaces.length && (stopItems.length || isSvcNum)) html += `<div class="ac-divider"></div>`;
     html += filteredPlaces.map((p) => `
-      <div class=”ac-item ac-place” data-lat=”${p.lat}” data-lng=”${p.lng}” data-name=”${esc(p.name)}”>
-        <svg class=”ac-place-icon” width=”14” height=”14” viewBox=”0 0 24 24” fill=”none” stroke=”currentColor” stroke-width=”2” stroke-linecap=”round” stroke-linejoin=”round”><path d=”M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z”/><circle cx=”12” cy=”10” r=”3”/></svg>
+      <div class="ac-item ac-place" data-lat="${p.lat}" data-lng="${p.lng}" data-name="${esc(p.name)}">
+        <svg class="ac-place-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
         <div>
-          <div class=”ac-name”>${esc(p.name)}</div>
-          <div class=”ac-road”>${esc(p.address)}</div>
+          <div class="ac-name">${esc(p.name)}</div>
+          <div class="ac-road">${esc(p.address)}</div>
         </div>
-      </div>`).join(“”);
+      </div>`).join("");
 
-    box.innerHTML = html || `<div class=”ac-empty”>No results for “${esc(q)}”.</div>`;
+    box.innerHTML = html || `<div class="ac-empty">No results for "${esc(q)}".</div>`;
     show(box);
   } catch { hideAc(); }
 }
