@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.24";
+const APP_VERSION = "1.1.25";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -529,24 +529,35 @@ function pushRecent(code, info) {
 }
 
 // ── Chips (saved > recent > popular) ──────────────────────
+function removeRecent(code) {
+  S.recent = S.recent.filter((r) => r.code !== code);
+  writeJSON(RECENT_KEY, S.recent);
+  renderChips();
+}
+
 function renderChips() {
   const area = $("chips-area");
   const groups = [];
-  if (S.favs.length) groups.push(["Saved", S.favs.slice(0, 8)]);
-  if (S.recent.length) groups.push(["Recent", S.recent.filter((r) => !isFav(r.code)).slice(0, 4)]);
-  if (!S.favs.length && !S.recent.length) groups.push(["Popular", POPULAR]);
+  if (S.favs.length) groups.push(["Saved", S.favs.slice(0, 8), false]);
+  if (S.recent.length) groups.push(["Recent", S.recent.filter((r) => !isFav(r.code)).slice(0, 4), true]);
+  if (!S.favs.length && !S.recent.length) groups.push(["Popular", POPULAR, false]);
   area.innerHTML = groups
     .filter(([, items]) => items.length)
-    .map(([label, items]) => `
+    .map(([label, items, deletable]) => `
       <div class="chips-label">${label}</div>
       <div class="chips-row">${items.map((f) => `
-        <button class="chip" data-code="${esc(f.code)}">
-          <span class="chip-code">${esc(f.code)}</span>
-          ${f.description ? `<span class="chip-name">${esc(f.description)}</span>` : ""}
-        </button>`).join("")}
+        <div class="chip-wrap">
+          <button class="chip" data-code="${esc(f.code)}">
+            <span class="chip-code">${esc(f.code)}</span>
+            ${f.description ? `<span class="chip-name">${esc(f.description)}</span>` : ""}
+          </button>
+          ${deletable ? `<button class="chip-del" data-del="${esc(f.code)}" aria-label="Remove">×</button>` : ""}
+        </div>`).join("")}
       </div>`).join("");
 }
 $("chips-area").addEventListener("click", (e) => {
+  const del = e.target.closest(".chip-del");
+  if (del) { removeRecent(del.dataset.del); return; }
   const chip = e.target.closest(".chip");
   if (chip) loadStop(chip.dataset.code);
 });
@@ -806,17 +817,27 @@ async function loadBusRoute(serviceNo) {
 
   function renderDir(stops) {
     if (!stops.length) { bodyEl.innerHTML = `<p class="route-sheet-empty">No stops found.</p>`; return; }
-    bodyEl.innerHTML = stops.map((stop, i) => `
-      <div class="route-stop-row">
-        <div class="route-stop-line">
-          <div class="route-stop-dot${i === 0 ? " first" : i === stops.length - 1 ? " last" : ""}"></div>
-          ${i < stops.length - 1 ? `<div class="route-stop-seg"></div>` : ""}
-        </div>
-        <button class="route-stop-btn" data-code="${esc(stop.code)}">
-          <span class="route-stop-name">${esc(stop.name || stop.code)}</span>
-          <span class="route-stop-code">${esc(stop.code)}</span>
-        </button>
-      </div>`).join("");
+    bodyEl.innerHTML = stops.map((stop, i) => {
+      const isFirst = i === 0;
+      const isLast  = i === stops.length - 1;
+      const dist    = stop.distance_km != null ? `${stop.distance_km.toFixed(1)} km` : "";
+      const arrowSvg = `<svg class="route-stop-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 14 0"/><path d="m13 6 6 6-6 6"/></svg>`;
+      return `
+        <div class="route-stop-row">
+          <div class="route-stop-line">
+            <div class="route-stop-dot${isFirst ? " first" : isLast ? " last" : ""}"></div>
+            ${!isLast ? `<div class="route-stop-seg"></div>` : ""}
+          </div>
+          <button class="route-stop-btn" data-code="${esc(stop.code)}">
+            ${arrowSvg}
+            <div class="route-stop-info">
+              <span class="route-stop-name">${esc(stop.name || stop.code)}</span>
+              <span class="route-stop-meta">${esc(stop.code)}${stop.road ? ` · ${esc(stop.road)}` : ""}</span>
+            </div>
+            ${dist ? `<span class="route-stop-dist">${esc(dist)}</span>` : ""}
+          </button>
+        </div>`;
+    }).join("");
   }
 
   try {
@@ -2080,19 +2101,31 @@ function pushRecent() {
   renderRecents();
 }
 
+function removeRecentPlan(i) {
+  const list = readJSON(RECENTS_KEY, []);
+  list.splice(i, 1);
+  writeJSON(RECENTS_KEY, list);
+  renderRecents();
+}
+
 function renderRecents() {
   const box = $("plan-recents");
   if (!box) return;
   const list = readJSON(RECENTS_KEY, []);
   if (!list.length) { box.classList.add("hidden"); return; }
   box.innerHTML = `<span class="recents-label">Recent</span>` + list.map((r, i) => `
-    <button class="recent-chip" data-i="${i}">
-      ${esc(r.fromName)} <span class="recent-arrow">→</span> ${esc(r.toName)}
-    </button>`).join("");
+    <div class="recent-chip-wrap">
+      <button class="recent-chip" data-i="${i}">
+        ${esc(r.fromName)} <span class="recent-arrow">→</span> ${esc(r.toName)}
+      </button>
+      <button class="recent-chip-del" data-del="${i}" aria-label="Remove">×</button>
+    </div>`).join("");
   box.classList.remove("hidden");
 }
 
 $("plan-recents")?.addEventListener("click", (e) => {
+  const del = e.target.closest(".recent-chip-del");
+  if (del) { removeRecentPlan(+del.dataset.del); return; }
   const chip = e.target.closest(".recent-chip");
   if (!chip) return;
   const r = readJSON(RECENTS_KEY, [])[+chip.dataset.i];

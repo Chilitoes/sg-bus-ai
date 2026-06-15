@@ -879,6 +879,23 @@ th.num, td.num { text-align: right; }
   font-size: .7rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: .04em; color: var(--ink-3);
 }
+.chip-wrap {
+  position: relative; display: inline-flex; align-items: center;
+}
+.chip-del {
+  position: absolute; top: -.35rem; right: -.35rem;
+  width: 1.1rem; height: 1.1rem;
+  border-radius: 50%; border: none;
+  background: var(--ink-3); color: var(--bg);
+  font-size: .65rem; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.chip-del:hover { background: var(--ink-2); }
+
+.recent-chip-wrap {
+  display: inline-flex; align-items: center;
+}
 .recent-chip {
   border: 1px solid var(--line); background: var(--surface);
   color: var(--ink); border-radius: 999px;
@@ -887,6 +904,16 @@ th.num, td.num { text-align: right; }
 }
 .recent-chip:active { background: var(--surface-2); }
 .recent-arrow { color: var(--ink-3); margin: 0 .15rem; }
+.recent-chip-del {
+  flex-shrink: 0; margin-left: .3rem;
+  width: 1.15rem; height: 1.15rem;
+  border-radius: 50%; border: none;
+  background: var(--ink-3); color: var(--bg);
+  font-size: .65rem; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.recent-chip-del:hover { background: var(--ink-2); }
 
 /* Change password */
 .pw-change { margin-bottom: .8rem; }
@@ -1766,15 +1793,17 @@ th.num, td.num { text-align: right; }
 .route-sheet-title { font-size: 1rem; font-weight: 700; color: var(--ink); }
 .route-sheet-sub   { font-size: .75rem; color: var(--ink-3); margin-top: .05rem; }
 .route-sheet-tabs {
-  display: flex; gap: .4rem; padding: .55rem 1rem .4rem; flex-shrink: 0;
+  display: flex; gap: .5rem; padding: .6rem 1rem .55rem; flex-shrink: 0;
   border-bottom: 1px solid var(--line);
 }
 .route-dir-tab {
-  font-size: .8rem; font-weight: 600; border: none; background: var(--surface-2);
-  color: var(--ink-2); border-radius: 20px; padding: .3rem .75rem; cursor: pointer;
-  transition: background .15s, color .15s;
+  flex: 1; font-size: .82rem; font-weight: 700; border: 2px solid var(--line);
+  background: none; color: var(--ink-2);
+  border-radius: 20px; padding: .38rem .75rem; cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+  text-align: center;
 }
-.route-dir-tab.active { background: var(--accent); color: #fff; }
+.route-dir-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .route-sheet-body {
   overflow-y: auto; padding: .5rem 0 1.5rem; flex: 1 1 auto;
   overscroll-behavior: contain;
@@ -1803,13 +1832,16 @@ th.num, td.num { text-align: right; }
   width: 2px; background: var(--line); flex: 1 1 auto; margin-top: 2px;
 }
 .route-stop-btn {
-  display: flex; flex-direction: column; justify-content: center;
-  gap: .08rem; flex: 1 1 auto; padding: .5rem .9rem .5rem .4rem;
+  display: flex; flex-direction: row; align-items: center;
+  gap: .55rem; flex: 1 1 auto; padding: .55rem .75rem .55rem .2rem;
   background: none; border: none; cursor: pointer; text-align: left;
   border-bottom: 1px solid var(--line);
   transition: background .12s;
 }
 .route-stop-btn:active { background: var(--surface-2); }
 .route-stop-row:last-child .route-stop-btn { border-bottom: none; }
-.route-stop-name { font-size: .88rem; font-weight: 500; color: var(--ink); }
-.route-stop-code { font-size: .72rem; color: var(--ink-3); }
+.route-stop-arrow { color: var(--accent); flex-shrink: 0; }
+.route-stop-info { flex: 1 1 auto; display: flex; flex-direction: column; gap: .06rem; }
+.route-stop-name { font-size: .88rem; font-weight: 600; color: var(--ink); }
+.route-stop-meta { font-size: .7rem; color: var(--ink-3); }
+.route-stop-dist { font-size: .72rem; font-weight: 600; color: var(--ink-3); flex-shrink: 0; }
