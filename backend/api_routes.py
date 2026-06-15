@@ -619,7 +619,7 @@ def remove_monitored(stop_code: str, admin: User = Depends(require_admin), db: S
 class _RouteGraph:
     """In-memory graph of the Singapore bus network, lazily loaded from DB."""
 
-    MAX_STOPS = 50  # max stops per leg when searching
+    MAX_STOPS = 80  # max stops per leg when searching
 
     def __init__(self):
         self._loaded = False
@@ -1482,11 +1482,12 @@ async def plan_multimodal(
                                       to_lat=to_lat, to_lng=to_lng)]
 
             all_legs = in_legs + enriched_mrt + out_legs
-            total = (
+            xfers = in_xfers + out_xfers + max(0, len(enriched_mrt) - 1)
+            total = max(0, (
                 sum((l.get("wait_min") or 0) + (l.get("walk_min") or l.get("est_ride_min") or 0)
                     for l in all_legs)
-            )
-            xfers = in_xfers + out_xfers + max(0, len(enriched_mrt) - 1)
+                + xfers * 5  # 5-min penalty per MRT transfer to discourage roundabout paths
+            ))
 
             # Only mark unavailable if even WITH a feeder the final walk is too long
             # (i.e. no destination bus could get us close enough).
@@ -1546,7 +1547,7 @@ async def plan_multimodal(
     if short_walk:
         options = short_walk
 
-    options.sort(key=lambda o: o["total_est_min"])
+    options.sort(key=lambda o: (o["total_est_min"], o.get("transfers", 0)))
 
     return {
         "from": {"name": from_name, "lat": from_lat, "lng": from_lng},
