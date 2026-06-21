@@ -42,12 +42,20 @@ from pydantic import BaseModel
 from sqlalchemy import case, func, or_, text
 
 _STOP_CODE_RE = _re.compile(r"^[A-Za-z0-9]{1,10}$")
+# SG bus service numbers are short alphanumerics, e.g. "15", "858A", "NR7", "10e".
+_SERVICE_NO_RE = _re.compile(r"^[A-Za-z0-9]{1,8}$")
 
 
 def _check_stop_code(code: str) -> str:
     if not _STOP_CODE_RE.match(code):
         raise HTTPException(status_code=400, detail="Invalid bus stop code format.")
     return code
+
+
+def _check_service_no(svc: str) -> str:
+    if not _SERVICE_NO_RE.match(svc):
+        raise HTTPException(status_code=400, detail="Invalid bus service number format.")
+    return svc
 from sqlalchemy.orm import Session
 
 from auth_routes import get_current_user, require_admin
@@ -125,12 +133,17 @@ async def _call_lta(stop_code: str) -> dict:
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as exc:
+            # 401 means our own LTA key is bad — surface that to the admin clearly,
+            # but never echo the raw upstream error (it leaks the endpoint URL and
+            # request internals) to ordinary clients.
             if exc.response.status_code == 401:
-                raise HTTPException(status_code=401,
-                                    detail="Invalid LTA API key. Set LTA_API_KEY in .env")
-            raise HTTPException(status_code=502, detail=f"LTA API error: {exc}")
+                logger.error("LTA API rejected our key (401).")
+                raise HTTPException(status_code=502, detail="Upstream bus data is temporarily unavailable.")
+            logger.warning("LTA API error: %s", exc)
+            raise HTTPException(status_code=502, detail="Upstream bus data is temporarily unavailable.")
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Could not reach LTA API: {exc}")
+            logger.warning("Could not reach LTA API: %s: %s", type(exc).__name__, exc)
+            raise HTTPException(status_code=502, detail="Upstream bus data is temporarily unavailable.")
 
 
 # ── Arrivals ──────────────────────────────────────────────────────
@@ -291,12 +304,13 @@ async def get_arrivals(
 # ── Statistics ────────────────────────────────────────────────
 
 @router.get("/stats/{stop_code}")
-def get_stats(stop_code: str, db: Session = Depends(get_db)) -> dict:
+def get_stats(stop_code: str = Path(..., max_length=10), db: Session = Depends(get_db)) -> dict:
     """
     Return aggregated delay statistics for a bus stop, suitable for Chart.js.
 
     Covers the last 30 days of collected data.
     """
+    stop_code = _check_stop_code(stop_code)
     cutoff = datetime.utcnow() - timedelta(days=30)
     base_q = (
         db.query(BusArrivalRecord)
@@ -802,8 +816,9 @@ async def sync_routes(admin: User = Depends(require_admin)) -> dict:
 
 
 @router.get("/routes/{service_no}")
-def get_route_stops(service_no: str, db: Session = Depends(get_db)) -> dict:
+def get_route_stops(service_no: str = Path(..., max_length=8), db: Session = Depends(get_db)) -> dict:
     """Return all stops for a bus service in sequence, for each direction."""
+    service_no = _check_service_no(service_no)
     directions = []
     for direction in [1, 2]:
         rows = (
@@ -837,9 +852,9 @@ def get_route_stops(service_no: str, db: Session = Depends(get_db)) -> dict:
 
 @router.get("/journey/plan")
 async def plan_journey(
-    from_code: str = Query(..., description="Origin bus stop code"),
-    to_code: str = Query(..., description="Destination bus stop code"),
-    depart_at: str | None = Query(None, description="Plan for a future SGT time 'YYYY-MM-DDTHH:MM'"),
+    from_code: str = Query(..., max_length=10, description="Origin bus stop code"),
+    to_code: str = Query(..., max_length=10, description="Destination bus stop code"),
+    depart_at: str | None = Query(None, max_length=40, description="Plan for a future SGT time 'YYYY-MM-DDTHH:MM'"),
     db: Session = Depends(get_db),
 ) -> dict:
     """
@@ -849,6 +864,8 @@ async def plan_journey(
     Each option shows legs (bus rides), wait times, estimated ride times, and
     a last-bus warning when a service is running its final departure.
     """
+    from_code = _check_stop_code(from_code)
+    to_code = _check_stop_code(to_code)
     if from_code == to_code:
         raise HTTPException(status_code=400, detail="Origin and destination must be different stops.")
 
@@ -1091,9 +1108,9 @@ async def plan_multimodal(
     from_lng:  float = Query(..., ge=-180,  le=180),
     to_lat:    float = Query(..., ge=-90,   le=90),
     to_lng:    float = Query(..., ge=-180,  le=180),
-    from_name: str   = Query("Origin"),
-    to_name:   str   = Query("Destination"),
-    depart_at: str | None = Query(None, description="Plan for a future SGT time 'YYYY-MM-DDTHH:MM'"),
+    from_name: str   = Query("Origin", max_length=200),
+    to_name:   str   = Query("Destination", max_length=200),
+    depart_at: str | None = Query(None, max_length=40, description="Plan for a future SGT time 'YYYY-MM-DDTHH:MM'"),
     db: Session = Depends(get_db),
 ) -> dict:
     """

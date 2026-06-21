@@ -127,6 +127,11 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+        # The service is only ever reached over HTTPS (Tailscale Funnel terminates
+        # TLS). Tell browsers to refuse plain-HTTP for a year so a downgrade /
+        # SSL-strip attack can't trick a client into sending a Bearer token in the
+        # clear. No `preload`/`includeSubDomains` — keep the policy scoped.
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
         # Remove the server banner so version-fingerprinting is harder
         if "server" in response.headers:
             del response.headers["server"]
