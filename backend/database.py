@@ -237,6 +237,24 @@ class SystemNotification(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class DailyActivity(Base):
+    """Daily request counters keyed by (date_sgt, metric, label).
+
+    Metrics: "arrivals" (label=stop_code), "journey_plan", "multimodal_plan".
+    Incremented as FastAPI background tasks so they never slow a response.
+    """
+    __tablename__ = "daily_activity"
+    __table_args__ = (
+        UniqueConstraint("date", "metric", "label", name="uq_daily_activity"),
+    )
+
+    id     = Column(Integer, primary_key=True)
+    date   = Column(String(10), nullable=False, index=True)  # "YYYY-MM-DD" SGT
+    metric = Column(String(30), nullable=False)
+    label  = Column(String(30), nullable=False, default="")
+    count  = Column(Integer,    default=0,      nullable=False)
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def get_db():
@@ -309,6 +327,7 @@ def init_db(seed_stops: list[str] | None = None) -> None:
     _migrate_user_columns()
     _migrate_feedback_columns()
     _migrate_notifications_column()
+    # DailyActivity is new — create_all handles it; no column migration needed.
     if seed_stops:
         db = SessionLocal()
         try:

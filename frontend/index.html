@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.1.32" />
+  <link rel="stylesheet" href="styles.css?v=1.1.33" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -483,6 +483,47 @@
       <div id="feedback-admin-list" class="feedback-admin-list"></div>
     </div>
 
+    <!-- Usage analytics dashboard — admin only -->
+    <div id="analytics-block" class="block hidden">
+      <div class="block-head">Usage dashboard <span class="panel-badge">live</span></div>
+      <div class="anlyt-metrics">
+        <div class="anlyt-metric">
+          <div class="anlyt-metric-val" id="anlyt-today">–</div>
+          <div class="anlyt-metric-lbl">queries today</div>
+          <div id="anlyt-delta"></div>
+        </div>
+        <div class="anlyt-metric">
+          <div class="anlyt-metric-val" id="anlyt-week">–</div>
+          <div class="anlyt-metric-lbl">daily avg (7d)</div>
+        </div>
+        <div class="anlyt-metric">
+          <div class="anlyt-metric-val" id="anlyt-users">–</div>
+          <div class="anlyt-metric-lbl">registered users</div>
+        </div>
+        <div class="anlyt-metric">
+          <div class="anlyt-metric-val" id="anlyt-sessions">–</div>
+          <div class="anlyt-metric-lbl">active sessions (30d)</div>
+        </div>
+        <div class="anlyt-metric">
+          <div class="anlyt-metric-val" id="anlyt-arrivals">–</div>
+          <div class="anlyt-metric-lbl">arrival lookups today</div>
+        </div>
+        <div class="anlyt-metric">
+          <div class="anlyt-metric-val" id="anlyt-plans">–</div>
+          <div class="anlyt-metric-lbl">journey plans today</div>
+        </div>
+        <div class="anlyt-metric">
+          <div class="anlyt-metric-val" id="anlyt-fb">–</div>
+          <div class="anlyt-metric-lbl">feedback rating</div>
+        </div>
+      </div>
+      <div class="anlyt-chart-wrap">
+        <canvas id="anlyt-chart"></canvas>
+      </div>
+      <div class="block-head" style="margin-top:1rem">Top stops this week</div>
+      <div id="anlyt-top-stops" class="anlyt-top-stops"></div>
+    </div>
+
     <div id="notif-admin-block" class="block hidden">
       <div class="block-head">System notifications</div>
       <form id="notif-create-form" class="notif-create-form">
@@ -828,6 +869,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=1.1.32"></script>
+<script src="app.js?v=1.1.33"></script>
 </body>
 </html>

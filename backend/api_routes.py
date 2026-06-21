@@ -61,11 +61,38 @@ from sqlalchemy.orm import Session
 from auth_routes import get_current_user, require_admin
 from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL, DATABASE_URL
 from data_collector import persist_arrival_payload
-from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, Feedback, MonitoredStop, SystemNotification, User, UserSession, get_db
+from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, DailyActivity, Feedback, MonitoredStop, SessionLocal, SystemNotification, User, UserSession, get_db
 from ml_model import model as global_model
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _inc_activity(metric: str, label: str = "") -> None:
+    """Increment a daily SGT activity counter. Runs as a background task."""
+    sgt_date = (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d")
+    db = SessionLocal()
+    try:
+        db.execute(
+            text(
+                "INSERT OR IGNORE INTO daily_activity (date, metric, label, count) "
+                "VALUES (:d, :m, :l, 0)"
+            ),
+            {"d": sgt_date, "m": metric, "l": label},
+        )
+        db.execute(
+            text(
+                "UPDATE daily_activity SET count = count + 1 "
+                "WHERE date = :d AND metric = :m AND label = :l"
+            ),
+            {"d": sgt_date, "m": metric, "l": label},
+        )
+        db.commit()
+    except Exception as exc:
+        logger.debug("activity counter error: %s", exc)
+        db.rollback()
+    finally:
+        db.close()
 
 
 @router.get("/health")
@@ -195,6 +222,7 @@ async def get_arrivals(
     # Passive collection: every visitor query doubles as a training snapshot,
     # at zero extra LTA API cost. Runs after the response is sent.
     background_tasks.add_task(persist_arrival_payload, stop_code, services, now)
+    background_tasks.add_task(_inc_activity, "arrivals", stop_code)
 
     # Per-service reliability from 30 days of collected ground truth at this stop.
     # "On time" = actual arrival within 2 minutes of the LTA estimate.
@@ -852,6 +880,7 @@ def get_route_stops(service_no: str = Path(..., max_length=8), db: Session = Dep
 
 @router.get("/journey/plan")
 async def plan_journey(
+    background_tasks: BackgroundTasks,
     from_code: str = Query(..., max_length=10, description="Origin bus stop code"),
     to_code: str = Query(..., max_length=10, description="Destination bus stop code"),
     depart_at: str | None = Query(None, max_length=40, description="Plan for a future SGT time 'YYYY-MM-DDTHH:MM'"),
@@ -1096,6 +1125,7 @@ async def plan_journey(
     if pruned:
         options = pruned
 
+    background_tasks.add_task(_inc_activity, "journey_plan")
     return {"from": from_info, "to": to_info, "options": options, "unavailable": unavailable[:3],
             "is_future": is_future, "planned_for": planned_for}
 
@@ -1104,6 +1134,7 @@ async def plan_journey(
 
 @router.get("/journey/multimodal")
 async def plan_multimodal(
+    background_tasks: BackgroundTasks,
     from_lat:  float = Query(..., ge=-90,   le=90),
     from_lng:  float = Query(..., ge=-180,  le=180),
     to_lat:    float = Query(..., ge=-90,   le=90),
@@ -1587,6 +1618,7 @@ async def plan_multimodal(
 
     options.sort(key=lambda o: (o["total_est_min"], o.get("transfers", 0)))
 
+    background_tasks.add_task(_inc_activity, "multimodal_plan")
     return {
         "from": {"name": from_name, "lat": from_lat, "lng": from_lng},
         "to":   {"name": to_name,   "lat": to_lat,   "lng": to_lng},
@@ -2033,3 +2065,114 @@ def mark_notifications_read(
     user.notifications_seen_at = datetime.utcnow()
     db.commit()
     return {"status": "ok"}
+
+
+# ── Usage analytics ────────────────────────────────────────────────────────────
+
+@router.get("/analytics")
+def get_analytics(
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Usage dashboard data. Admin only."""
+    sgt_now = datetime.utcnow() + timedelta(hours=8)
+    today     = sgt_now.strftime("%Y-%m-%d")
+    yesterday = (sgt_now - timedelta(days=1)).strftime("%Y-%m-%d")
+    cutoff_30d = (sgt_now - timedelta(days=29)).strftime("%Y-%m-%d")
+    cutoff_7d  = (sgt_now - timedelta(days=6)).strftime("%Y-%m-%d")
+
+    # ── Daily query totals (last 30 days) ─────────────────────────────────────
+    daily_rows = (
+        db.query(
+            DailyActivity.date,
+            func.sum(DailyActivity.count).label("total"),
+        )
+        .filter(DailyActivity.date >= cutoff_30d)
+        .group_by(DailyActivity.date)
+        .all()
+    )
+    daily_map: dict[str, int] = {r.date: int(r.total) for r in daily_rows}
+
+    # Fill every day in the 30-day window (zeros for quiet days)
+    series = []
+    for i in range(29, -1, -1):
+        d = (sgt_now - timedelta(days=i)).strftime("%Y-%m-%d")
+        series.append({"date": d, "count": daily_map.get(d, 0)})
+
+    today_queries     = daily_map.get(today, 0)
+    yesterday_queries = daily_map.get(yesterday, 0)
+    week_avg = (
+        sum(daily_map.get((sgt_now - timedelta(days=i)).strftime("%Y-%m-%d"), 0) for i in range(1, 8))
+        // 7
+    )
+
+    # ── Breakdown today by metric ──────────────────────────────────────────────
+    today_breakdown_rows = (
+        db.query(DailyActivity.metric, func.sum(DailyActivity.count).label("n"))
+        .filter(DailyActivity.date == today)
+        .group_by(DailyActivity.metric)
+        .all()
+    )
+    today_breakdown = {r.metric: int(r.n) for r in today_breakdown_rows}
+
+    # ── Top stops (last 7 days) ────────────────────────────────────────────────
+    top_stops_rows = (
+        db.query(
+            DailyActivity.label,
+            func.sum(DailyActivity.count).label("n"),
+        )
+        .filter(
+            DailyActivity.metric == "arrivals",
+            DailyActivity.date >= cutoff_7d,
+            DailyActivity.label != "",
+        )
+        .group_by(DailyActivity.label)
+        .order_by(func.sum(DailyActivity.count).desc())
+        .limit(10)
+        .all()
+    )
+    codes = [r.label for r in top_stops_rows]
+    name_map = {
+        s.bus_stop_code: s.description
+        for s in db.query(BusStop).filter(BusStop.bus_stop_code.in_(codes)).all()
+    }
+    top_stops = [
+        {"stop_code": r.label, "name": name_map.get(r.label, r.label), "count": int(r.n)}
+        for r in top_stops_rows
+    ]
+
+    # ── Users ──────────────────────────────────────────────────────────────────
+    total_users = db.query(func.count(User.id)).scalar() or 0
+    active_sessions_30d = (
+        db.query(func.count(UserSession.token))
+        .filter(UserSession.last_used >= datetime.utcnow() - timedelta(days=30))
+        .scalar() or 0
+    )
+
+    # ── Feedback ──────────────────────────────────────────────────────────────
+    total_feedback = db.query(func.count(Feedback.id)).scalar() or 0
+    avg_rating_raw = (
+        db.query(func.avg(Feedback.rating))
+        .filter(Feedback.rating.isnot(None))
+        .scalar()
+    )
+    avg_rating = round(float(avg_rating_raw), 1) if avg_rating_raw else None
+
+    return {
+        "queries": {
+            "today":     today_queries,
+            "yesterday": yesterday_queries,
+            "week_avg":  week_avg,
+            "breakdown": today_breakdown,
+            "series":    series,
+        },
+        "users": {
+            "total":               total_users,
+            "active_sessions_30d": active_sessions_30d,
+        },
+        "feedback": {
+            "total":      total_feedback,
+            "avg_rating": avg_rating,
+        },
+        "top_stops": top_stops,
+    }

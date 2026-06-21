@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.32";
+const APP_VERSION = "1.1.33";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1862,12 +1862,103 @@ async function loadData() {
       await _loadAdminNotifications();
       show($("notif-admin-block"));
     } catch { /* not admin */ }
+
+    // Usage analytics dashboard
+    try {
+      await loadAdminAnalytics();
+      show($("analytics-block"));
+    } catch { /* not admin */ }
   } catch (err) {
     $("data-grid").innerHTML = "";
     const el = $("data-error");
     el.textContent = `Couldn't load data: ${err.message}`;
     show(el);
   }
+}
+
+// ── Admin analytics dashboard ──────────────────────────────────────────────────
+
+let _analyticsChart = null;
+
+async function loadAdminAnalytics() {
+  const d = await api("/api/analytics");
+  const q = d.queries;
+  const u = d.users;
+  const fb = d.feedback;
+
+  // Summary metrics row
+  const change = q.yesterday > 0
+    ? Math.round(((q.today - q.yesterday) / q.yesterday) * 100)
+    : null;
+  const changeTxt = change === null ? "" :
+    `<span class="anlyt-delta ${change >= 0 ? "pos" : "neg"}">${change >= 0 ? "▲" : "▼"}${Math.abs(change)}% vs yesterday</span>`;
+
+  $("anlyt-today").textContent    = q.today.toLocaleString();
+  $("anlyt-delta").innerHTML      = changeTxt;
+  $("anlyt-week").textContent     = q.week_avg.toLocaleString();
+  $("anlyt-users").textContent    = u.total.toLocaleString();
+  $("anlyt-sessions").textContent = u.active_sessions_30d.toLocaleString();
+  $("anlyt-fb").textContent       = fb.avg_rating ? `${fb.avg_rating}★ (${fb.total})` : fb.total;
+
+  // Breakdown today
+  const bd = q.breakdown || {};
+  $("anlyt-arrivals").textContent  = (bd.arrivals        || 0).toLocaleString();
+  $("anlyt-plans").textContent     = ((bd.journey_plan || 0) + (bd.multimodal_plan || 0)).toLocaleString();
+
+  // 30-day sparkline chart (Chart.js)
+  if (typeof Chart !== "undefined") {
+    if (_analyticsChart) { _analyticsChart.destroy(); _analyticsChart = null; }
+    const canvas = $("anlyt-chart");
+    if (canvas) {
+      const labels = q.series.map((s) => {
+        const d = new Date(s.date + "T00:00:00");
+        return d.toLocaleDateString("en-SG", { day: "numeric", month: "short" });
+      });
+      const counts = q.series.map((s) => s.count);
+      const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#4285f4";
+      _analyticsChart = new Chart(canvas, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            data: counts,
+            backgroundColor: accent + "55",
+            borderColor: accent,
+            borderWidth: 1.5,
+            borderRadius: 3,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: {
+            callbacks: { label: (c) => ` ${c.raw.toLocaleString()} queries` },
+          }},
+          scales: {
+            x: { ticks: { maxTicksLimit: 7, maxRotation: 0, font: { size: 10 } }, grid: { display: false } },
+            y: { beginAtZero: true, ticks: { maxTicksLimit: 4, font: { size: 10 } } },
+          },
+        },
+      });
+    }
+  }
+
+  // Top stops
+  const tops = d.top_stops || [];
+  const maxCount = tops[0]?.count || 1;
+  $("anlyt-top-stops").innerHTML = tops.length
+    ? tops.map((s, i) => `
+        <div class="anlyt-stop-row">
+          <span class="anlyt-stop-rank">${i + 1}</span>
+          <div class="anlyt-stop-info">
+            <div class="anlyt-stop-name">${esc(s.name || s.stop_code)}</div>
+            <div class="anlyt-stop-bar-wrap">
+              <div class="anlyt-stop-bar" style="width:${Math.round((s.count / maxCount) * 100)}%"></div>
+            </div>
+          </div>
+          <span class="anlyt-stop-count">${s.count.toLocaleString()}</span>
+        </div>`).join("")
+    : `<p style="color:var(--ink-3);font-size:.85rem;margin:0">No queries yet this week</p>`;
 }
 
 // ── Admin notifications ────────────────────────────────────────────────────────
@@ -3143,9 +3234,14 @@ function _openCardMap(card, data, coords, optIdx) {
       btn.className = "jcard-map-fit";
       btn.title = "Fit route";
       btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>`;
-      btn.addEventListener("click", () => {
+      const _fitRoute = (e) => {
+        e.stopPropagation();
         if (card._jmapBounds?.length) card._jmap.fitBounds(card._jmapBounds, { padding: [24, 24] });
-      });
+      };
+      btn.addEventListener("click", _fitRoute);
+      // Chrome on iOS can swallow click events on elements overlaid on a Leaflet
+      // map. Handle touchend directly so the button works in all browsers.
+      btn.addEventListener("touchend", (e) => { e.preventDefault(); _fitRoute(e); }, { passive: false });
       wrap.appendChild(btn);
     }
   }
