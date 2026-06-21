@@ -2078,3 +2078,32 @@ th.num, td.num { text-align: right; }
   min-width: 30px;
   text-align: right;
 }
+
+/* ── Analytics: query totals + users tables ──────── */
+.anlyt-table { width: 100%; font-size: .8rem; }
+.anlyt-table th {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--ink-3); font-weight: 600; text-align: left;
+  padding: .3rem .4rem; border-bottom: 1px solid var(--line);
+}
+.anlyt-table td {
+  padding: .4rem .4rem; border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.anlyt-table td.num, .anlyt-table th.num { text-align: right; white-space: nowrap; }
+.anlyt-users-summary {
+  font-size: .85rem; color: var(--ink-2); margin-bottom: .6rem; line-height: 1.5;
+}
+.anlyt-user-name { font-weight: 600; }
+.anlyt-user-email { font-size: .72rem; color: var(--ink-3); margin-top: .1rem; }
+.anlyt-user-admin {
+  font-size: .6rem; font-weight: 700; text-transform: uppercase;
+  background: rgba(255,180,40,.18); color: #d0960a;
+  border-radius: 4px; padding: .05rem .25rem; vertical-align: middle;
+}
+.anlyt-prov {
+  font-size: .65rem; font-weight: 700;
+  border-radius: 4px; padding: .1rem .3rem; white-space: nowrap;
+}
+.anlyt-prov-google   { background: rgba(80,150,255,.15); color: #5096ff; }
+.anlyt-prov-password { background: var(--surface-2); color: var(--ink-3); }

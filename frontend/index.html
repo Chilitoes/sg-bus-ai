@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.1.33" />
+  <link rel="stylesheet" href="styles.css?v=1.1.34" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -520,8 +520,26 @@
       <div class="anlyt-chart-wrap">
         <canvas id="anlyt-chart"></canvas>
       </div>
+
+      <div class="block-head" style="margin-top:1rem">Queries by type</div>
+      <div class="tablewrap">
+        <table class="anlyt-table">
+          <thead><tr><th>Type</th><th class="num">Today</th><th class="num">7d</th><th class="num">30d</th><th class="num">All</th></tr></thead>
+          <tbody id="anlyt-query-totals"></tbody>
+        </table>
+      </div>
+
       <div class="block-head" style="margin-top:1rem">Top stops this week</div>
       <div id="anlyt-top-stops" class="anlyt-top-stops"></div>
+
+      <div class="block-head" style="margin-top:1rem">Users</div>
+      <div id="anlyt-users-summary" class="anlyt-users-summary"></div>
+      <div class="tablewrap">
+        <table class="anlyt-table">
+          <thead><tr><th>User</th><th>Via</th><th>Joined</th><th>Last seen</th><th class="num">Saved</th></tr></thead>
+          <tbody id="anlyt-users-list"></tbody>
+        </table>
+      </div>
     </div>
 
     <div id="notif-admin-block" class="block hidden">
@@ -869,6 +887,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=1.1.33"></script>
+<script src="app.js?v=1.1.34"></script>
 </body>
 </html>

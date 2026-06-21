@@ -24,7 +24,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.33";
+const APP_VERSION = "1.1.34";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1943,6 +1943,28 @@ async function loadAdminAnalytics() {
     }
   }
 
+  // Query totals by type (today / 7d / 30d / all-time)
+  const totals = q.totals || [];
+  $("anlyt-query-totals").innerHTML = totals.length
+    ? totals.map((t) => `
+        <tr>
+          <td>${esc(t.label)}</td>
+          <td class="num">${t.today.toLocaleString()}</td>
+          <td class="num">${t.d7.toLocaleString()}</td>
+          <td class="num">${t.d30.toLocaleString()}</td>
+          <td class="num"><strong>${t.all.toLocaleString()}</strong></td>
+        </tr>`).join("")
+    : `<tr><td colspan="5" style="color:var(--ink-3)">No data yet</td></tr>`;
+
+  // Users summary line
+  const prov = u.by_provider || {};
+  const provBits = Object.entries(prov).map(([k, v]) => `${v} ${k}`).join(" · ");
+  $("anlyt-users-summary").innerHTML =
+    `<strong>${u.total.toLocaleString()}</strong> total · ` +
+    `<strong>${(u.new_7d || 0).toLocaleString()}</strong> new this week · ` +
+    `<strong>${(u.new_30d || 0).toLocaleString()}</strong> new this month` +
+    (provBits ? `<br><span style="color:var(--ink-3)">${esc(provBits)}</span>` : "");
+
   // Top stops
   const tops = d.top_stops || [];
   const maxCount = tops[0]?.count || 1;
@@ -1959,6 +1981,36 @@ async function loadAdminAnalytics() {
           <span class="anlyt-stop-count">${s.count.toLocaleString()}</span>
         </div>`).join("")
     : `<p style="color:var(--ink-3);font-size:.85rem;margin:0">No queries yet this week</p>`;
+
+  // User list
+  const users = u.list || [];
+  const fmtDay = (iso) => {
+    if (!iso) return "–";
+    return new Date(iso + "Z").toLocaleDateString("en-SG", {
+      day: "numeric", month: "short", year: "2-digit", timeZone: "Asia/Singapore",
+    });
+  };
+  const relDays = (iso) => {
+    if (!iso) return "never";
+    const days = Math.floor((Date.now() - new Date(iso + "Z").getTime()) / 86400000);
+    if (days <= 0) return "today";
+    if (days === 1) return "1d ago";
+    if (days < 30) return `${days}d ago`;
+    return fmtDay(iso);
+  };
+  $("anlyt-users-list").innerHTML = users.length
+    ? users.map((usr) => `
+        <tr>
+          <td>
+            <div class="anlyt-user-name">${esc(usr.username)}${usr.is_admin ? ' <span class="anlyt-user-admin">admin</span>' : ""}</div>
+            ${usr.email ? `<div class="anlyt-user-email">${esc(usr.email)}</div>` : ""}
+          </td>
+          <td><span class="anlyt-prov anlyt-prov-${esc(usr.auth_provider)}">${esc(usr.auth_provider === "google" ? "Google" : "Pw")}</span></td>
+          <td>${fmtDay(usr.created_at)}</td>
+          <td>${relDays(usr.last_seen)}</td>
+          <td class="num">${usr.favourites}★ / ${usr.journeys}⤳</td>
+        </tr>`).join("")
+    : `<tr><td colspan="5" style="color:var(--ink-3)">No registered users yet</td></tr>`;
 }
 
 // ── Admin notifications ────────────────────────────────────────────────────────

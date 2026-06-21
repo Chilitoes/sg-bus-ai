@@ -61,7 +61,7 @@ from sqlalchemy.orm import Session
 from auth_routes import get_current_user, require_admin
 from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL, DATABASE_URL
 from data_collector import persist_arrival_payload
-from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, DailyActivity, Feedback, MonitoredStop, SessionLocal, SystemNotification, User, UserSession, get_db
+from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, DailyActivity, Feedback, MonitoredStop, SavedJourney, SessionLocal, SystemNotification, User, UserFavourite, UserSession, get_db
 from ml_model import model as global_model
 
 logger = logging.getLogger(__name__)
@@ -2141,6 +2141,34 @@ def get_analytics(
         for r in top_stops_rows
     ]
 
+    # ── Query totals by metric (today / 7d / 30d / all-time) ───────────────────
+    def _metric_sum(metric: str, since: str | None = None, exact: str | None = None) -> int:
+        qq = db.query(func.coalesce(func.sum(DailyActivity.count), 0)).filter(
+            DailyActivity.metric == metric
+        )
+        if exact is not None:
+            qq = qq.filter(DailyActivity.date == exact)
+        elif since is not None:
+            qq = qq.filter(DailyActivity.date >= since)
+        return int(qq.scalar() or 0)
+
+    metric_labels = {
+        "arrivals":        "Arrival lookups",
+        "journey_plan":    "Journey plans (stop→stop)",
+        "multimodal_plan": "Journey plans (map)",
+    }
+    query_totals = [
+        {
+            "metric": m,
+            "label":  label,
+            "today":  _metric_sum(m, exact=today),
+            "d7":     _metric_sum(m, since=cutoff_7d),
+            "d30":    _metric_sum(m, since=cutoff_30d),
+            "all":    _metric_sum(m),
+        }
+        for m, label in metric_labels.items()
+    ]
+
     # ── Users ──────────────────────────────────────────────────────────────────
     total_users = db.query(func.count(User.id)).scalar() or 0
     active_sessions_30d = (
@@ -2148,6 +2176,52 @@ def get_analytics(
         .filter(UserSession.last_used >= datetime.utcnow() - timedelta(days=30))
         .scalar() or 0
     )
+    # New sign-ups in the last 7 / 30 days
+    new_7d = (
+        db.query(func.count(User.id))
+        .filter(User.created_at >= datetime.utcnow() - timedelta(days=7))
+        .scalar() or 0
+    )
+    new_30d = (
+        db.query(func.count(User.id))
+        .filter(User.created_at >= datetime.utcnow() - timedelta(days=30))
+        .scalar() or 0
+    )
+    by_provider_rows = (
+        db.query(User.auth_provider, func.count(User.id))
+        .group_by(User.auth_provider)
+        .all()
+    )
+    by_provider = {(p or "password"): int(n) for p, n in by_provider_rows}
+
+    # Per-user detail (newest first, capped). Favourites / saved journeys / last
+    # active are joined in via cheap grouped lookups rather than N+1 queries.
+    user_rows = db.query(User).order_by(User.created_at.desc()).limit(200).all()
+    fav_counts = dict(
+        db.query(UserFavourite.user_id, func.count(UserFavourite.id))
+        .group_by(UserFavourite.user_id).all()
+    )
+    journey_counts = dict(
+        db.query(SavedJourney.user_id, func.count(SavedJourney.id))
+        .group_by(SavedJourney.user_id).all()
+    )
+    last_seen = dict(
+        db.query(UserSession.user_id, func.max(UserSession.last_used))
+        .group_by(UserSession.user_id).all()
+    )
+    users_list = [
+        {
+            "username":      u.username,
+            "email":         u.email,
+            "auth_provider": u.auth_provider or "password",
+            "created_at":    u.created_at.isoformat() if u.created_at else None,
+            "last_seen":     last_seen[u.id].isoformat() if last_seen.get(u.id) else None,
+            "favourites":    int(fav_counts.get(u.id, 0)),
+            "journeys":      int(journey_counts.get(u.id, 0)),
+            "is_admin":      u.username.lower() == "admin",
+        }
+        for u in user_rows
+    ]
 
     # ── Feedback ──────────────────────────────────────────────────────────────
     total_feedback = db.query(func.count(Feedback.id)).scalar() or 0
@@ -2165,10 +2239,15 @@ def get_analytics(
             "week_avg":  week_avg,
             "breakdown": today_breakdown,
             "series":    series,
+            "totals":    query_totals,
         },
         "users": {
             "total":               total_users,
             "active_sessions_30d": active_sessions_30d,
+            "new_7d":              new_7d,
+            "new_30d":             new_30d,
+            "by_provider":         by_provider,
+            "list":                users_list,
         },
         "feedback": {
             "total":      total_feedback,
