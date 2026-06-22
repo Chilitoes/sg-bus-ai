@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.2.4" />
+  <link rel="stylesheet" href="styles.css?v=1.2.5" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -75,10 +75,24 @@
         </span>
       </li>
     </ol>
+    <p class="a2hs-hint">Don't see "Add to Home Screen"? Scroll the share sheet down, or tap <b>Edit Actions…</b> / <b>More</b> to find it.</p>
     <button id="a2hs-got" class="a2hs-got" type="button">Got it</button>
   </div>
   <div class="a2hs-arrow" aria-hidden="true">
     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m6 13 6 6 6-6"/></svg>
+  </div>
+</div>
+
+<!-- New-notification popup — shown on app open when admin sent a new notice -->
+<div id="notif-popup" class="notif-popup hidden" role="dialog" aria-modal="true" aria-labelledby="notif-popup-title">
+  <div class="notif-popup-backdrop"></div>
+  <div class="notif-popup-card">
+    <div class="notif-popup-icon" id="notif-popup-icon">🆕</div>
+    <div class="notif-popup-title" id="notif-popup-title"></div>
+    <div class="notif-popup-body hidden" id="notif-popup-body"></div>
+    <div class="notif-popup-time" id="notif-popup-time"></div>
+    <div class="notif-popup-more hidden" id="notif-popup-more"></div>
+    <button id="notif-popup-ok" class="notif-popup-ok" type="button">Got it</button>
   </div>
 </div>
 
@@ -955,6 +969,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=1.2.4"></script>
+<script src="app.js?v=1.2.5"></script>
 </body>
 </html>

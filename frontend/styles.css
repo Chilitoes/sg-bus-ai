@@ -2133,8 +2133,12 @@ th.num, td.num { text-align: right; }
 .heatmap-sub { font-size: .76rem; color: var(--ink-3); line-height: 1.4; margin-bottom: .6rem; }
 .heatmap-grid {
   display: grid;
-  grid-template-columns: 28px repeat(24, 1fr);
-  gap: 2px;
+  grid-template-columns: 26px repeat(24, 1fr);
+  gap: 1.5px;
+  padding: 7px 7px 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
 }
 .heatmap-corner { grid-column: 1; }
 .heatmap-hour {
@@ -2143,22 +2147,19 @@ th.num, td.num { text-align: right; }
   align-self: end; padding-bottom: 3px; overflow: visible; white-space: nowrap;
 }
 .heatmap-day {
-  font-size: .66rem; font-weight: 600; color: var(--ink-2);
-  padding-right: .35rem;
+  font-size: .64rem; font-weight: 600; color: var(--ink-2);
+  padding-right: .3rem;
   display: flex; align-items: center; justify-content: flex-end;
 }
 /* Fixed-height cells that fill their column (no aspect-ratio / centering gaps),
    so every row lines up cleanly. */
 .heatmap-cell {
-  height: 17px; border-radius: 3px;
+  height: 15px; border-radius: 2px;
   background: var(--surface-2);
 }
-/* No-data cells: a calm, flat muted tile — clearly distinct from the coloured
-   data cells and the page background, without drawing the eye. */
-.heatmap-cell.empty {
-  background: var(--surface-2);
-  opacity: .45;
-}
+/* No-data cells: a clearly visible flat grey tile (full opacity) so the
+   overnight no-service hours read as deliberate "no data", not a dark void. */
+.heatmap-cell.empty { background: var(--surface-2); }
 .heatmap-legend {
   display: flex; align-items: center; gap: .45rem;
   margin-top: .8rem; font-size: .7rem; color: var(--ink-3);
@@ -2171,7 +2172,7 @@ th.num, td.num { text-align: right; }
 .heatmap-legend-na { display: flex; align-items: center; gap: .3rem; margin-left: auto; }
 .heatmap-na-swatch {
   width: 11px; height: 11px; border-radius: 2px; display: inline-block;
-  background: var(--surface-2); opacity: .45;
+  background: var(--surface-2);
 }
 
 /* ── Maintenance page (backend unreachable) ──────────────── */
@@ -2285,6 +2286,12 @@ body.maintenance-open { overflow: hidden; }
   width: 24px; height: 24px; border-radius: 6px; margin: 0 .1rem;
   background: var(--surface-2); color: var(--accent);
 }
+.a2hs-hint {
+  font-size: .76rem; color: var(--ink-3); line-height: 1.45;
+  margin: 0 0 .9rem; padding: .55rem .65rem;
+  background: var(--surface-2); border-radius: 10px;
+}
+.a2hs-hint b { color: var(--ink-2); font-weight: 600; }
 .a2hs-got {
   width: 100%; padding: .7rem 1rem; border-radius: 13px;
   border: none; background: var(--accent); color: #fff;
@@ -2305,4 +2312,44 @@ body.maintenance-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .a2hs-card { transition: none; }
   .a2hs-arrow { animation: none; }
+}
+
+/* ── New-notification popup ───────────────────────────────── */
+.notif-popup {
+  position: fixed; inset: 0; z-index: 2100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem; pointer-events: none;
+}
+.notif-popup.hidden { display: none; }
+.notif-popup-backdrop {
+  position: absolute; inset: 0; background: rgba(0,0,0,.5);
+  opacity: 0; transition: opacity .28s ease; pointer-events: auto;
+}
+.notif-popup.show .notif-popup-backdrop { opacity: 1; }
+.notif-popup-card {
+  position: relative; pointer-events: auto;
+  width: 100%; max-width: 360px; text-align: center;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 20px; padding: 1.6rem 1.4rem 1.2rem;
+  box-shadow: 0 18px 55px rgba(0,0,0,.32);
+  transform: scale(.92); opacity: 0;
+  transition: transform .28s cubic-bezier(.2,.85,.25,1), opacity .28s ease;
+}
+.notif-popup.show .notif-popup-card { transform: scale(1); opacity: 1; }
+.notif-popup-icon { font-size: 2rem; line-height: 1; margin-bottom: .5rem; }
+.notif-popup-title { font-size: 1.12rem; font-weight: 700; color: var(--ink); letter-spacing: -.01em; }
+.notif-popup-body {
+  font-size: .9rem; color: var(--ink-2); line-height: 1.5;
+  margin-top: .5rem; white-space: pre-wrap;
+}
+.notif-popup-time { font-size: .72rem; color: var(--ink-3); margin-top: .7rem; }
+.notif-popup-more { font-size: .76rem; color: var(--accent); font-weight: 600; margin-top: .5rem; }
+.notif-popup-ok {
+  width: 100%; margin-top: 1.2rem; padding: .7rem 1rem; border-radius: 13px;
+  border: none; background: var(--accent); color: #fff;
+  font-size: .92rem; font-weight: 600; cursor: pointer;
+}
+.notif-popup-ok:active { transform: scale(.99); }
+@media (prefers-reduced-motion: reduce) {
+  .notif-popup-card { transition: none; }
 }

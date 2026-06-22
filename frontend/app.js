@@ -28,7 +28,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.4";
+const APP_VERSION = "1.2.5";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -592,8 +592,64 @@ async function loadNotifications() {
             <div class="notif-time">${esc(fmtDate(n.created_at))}</div>
           </div>`).join("")
       : `<p class="notif-empty">No notifications yet.</p>`;
+
+    maybeShowNotifPopup(items);
   } catch { hide(_notifBell); }
 }
+
+// ── New-notification popup ────────────────────────────────
+// When the admin sends a notification, surface the newest unread one in a popup
+// the next time the user opens the app. De-duped via the highest id we've shown,
+// so each notification pops at most once. The bell still lists everything.
+const NOTIF_POPUP_KEY = "sgbus_notif_popup_id";
+
+function maybeShowNotifPopup(items) {
+  if (!items || !items.length) return;
+  if (!$("notif-popup")) return;
+  if (!$("notif-popup").classList.contains("hidden")) return;  // already open
+  const lastShown = parseInt(localStorage.getItem(NOTIF_POPUP_KEY) || "0", 10);
+  const fresh = items.filter((n) => !n.read && Number(n.id) > lastShown);
+  if (!fresh.length) return;
+  fresh.sort((a, b) => Number(b.id) - Number(a.id));
+  const maxId = Math.max(...items.map((n) => Number(n.id)));
+  _renderNotifPopup(fresh, maxId);
+}
+
+function _renderNotifPopup(fresh, maxId) {
+  const el = $("notif-popup");
+  const n  = fresh[0];
+  const levelIcon = { info: "ℹ️", update: "🆕", warning: "⚠️" };
+  $("notif-popup-icon").textContent  = levelIcon[n.level] || "ℹ️";
+  $("notif-popup-title").textContent = n.title;
+  const bodyEl = $("notif-popup-body");
+  bodyEl.textContent = n.body || "";
+  bodyEl.classList.toggle("hidden", !n.body);
+  $("notif-popup-time").textContent = new Date(n.created_at + "Z").toLocaleString("en-SG", {
+    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+    hour12: false, timeZone: "Asia/Singapore",
+  });
+  const more = $("notif-popup-more");
+  if (fresh.length > 1) {
+    more.textContent = `+${fresh.length - 1} more in your notifications`;
+    more.classList.remove("hidden");
+  } else {
+    more.classList.add("hidden");
+  }
+  el._maxId = maxId;
+  show(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+}
+
+function dismissNotifPopup() {
+  const el = $("notif-popup");
+  if (!el) return;
+  if (el._maxId) localStorage.setItem(NOTIF_POPUP_KEY, String(el._maxId));
+  el.classList.remove("show");
+  setTimeout(() => hide(el), 280);
+}
+
+$("notif-popup-ok")?.addEventListener("click", dismissNotifPopup);
+$("notif-popup")?.querySelector(".notif-popup-backdrop")?.addEventListener("click", dismissNotifPopup);
 
 $("notif-panel-mark-read")?.addEventListener("click", async () => {
   try {
@@ -2249,10 +2305,10 @@ async function loadHeatmap() {
 // Map an average delay (seconds) to a cell colour: green = early, neutral =
 // on time, red = late, intensity scaling with magnitude (clamped at ±2 min).
 function _heatColor(avg) {
-  if (Math.abs(avg) < 10) return "rgba(22,163,74,.16)";  // near on-time: calm green baseline
+  if (Math.abs(avg) < 10) return "rgba(34,197,94,.32)";  // near on-time: clear green baseline
   const mag = Math.min(Math.abs(avg), 120) / 120;        // 0..1
-  const a = (0.22 + 0.6 * mag).toFixed(2);
-  return avg > 0 ? `rgba(220,38,38,${a})` : `rgba(22,163,74,${a})`;
+  const a = (0.34 + 0.56 * mag).toFixed(2);
+  return avg > 0 ? `rgba(220,38,38,${a})` : `rgba(34,197,94,${a})`;
 }
 
 function renderHeatmap(d) {
