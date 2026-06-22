@@ -151,14 +151,31 @@ def _fmt_minutes(dt: datetime | None) -> str | None:
     return f"{mins} min"
 
 
-async def _call_lta(stop_code: str) -> dict:
+# Short-lived in-memory cache of raw LTA payloads. The upstream feed only
+# refreshes every ~30 s, so serving a cached copy for a few seconds collapses a
+# burst of visitors on a popular stop into a single upstream call — lower
+# latency, headroom against LTA rate limits, and less load on the box. The
+# arrival timestamps are absolute, so countdowns recompute correctly against the
+# current clock regardless of cache age.
+_LTA_CACHE: dict[str, tuple[float, dict]] = {}
+_LTA_CACHE_TTL = 12.0  # seconds
+
+
+async def _call_lta(stop_code: str) -> tuple[dict, bool]:
+    """Fetch a stop's raw LTA payload. Returns (payload, is_fresh); is_fresh is
+    False when served from the short-lived cache (caller skips re-persisting)."""
+    now = _time.monotonic()
+    cached = _LTA_CACHE.get(stop_code)
+    if cached is not None and (now - cached[0]) < _LTA_CACHE_TTL:
+        return cached[1], False
+
     headers = {"AccountKey": LTA_API_KEY}
     params  = {"BusStopCode": stop_code}
     async with httpx.AsyncClient(timeout=10) as client:
         try:
             resp = await client.get(LTA_ARRIVAL_ENDPOINT, headers=headers, params=params)
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
         except httpx.HTTPStatusError as exc:
             # 401 means our own LTA key is bad — surface that to the admin clearly,
             # but never echo the raw upstream error (it leaks the endpoint URL and
@@ -171,6 +188,13 @@ async def _call_lta(stop_code: str) -> dict:
         except Exception as exc:
             logger.warning("Could not reach LTA API: %s: %s", type(exc).__name__, exc)
             raise HTTPException(status_code=502, detail="Upstream bus data is temporarily unavailable.")
+
+    _LTA_CACHE[stop_code] = (now, data)
+    # Light prune so the cache can't grow unbounded across many distinct stops.
+    if len(_LTA_CACHE) > 600:
+        for k in [k for k, (ts, _) in _LTA_CACHE.items() if now - ts > _LTA_CACHE_TTL]:
+            _LTA_CACHE.pop(k, None)
+    return data, True
 
 
 # ── Arrivals ──────────────────────────────────────────────────────
@@ -214,14 +238,16 @@ async def get_arrivals(
       ]
     }
     """
-    data     = await _call_lta(stop_code)
+    data, is_fresh = await _call_lta(stop_code)
     services = data.get("Services", [])
     now      = datetime.utcnow()
     sgt      = now + timedelta(hours=8)  # model features use Singapore time
 
-    # Passive collection: every visitor query doubles as a training snapshot,
-    # at zero extra LTA API cost. Runs after the response is sent.
-    background_tasks.add_task(persist_arrival_payload, stop_code, services, now)
+    # Passive collection: every *fresh* visitor query doubles as a training
+    # snapshot, at zero extra LTA API cost. Cache hits are the same snapshot we
+    # already persisted moments ago, so skip them to avoid duplicate rows.
+    if is_fresh:
+        background_tasks.add_task(persist_arrival_payload, stop_code, services, now)
     background_tasks.add_task(_inc_activity, "arrivals", stop_code)
 
     # Per-service reliability from 30 days of collected ground truth at this stop.
@@ -232,6 +258,7 @@ async def get_arrivals(
             db.query(
                 BusArrivalRecord.bus_service,
                 func.avg(BusArrivalRecord.delay_seconds).label("avg_delay"),
+                func.avg(func.abs(BusArrivalRecord.delay_seconds)).label("mae"),
                 func.count().label("n"),
                 func.avg(
                     case((func.abs(BusArrivalRecord.delay_seconds) <= 120, 1.0), else_=0.0)
@@ -249,6 +276,10 @@ async def get_arrivals(
             if r.n >= 20:  # need enough samples to be meaningful
                 reliability[r.bus_service] = {
                     "avg_delay_sec": round(r.avg_delay, 1),
+                    # Mean absolute error: typical spread of actual vs LTA timing,
+                    # i.e. "predictions usually accurate to ±X". Unlike avg_delay,
+                    # early/late don't cancel out, so it reads as a confidence band.
+                    "mae_sec":       round(r.mae, 1),
                     "on_time_pct":   round(r.on_time * 100),
                     "samples":       r.n,
                 }
@@ -576,6 +607,33 @@ def nearby_stops(
                 "longitude":     s.longitude,
             }
             for dist, s in ranked
+        ],
+    }
+
+
+@router.get("/stops/all")
+def all_stops(db: Session = Depends(get_db)) -> dict:
+    """Full bus-stop directory in compact form, for the client to cache so stop
+    search and browse keep working offline (live arrivals still need network).
+    Declared before /stops/{stop_code} so 'all' isn't treated as a code."""
+    rows = (
+        db.query(
+            BusStop.bus_stop_code, BusStop.description, BusStop.road_name,
+            BusStop.latitude, BusStop.longitude,
+        )
+        .all()
+    )
+    return {
+        "count": len(rows),
+        "stops": [
+            {
+                "bus_stop_code": r.bus_stop_code,
+                "description":   r.description,
+                "road_name":     r.road_name,
+                "latitude":      r.latitude,
+                "longitude":     r.longitude,
+            }
+            for r in rows
         ],
     }
 
@@ -932,7 +990,8 @@ async def plan_journey(
 
     async def _fetch(code: str) -> tuple[str, dict | None]:
         try:
-            return code, await _call_lta(code)
+            payload, _ = await _call_lta(code)
+            return code, payload
         except Exception:
             return code, None
 
@@ -1272,7 +1331,7 @@ async def plan_multimodal(
             unique_boards.add(leg["from_stop"])
 
     async def _fetch(c):
-        try: return c, await _call_lta(c)
+        try: return c, (await _call_lta(c))[0]
         except: return c, None
 
     # Live arrivals only exist for "now" — for a future trip there is nothing to

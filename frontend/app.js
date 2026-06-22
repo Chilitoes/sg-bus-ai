@@ -29,7 +29,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.2.1";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -139,6 +139,74 @@ async function api(path, opts = {}) {
     throw new Error(b.detail || `HTTP ${r.status}`);
   }
   return r.json();
+}
+
+// ── Offline stop directory ────────────────────────────────
+// Cache the full stop list so search + nearby keep working with no network
+// (on the MRT, in dead-zones). Live arrivals still need the backend, but
+// browsing/finding a stop no longer depends on it. Refreshed weekly.
+const STOPS_ALL_KEY     = "sgbus_stops_all";
+const STOPS_ALL_TS_KEY  = "sgbus_stops_all_ts";
+const STOPS_CACHE_MAX_AGE = 7 * 86400 * 1000;  // 1 week
+let _stopsCacheArr = null;
+
+function _loadStopsCache() {
+  if (_stopsCacheArr) return _stopsCacheArr;
+  try { _stopsCacheArr = JSON.parse(localStorage.getItem(STOPS_ALL_KEY)) || []; }
+  catch { _stopsCacheArr = []; }
+  return _stopsCacheArr;
+}
+
+async function ensureStopsCache(force = false) {
+  const ts = parseInt(localStorage.getItem(STOPS_ALL_TS_KEY) || "0", 10);
+  const haveFresh = localStorage.getItem(STOPS_ALL_KEY) && (Date.now() - ts < STOPS_CACHE_MAX_AGE);
+  if (!force && haveFresh) return;
+  try {
+    const d = await api("/api/stops/all");
+    if (d.stops?.length) {
+      localStorage.setItem(STOPS_ALL_KEY, JSON.stringify(d.stops));
+      localStorage.setItem(STOPS_ALL_TS_KEY, String(Date.now()));
+      _stopsCacheArr = d.stops;
+    }
+  } catch { /* offline — keep whatever (if anything) we already had */ }
+}
+
+// Same shape as /api/stops/search, computed locally from the cache.
+function localStopSearch(q, limit = 6) {
+  const arr = _loadStopsCache();
+  const s = (q || "").trim().toLowerCase();
+  if (!arr.length || !s) return { results: [] };
+  const scored = [];
+  for (const st of arr) {
+    const code = (st.bus_stop_code || "").toLowerCase();
+    const desc = (st.description || "").toLowerCase();
+    const road = (st.road_name || "").toLowerCase();
+    let score = -1;
+    if (code === s) score = 0;
+    else if (code.startsWith(s)) score = 1;
+    else if (desc.includes(s)) score = 2;
+    else if (road.includes(s)) score = 3;
+    if (score >= 0) scored.push([score, st]);
+  }
+  scored.sort((a, b) => a[0] - b[0] || a[1].bus_stop_code.localeCompare(b[1].bus_stop_code));
+  return { results: scored.slice(0, limit).map(([, st]) => st) };
+}
+
+// Same shape as /api/stops/nearby (adds distance_m), computed locally.
+function localNearby(lat, lng, limit = 20) {
+  const arr = _loadStopsCache();
+  if (!arr.length) return { results: [] };
+  const R = 6371000, rad = (x) => (x * Math.PI) / 180;
+  const out = [];
+  for (const st of arr) {
+    if (st.latitude == null) continue;
+    const dp = rad(st.latitude - lat), dl = rad(st.longitude - lng);
+    const a = Math.sin(dp / 2) ** 2 +
+      Math.cos(rad(lat)) * Math.cos(rad(st.latitude)) * Math.sin(dl / 2) ** 2;
+    out.push({ ...st, distance_m: Math.round(2 * R * Math.asin(Math.sqrt(a))) });
+  }
+  out.sort((a, b) => a.distance_m - b.distance_m);
+  return { results: out.slice(0, limit) };
 }
 
 // ── Theme ─────────────────────────────────────────────────
@@ -257,7 +325,7 @@ function setupHomeSearch() {
     tmr = setTimeout(async () => {
       if (!v || v.length < 2) { ac.innerHTML = ""; return; }
       const [stops, places] = await Promise.all([
-        api(`/api/stops/search?q=${encodeURIComponent(v)}&limit=4`).catch(() => ({ results: [] })),
+        api(`/api/stops/search?q=${encodeURIComponent(v)}&limit=4`).catch(() => localStopSearch(v, 4)),
         oneMapSearch(v),
       ]);
       const stopHtml = (stops.results || []).map((s) => `
@@ -398,7 +466,7 @@ function setupCommuteSearch(slot) {
     tmr = setTimeout(async () => {
       if (!v || v.length < 2) { ac.innerHTML = ""; return; }
       const stops = await api(`/api/stops/search?q=${encodeURIComponent(v)}&limit=6`)
-        .catch(() => ({ results: [] }));
+        .catch(() => localStopSearch(v, 6));
       ac.innerHTML = (stops.results || []).map((s) => `
         <div class="ac-item" data-code="${esc(s.bus_stop_code)}"
              data-name="${esc(s.description || s.bus_stop_code)}" data-road="${esc(s.road_name || "")}">
@@ -1099,7 +1167,7 @@ async function runAc(q) {
   try {
     const isSvcNum = /^\d{1,3}[A-Z]?$/i.test(q.trim());
     const [stopsData, places] = await Promise.all([
-      api(`/api/stops/search?q=${encodeURIComponent(q)}&limit=6`).catch(() => ({ results: [] })),
+      api(`/api/stops/search?q=${encodeURIComponent(q)}&limit=6`).catch(() => localStopSearch(q, 6)),
       q.length >= 3 ? oneMapSearch(q) : Promise.resolve([]),
     ]);
     const box = $("autocomplete");
@@ -1168,7 +1236,8 @@ $("autocomplete").addEventListener("click", async (e) => {
   if (item.dataset.svc) { loadBusRoute(item.dataset.svc); return; }
   if (item.dataset.lat) {
     try {
-      const near = await api(`/api/stops/nearby?lat=${item.dataset.lat}&lng=${item.dataset.lng}&limit=1`);
+      const near = await api(`/api/stops/nearby?lat=${item.dataset.lat}&lng=${item.dataset.lng}&limit=1`)
+        .catch(() => localNearby(parseFloat(item.dataset.lat), parseFloat(item.dataset.lng), 1));
       const s = (near.results || [])[0];
       if (s) loadStop(s.bus_stop_code); else toast("No nearby bus stops");
     } catch { toast("Couldn't find nearby stops"); }
@@ -1244,12 +1313,17 @@ function svcCard(svc) {
     next.feature === "WAB" ? `<span class="tag wab" title="Wheelchair accessible">♿</span>` : "",
   ].join("");
   const alerted = _alertActive(S.stop, svc.service_no);
+  // Live per-route accuracy badge from 30 days of measured delay (MAE).
+  const rel = svc.reliability;
+  const accChip = (rel && rel.mae_sec != null)
+    ? `<span class="svc-acc" title="From ${rel.samples} tracked arrivals — actual times land within this band of the prediction on average">${esc(accBand(rel.mae_sec))}</span>`
+    : "";
   return `
     <div class="svc" data-svc="${esc(svc.service_no)}">
       <button class="svc-head">
         <span class="route-badge">${esc(svc.service_no)}</span>
         <span class="svc-mid">
-          <span class="svc-tags">${crowdDot}${tags}</span>
+          <span class="svc-tags">${crowdDot}${tags}${accChip}</span>
         </span>
         <span class="svc-eta">
           <span class="eta-now ${due ? "due" : ""}" data-eta-iso="${esc(next.api_arrival || "")}">${fmtMin(secs)}${due ? "" : `<span class="eta-unit">min</span>`}</span>
@@ -1272,10 +1346,25 @@ function svcCard(svc) {
 function relLine(rel) {
   if (!rel) return "";
   const habit = delayHabit(rel.avg_delay_sec);
+  const acc = rel.mae_sec != null ? `${accPhrase(rel.mae_sec)} · ` : "";
   return `<div class="svc-rel">
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-    ${rel.on_time_pct}% on time · ${habit} <span class="svc-rel-n">(${rel.samples} observations)</span>
+    ${acc}${rel.on_time_pct}% on time · ${habit} <span class="svc-rel-n">(${rel.samples} observations)</span>
   </div>`;
+}
+
+// Mean-absolute-error → a compact confidence band ("±2m" / "±40s") shown as a
+// badge, and a fuller phrase for the reliability line. Turns the delay data we
+// already collect into a visible per-route accuracy signal.
+function accBand(mae) {
+  if (mae == null) return null;
+  if (mae < 60) return `±${Math.round(mae)}s`;
+  const m = mae / 60;
+  return `±${m < 10 ? m.toFixed(1) : Math.round(m)}m`;
+}
+function accPhrase(mae) {
+  const b = accBand(mae);
+  return b ? `Predictions usually accurate to ${b}` : "";
 }
 
 // Render an average delay (seconds) as a human phrase, keeping second-level
@@ -2443,7 +2532,7 @@ function setupPlanField(field) {
     acTmr = setTimeout(async () => {
       if (!v || v.length < 2) { hide(ac); ac.innerHTML = ""; return; }
       const [stops, places] = await Promise.all([
-        api(`/api/stops/search?q=${encodeURIComponent(v)}&limit=5`).catch(() => ({ results: [] })),
+        api(`/api/stops/search?q=${encodeURIComponent(v)}&limit=5`).catch(() => localStopSearch(v, 5)),
         oneMapSearch(v),
       ]);
       const stopHtml = (stops.results || []).map((s) => `
@@ -3223,7 +3312,8 @@ function _arrGeolocate() {
 async function _loadArrStops(lat, lng) {
   if (!_arrMap) return;
   try {
-    const d = await api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=20`);
+    const d = await api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=20`)
+      .catch(() => localNearby(lat, lng, 20));
     const stops = d.results || [];
     // Add pins (skip duplicates)
     stops.forEach((s) => {
@@ -3881,7 +3971,9 @@ function _onPickerMove() {
 }
 
 function _loadPickerStops(lat, lng) {
-  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=40`).then((d) => {
+  api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=40`)
+    .catch(() => localNearby(lat, lng, 40))
+    .then((d) => {
     if (!_pickerMap) return;
     _pickerLayers.forEach((m) => m.remove());
     _pickerLayers = [];
@@ -3976,6 +4068,10 @@ _whenLeaflet(initArrMap);
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
+
+// Warm the offline stop directory once the app is idle, so search/nearby keep
+// working without a connection. Cheap no-op when the cache is already fresh.
+(window.requestIdleCallback || ((fn) => setTimeout(fn, 2500)))(() => ensureStopsCache());
 
 // Boot: shared journey URL takes priority; map.html posts ?loadStop=CODE; stop hash last
 const bootStop = location.hash.replace("#", "").trim();
