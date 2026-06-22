@@ -2164,9 +2164,10 @@ th.num, td.num { text-align: right; }
   white-space: nowrap; overflow: visible;
 }
 .heatmap-cell { border-radius: 2px; background: var(--surface-2); }
-/* No-data cells: a clearly visible flat grey tile so the overnight no-service
-   hours read as deliberate "no data", not a dark void. */
-.heatmap-cell.empty { background: var(--surface-2); }
+/* No-data cells use the page background (darker than the surface panel), so the
+   surface-coloured gaps clearly separate them into distinct "empty" tiles
+   instead of merging into one continuous grey band that bleeds down the column. */
+.heatmap-cell.empty { background: var(--bg); }
 .heatmap-legend {
   display: flex; align-items: center; gap: .45rem;
   margin-top: .8rem; font-size: .7rem; color: var(--ink-3);
@@ -2179,7 +2180,7 @@ th.num, td.num { text-align: right; }
 .heatmap-legend-na { display: flex; align-items: center; gap: .3rem; margin-left: auto; }
 .heatmap-na-swatch {
   width: 11px; height: 11px; border-radius: 2px; display: inline-block;
-  background: var(--surface-2);
+  background: var(--bg); border: 1px solid var(--line);
 }
 
 /* ── Maintenance page (backend unreachable) ──────────────── */

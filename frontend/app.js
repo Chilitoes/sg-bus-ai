@@ -28,7 +28,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.7";
+const APP_VERSION = "1.2.8";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -616,11 +616,16 @@ async function loadNotifications() {
 // so each notification pops at most once. The bell still lists everything.
 const NOTIF_POPUP_KEY   = "sgbus_notif_popup_id";   // highest id auto-popped
 const NOTIF_PROMOTE_KEY = "sgbus_notif_promote_ts"; // last admin-promoted popup_at shown
+let _notifPopupAttempted = false;                   // only attempt once per session
 
 function maybeShowNotifPopup(items) {
+  if (_notifPopupAttempted) return;                 // app-open only, not on every reload
   if (!items || !items.length) return;
   const el = $("notif-popup");
-  if (!el || !el.classList.contains("hidden")) return;  // already open
+  const guide = $("a2hs-guide");
+  if (!el || !el.classList.contains("hidden")) return;        // already open
+  if (guide && !guide.classList.contains("hidden")) return;   // don't stack on the install guide
+  _notifPopupAttempted = true;
 
   // 1) Admin-promoted popup wins: the notification with the newest popup_at,
   //    shown once per promotion even if already read.
@@ -662,8 +667,12 @@ function _renderNotifPopup(fresh, maxId, promoteTs) {
   } else {
     more.classList.add("hidden");
   }
-  el._maxId = maxId;
-  el._promoteTs = promoteTs;
+  // Persist the watermark the moment it's shown — so closing the app/tab without
+  // tapping "Got it" still counts as seen and it won't nag again next open.
+  // Auto-popups advance the id watermark; promoted popups advance the promo
+  // timestamp (leaving the id watermark so genuinely-new notices still pop).
+  if (maxId) localStorage.setItem(NOTIF_POPUP_KEY, String(maxId));
+  if (promoteTs) localStorage.setItem(NOTIF_PROMOTE_KEY, String(promoteTs));
   show(el);
   requestAnimationFrame(() => el.classList.add("show"));
 }
@@ -671,10 +680,6 @@ function _renderNotifPopup(fresh, maxId, promoteTs) {
 function dismissNotifPopup() {
   const el = $("notif-popup");
   if (!el) return;
-  // Auto-popups advance the id watermark; promoted popups advance the promo
-  // timestamp (leaving the id watermark so genuinely-new ones still pop).
-  if (el._maxId) localStorage.setItem(NOTIF_POPUP_KEY, String(el._maxId));
-  if (el._promoteTs) localStorage.setItem(NOTIF_PROMOTE_KEY, String(el._promoteTs));
   el.classList.remove("show");
   setTimeout(() => hide(el), 280);
 }
@@ -4166,6 +4171,10 @@ function maybeShowInstallGuide() {
   // iPad's is top-right, so skip the directional arrow on iPad.
   if (/iphone|ipod/i.test(navigator.userAgent)) el.classList.add("a2hs-iphone");
   setTimeout(() => {
+    // One thing at a time: if a notification popup is up, don't stack the guide.
+    // Leave the flag unset so it gets its turn on a future visit.
+    const np = $("notif-popup");
+    if (np && !np.classList.contains("hidden")) return;
     el.classList.remove("hidden");
     requestAnimationFrame(() => el.classList.add("show"));
     localStorage.setItem(A2HS_KEY, "1");
