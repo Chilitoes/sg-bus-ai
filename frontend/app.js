@@ -28,7 +28,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.3";
+const APP_VERSION = "1.2.4";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -4014,6 +4014,59 @@ _whenLeaflet(initArrMap);
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
+
+// ── First-visit "Add to Home Screen" guide (iOS Safari) ───
+// iOS Safari has no native install prompt, so first-time visitors get a
+// one-off guide showing the Share → Add to Home Screen flow. Only shown in
+// Safari on iOS, never when already installed, and only once ever.
+const A2HS_KEY = "sgbus_a2hs_seen";
+
+function _isStandalone() {
+  return window.navigator.standalone === true ||
+    window.matchMedia("(display-mode: standalone)").matches;
+}
+function _isIos() {
+  const ua = navigator.userAgent;
+  return /iphone|ipad|ipod/i.test(ua) ||
+    (navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua)); // iPadOS reports as Mac
+}
+function _isIosSafari() {
+  // Non-Safari iOS browsers (Chrome, Firefox, in-app webviews) can't add to the
+  // Home Screen, so the guide only applies to genuine Safari.
+  if (!_isIos()) return false;
+  return !/CriOS|FxiOS|EdgiOS|OPiOS|mercury|GSA|FBAN|FBAV|Instagram|Line\//i.test(navigator.userAgent);
+}
+
+function dismissInstallGuide() {
+  const el = $("a2hs-guide");
+  if (!el) return;
+  el.classList.remove("show");
+  setTimeout(() => el.classList.add("hidden"), 320);
+}
+
+function maybeShowInstallGuide() {
+  const force = new URLSearchParams(location.search).get("a2hs") === "1";  // preview hook
+  const el = $("a2hs-guide");
+  if (!el) return;
+  if (!force) {
+    if (localStorage.getItem(A2HS_KEY)) return;
+    if (_isStandalone()) { localStorage.setItem(A2HS_KEY, "1"); return; }
+    if (!_isIosSafari()) return;
+  }
+  // iPhone's Share button sits in the bottom toolbar — point the arrow there.
+  // iPad's is top-right, so skip the directional arrow on iPad.
+  if (/iphone|ipod/i.test(navigator.userAgent)) el.classList.add("a2hs-iphone");
+  setTimeout(() => {
+    el.classList.remove("hidden");
+    requestAnimationFrame(() => el.classList.add("show"));
+    localStorage.setItem(A2HS_KEY, "1");
+  }, 1600);
+}
+
+$("a2hs-close")?.addEventListener("click", dismissInstallGuide);
+$("a2hs-got")?.addEventListener("click", dismissInstallGuide);
+$("a2hs-guide")?.querySelector(".a2hs-backdrop")?.addEventListener("click", dismissInstallGuide);
+maybeShowInstallGuide();
 
 // Warm the offline stop directory once the app is idle, so search/nearby keep
 // working without a connection. Cheap no-op when the cache is already fresh.
