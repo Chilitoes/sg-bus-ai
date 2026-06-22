@@ -58,7 +58,7 @@ def _check_service_no(svc: str) -> str:
     return svc
 from sqlalchemy.orm import Session
 
-from auth_routes import get_current_user, require_admin
+from auth_routes import get_current_user, get_optional_user, require_admin
 from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL, DATABASE_URL
 from data_collector import persist_arrival_payload
 from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, DailyActivity, Feedback, MonitoredStop, SavedJourney, SessionLocal, SystemNotification, User, UserFavourite, UserSession, get_db
@@ -2087,17 +2087,20 @@ def delete_notification(
 
 @router.get("/notifications")
 def list_notifications(
-    user: User = Depends(get_current_user),
+    user: User | None = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Return all system notifications, newest first, with unread count."""
+    """Return all system notifications, newest first, with unread count.
+
+    Open to guests too: when not logged in the server has no read state, so
+    everything comes back unread and the client tracks read/unread locally."""
     notifs = (
         db.query(SystemNotification)
         .order_by(SystemNotification.created_at.desc())
         .limit(50)
         .all()
     )
-    seen_at = user.notifications_seen_at
+    seen_at = user.notifications_seen_at if user else None
     unread = sum(1 for n in notifs if seen_at is None or n.created_at > seen_at)
     return {
         "unread": unread,

@@ -28,7 +28,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.5";
+const APP_VERSION = "1.2.6";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -450,6 +450,7 @@ async function completeLogin(res, welcomeMsg) {
   } catch { S.favs = readJSON(favKey(), []); }
   afterFavsChanged();
   afterJourneysChanged();
+  loadNotifications();   // switch from guest read-state to the account's
   closeSheet();
   if (welcomeMsg) toast(welcomeMsg);
 }
@@ -534,7 +535,7 @@ $("logout-btn").addEventListener("click", async () => {
   try { await api("/api/auth/logout", { method: "POST" }); } catch {}
   clearAuth();
   closeSheet();
-  hide($("notif-bell-btn"));
+  loadNotifications();   // keep the bell — guests see notifications too
   toast("Logged out");
 });
 
@@ -559,12 +560,24 @@ document.addEventListener("click", (e) => {
   }
 });
 
+// Guests have no server-side read state, so we remember the highest notification
+// id they've dismissed locally and compute read/unread from it.
+const GUEST_NOTIF_SEEN_KEY = "sgbus_notif_seen_id";
+let _lastNotifMaxId = 0;
+
 async function loadNotifications() {
-  if (!S.token) { hide(_notifBell); return; }
   try {
     const data = await api("/api/notifications");
-    const items = data.items || [];
-    const unread = data.unread || 0;
+    let items = data.items || [];
+    let unread = data.unread || 0;
+    _lastNotifMaxId = items.length ? Math.max(...items.map((n) => Number(n.id))) : 0;
+
+    // Guests: derive read/unread from the locally-stored "seen" id.
+    if (!S.token) {
+      const seenId = parseInt(localStorage.getItem(GUEST_NOTIF_SEEN_KEY) || "0", 10);
+      items = items.map((n) => ({ ...n, read: Number(n.id) <= seenId }));
+      unread = items.filter((n) => !n.read).length;
+    }
 
     const badge = $("notif-bell-badge");
     const markBtn = $("notif-panel-mark-read");
@@ -652,6 +665,12 @@ $("notif-popup-ok")?.addEventListener("click", dismissNotifPopup);
 $("notif-popup")?.querySelector(".notif-popup-backdrop")?.addEventListener("click", dismissNotifPopup);
 
 $("notif-panel-mark-read")?.addEventListener("click", async () => {
+  // Guests have no account to store read state on — mark read locally.
+  if (!S.token) {
+    localStorage.setItem(GUEST_NOTIF_SEEN_KEY, String(_lastNotifMaxId));
+    await loadNotifications();
+    return;
+  }
   try {
     await api("/api/notifications/mark-read", { method: "POST" });
     await loadNotifications();

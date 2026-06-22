@@ -162,6 +162,28 @@ def get_current_user(
     return user
 
 
+def get_optional_user(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Like get_current_user but never raises — returns None for guests / invalid
+    tokens. Use for endpoints that work for everyone but personalise when logged in."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ").strip()
+    session = db.query(UserSession).filter_by(token=token).first()
+    if session is None:
+        return None
+    if session.last_used < datetime.utcnow() - timedelta(days=SESSION_TTL_DAYS):
+        return None
+    user = db.query(User).filter_by(id=session.user_id).first()
+    if user is None:
+        return None
+    session.last_used = datetime.utcnow()
+    db.commit()
+    return user
+
+
 def require_admin(user: User = Depends(get_current_user)) -> User:
     if user.username.lower() != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
