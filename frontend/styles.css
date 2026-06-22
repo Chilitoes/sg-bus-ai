@@ -2108,62 +2108,6 @@ th.num, td.num { text-align: right; }
 .anlyt-prov-google   { background: rgba(80,150,255,.15); color: #5096ff; }
 .anlyt-prov-password { background: var(--surface-2); color: var(--ink-3); }
 
-/* ── Commute shortcut card (home screen) ─────────────────── */
-.commute-card { margin-bottom: .7rem; }
-.commute-main {
-  display: flex; align-items: center; gap: .7rem; width: 100%;
-  padding: .7rem .8rem; border-radius: var(--radius);
-  border: 1px solid var(--accent); background: var(--surface);
-  color: var(--ink); text-align: left; cursor: pointer;
-  box-shadow: 0 1px 6px rgba(0,0,0,.06);
-}
-.commute-main:active { transform: scale(.99); }
-.commute-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
-  background: var(--accent); color: #fff;
-}
-.commute-text { display: flex; flex-direction: column; gap: .1rem; flex: 1; min-width: 0; }
-.commute-label {
-  font-size: .68rem; font-weight: 700; letter-spacing: .06em;
-  text-transform: uppercase; color: var(--accent);
-}
-.commute-stop {
-  font-size: .92rem; font-weight: 600; color: var(--ink);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.commute-stop .stop-code { font-weight: 500; }
-.commute-go { color: var(--ink-3); flex-shrink: 0; }
-.commute-alt {
-  display: block; width: 100%; margin-top: .4rem; padding: .4rem .6rem;
-  font-size: .78rem; font-weight: 500; text-align: left;
-  border: 1px solid var(--line); border-radius: 9px;
-  background: var(--surface); color: var(--ink-2); cursor: pointer;
-}
-
-/* ── Commute settings ────────────────────────────────────── */
-.stg-commute-hint {
-  font-size: .76rem; color: var(--ink-3); line-height: 1.45;
-  padding: .15rem .1rem .55rem;
-}
-.stg-commute-slot { padding: .35rem 0; }
-.stg-commute-slot + .stg-commute-slot { border-top: 1px solid var(--line); margin-top: .2rem; padding-top: .65rem; }
-.stg-commute-head {
-  display: flex; align-items: center; gap: .4rem;
-  font-size: .82rem; font-weight: 600; color: var(--ink);
-  margin-bottom: .45rem;
-}
-.stg-commute-name {
-  margin-left: auto; font-weight: 500; color: var(--ink-3);
-  font-size: .78rem; max-width: 45%;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.stg-commute-clear {
-  flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
-  border: none; background: var(--surface-2); color: var(--ink-2);
-  font-size: .9rem; line-height: 1; cursor: pointer;
-}
-
 /* ── Per-route accuracy badge (collapsed service card) ───── */
 .svc-acc {
   font-size: .64rem; font-weight: 700; letter-spacing: .01em;
@@ -2189,26 +2133,36 @@ th.num, td.num { text-align: right; }
 .heatmap-sub { font-size: .76rem; color: var(--ink-3); line-height: 1.4; margin-bottom: .6rem; }
 .heatmap-grid {
   display: grid;
-  grid-template-columns: 30px repeat(24, 1fr);
-  gap: 2px; align-items: center;
+  grid-template-columns: 28px repeat(24, 1fr);
+  gap: 2px;
 }
 .heatmap-corner { grid-column: 1; }
 .heatmap-hour {
-  font-size: .56rem; color: var(--ink-3); text-align: center;
+  font-size: .54rem; color: var(--ink-3); text-align: center;
   font-variant-numeric: tabular-nums; line-height: 1;
+  align-self: end; padding-bottom: 3px; overflow: visible; white-space: nowrap;
 }
 .heatmap-day {
   font-size: .66rem; font-weight: 600; color: var(--ink-2);
-  padding-right: .3rem; text-align: right;
+  padding-right: .35rem;
+  display: flex; align-items: center; justify-content: flex-end;
 }
+/* Fixed-height cells that fill their column (no aspect-ratio / centering gaps),
+   so every row lines up cleanly. */
 .heatmap-cell {
-  aspect-ratio: 1 / 1; border-radius: 2px;
+  height: 17px; border-radius: 3px;
   background: var(--surface-2);
 }
-.heatmap-cell.empty { background: var(--surface-2); opacity: .4; }
+/* No-data cells: a clearly visible neutral tile (not the page background) so
+   night-hour columns read as "no data" instead of merging into a dark band. */
+.heatmap-cell.empty {
+  background: repeating-linear-gradient(
+    45deg, var(--surface-2), var(--surface-2) 2px, transparent 2px, transparent 4px);
+  opacity: .5;
+}
 .heatmap-legend {
   display: flex; align-items: center; gap: .45rem;
-  margin-top: .7rem; font-size: .7rem; color: var(--ink-3);
+  margin-top: .8rem; font-size: .7rem; color: var(--ink-3);
 }
 .heatmap-legend-lbl { white-space: nowrap; }
 .heatmap-legend-bar {
@@ -2217,8 +2171,10 @@ th.num, td.num { text-align: right; }
 }
 .heatmap-legend-na { display: flex; align-items: center; gap: .3rem; margin-left: auto; }
 .heatmap-na-swatch {
-  width: 10px; height: 10px; border-radius: 2px;
-  background: var(--surface-2); opacity: .4; display: inline-block;
+  width: 11px; height: 11px; border-radius: 2px; display: inline-block;
+  background: repeating-linear-gradient(
+    45deg, var(--surface-2), var(--surface-2) 2px, transparent 2px, transparent 4px);
+  opacity: .6;
 }
 
 /* ── Maintenance page (backend unreachable) ──────────────── */

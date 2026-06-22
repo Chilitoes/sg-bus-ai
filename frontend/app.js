@@ -16,7 +16,6 @@ const DUE_SECS   = 45;
 const FAV_KEY    = "sgbus_favs";
 const RECENT_KEY = "sgbus_recent";
 const ALERTS_KEY = "sgbus_alerts";   // { stopCode: { service: thresholdSec } }
-const COMMUTE_KEY = "sgbus_commute"; // { am: {code,…}, pm: {code,…} }
 // Fire the arrival alert once the next bus is within this many seconds — early
 // enough that there's still time to walk to the stop.
 const ALERT_THRESHOLD_SEC = 150;
@@ -29,7 +28,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.2";
+const APP_VERSION = "1.2.3";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -278,7 +277,6 @@ function _updateSettingsUI() {
   const ver = $("stg-version-val");
   if (ver) ver.textContent = APP_VERSION;
   _updateSettingsHomeUI();
-  _updateCommuteSettingsUI();
 }
 
 // ── Home location ─────────────────────────────────────────────────────────────
@@ -392,112 +390,6 @@ $("stg-home-clear-btn").addEventListener("click", () => {
     $("stg-home-row").classList.remove("open");
   });
 });
-
-// ── Commute shortcut ──────────────────────────────────────────────────────────
-// A morning + evening stop. A card on the home screen jumps straight to the
-// time-appropriate one (before noon SGT → morning, else evening), so the daily
-// commute is one tap instead of a search.
-function getCommute() { return readJSON(COMMUTE_KEY, {}); }
-function setCommuteSlot(slot, stop) {
-  const c = getCommute();
-  if (stop) c[slot] = stop; else delete c[slot];
-  writeJSON(COMMUTE_KEY, c);
-  _updateCommuteSettingsUI();
-  renderCommute();
-}
-
-function _commuteActiveSlot() {
-  const h = parseInt(new Date().toLocaleString("en-US",
-    { hour: "2-digit", hour12: false, timeZone: "Asia/Singapore" }), 10);
-  return (h >= 4 && h < 12) ? "am" : "pm";   // 4am–noon = morning, else evening
-}
-
-function renderCommute() {
-  const box = $("commute-card");
-  if (!box) return;
-  const c = getCommute();
-  if (!c.am && !c.pm) { box.classList.add("hidden"); box.innerHTML = ""; return; }
-
-  let slot = _commuteActiveSlot();
-  if (!c[slot]) slot = (slot === "am" ? "pm" : "am");  // fall back to whichever is set
-  const stop = c[slot];
-  const isAm = slot === "am";
-  const icon = isAm
-    ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>`
-    : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`;
-  const other = isAm ? c.pm : c.am;
-  const otherSlot = isAm ? "pm" : "am";
-  const otherHtml = other ? `
-    <button class="commute-alt" data-code="${esc(other.code)}">
-      ${otherSlot === "am" ? "Morning" : "Evening"}: ${esc(other.description || other.code)}
-    </button>` : "";
-
-  box.innerHTML = `
-    <button class="commute-main" data-code="${esc(stop.code)}">
-      <span class="commute-icon">${icon}</span>
-      <span class="commute-text">
-        <span class="commute-label">${isAm ? "Morning commute" : "Evening commute"}</span>
-        <span class="commute-stop">${esc(stop.description || "Bus stop")} <span class="stop-code">${esc(stop.code)}</span></span>
-      </span>
-      <svg class="commute-go" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-    </button>
-    ${otherHtml}`;
-  box.classList.remove("hidden");
-}
-
-$("commute-card").addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-code]");
-  if (btn) loadStop(btn.dataset.code);
-});
-
-function _updateCommuteSettingsUI() {
-  const c = getCommute();
-  ["am", "pm"].forEach((slot) => {
-    const nameEl = $(`stg-commute-${slot}-name`);
-    const clearBtn = $(`stg-commute-${slot}-clear`);
-    const stop = c[slot];
-    if (nameEl) nameEl.textContent = stop ? (stop.description || stop.code) : "Not set";
-    clearBtn?.classList.toggle("hidden", !stop);
-  });
-}
-
-function setupCommuteSearch(slot) {
-  const input = $(`stg-commute-${slot}-input`);
-  const clearBtn = $(`stg-commute-${slot}-input-clear`);
-  const ac = $(`stg-commute-${slot}-ac`);
-  if (!input) return;
-  let tmr;
-  input.addEventListener("input", () => {
-    const v = input.value.trim();
-    v ? show(clearBtn) : hide(clearBtn);
-    clearTimeout(tmr);
-    tmr = setTimeout(async () => {
-      if (!v || v.length < 2) { ac.innerHTML = ""; return; }
-      const stops = await api(`/api/stops/search?q=${encodeURIComponent(v)}&limit=6`)
-        .catch(() => localStopSearch(v, 6));
-      ac.innerHTML = (stops.results || []).map((s) => `
-        <div class="ac-item" data-code="${esc(s.bus_stop_code)}"
-             data-name="${esc(s.description || s.bus_stop_code)}" data-road="${esc(s.road_name || "")}">
-          <span class="ac-code">${esc(s.bus_stop_code)}</span>
-          <div><div class="ac-name">${esc(s.description || "Bus stop")}</div>
-          <div class="ac-road">${esc(s.road_name || "")}</div></div>
-        </div>`).join("") || `<div class="ac-empty">No stops found.</div>`;
-    }, 250);
-  });
-  clearBtn.addEventListener("click", () => {
-    input.value = ""; hide(clearBtn); ac.innerHTML = ""; input.focus();
-  });
-  ac.addEventListener("click", (e) => {
-    const item = e.target.closest(".ac-item");
-    if (!item) return;
-    setCommuteSlot(slot, { code: item.dataset.code, description: item.dataset.name, road_name: item.dataset.road });
-    input.value = ""; hide(clearBtn); ac.innerHTML = "";
-    toast(`${slot === "am" ? "Morning" : "Evening"} commute set`);
-  });
-}
-
-$("stg-commute-am-clear").addEventListener("click", () => setCommuteSlot("am", null));
-$("stg-commute-pm-clear").addEventListener("click", () => setCommuteSlot("pm", null));
 
 function openSheet() {
   show($("sheet-backdrop")); show($("account-sheet"));
@@ -829,7 +721,7 @@ function switchView(name) {
     v.classList.toggle("active", v.id === `view-${name}`));
   if (name === "saved") renderSaved();
   if (name === "data") loadData();
-  if (name === "arrivals") { renderCommute(); setTimeout(() => _arrMap?.invalidateSize(), 60); }
+  if (name === "arrivals") setTimeout(() => _arrMap?.invalidateSize(), 60);
   if (name === "settings") _updateSettingsUI();
   if (name === "checkpoint") loadCheckpoint();
 }
@@ -2357,9 +2249,9 @@ async function loadHeatmap() {
 // Map an average delay (seconds) to a cell colour: green = early, neutral =
 // on time, red = late, intensity scaling with magnitude (clamped at ±2 min).
 function _heatColor(avg) {
-  if (Math.abs(avg) < 10) return "var(--good-soft)";
-  const mag = Math.min(Math.abs(avg), 120) / 120;     // 0..1
-  const a = (0.18 + 0.62 * mag).toFixed(2);
+  if (Math.abs(avg) < 10) return "rgba(22,163,74,.16)";  // near on-time: calm green baseline
+  const mag = Math.min(Math.abs(avg), 120) / 120;        // 0..1
+  const a = (0.22 + 0.6 * mag).toFixed(2);
   return avg > 0 ? `rgba(220,38,38,${a})` : `rgba(22,163,74,${a})`;
 }
 
@@ -4114,9 +4006,6 @@ checkBackend();
 setupPlanField("from");
 setupPlanField("to");
 setupHomeSearch();
-setupCommuteSearch("am");
-setupCommuteSearch("pm");
-renderCommute();
 renderRecents();
 _updateSettingsUI();
 _updatePlanHomeChip();
