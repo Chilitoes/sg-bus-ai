@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.2.1" />
+  <link rel="stylesheet" href="styles.css?v=1.2.2" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -25,6 +25,23 @@
 
 <div id="offline-banner" class="offline-banner hidden">
   ⚠️ Backend server is offline — arrivals and search unavailable.
+</div>
+
+<!-- Full-screen maintenance page — shown when the live-data backend can't be reached. -->
+<div id="maintenance-overlay" class="maintenance-overlay hidden" role="alertdialog" aria-modal="true" aria-labelledby="maintenance-title" aria-live="assertive">
+  <div class="maintenance-card">
+    <div class="maintenance-icon">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6v6M16 6v6M2 12h19.6M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2V8a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v6c0 .4.1.8.2 1.2C2.5 16.3 3 18 3 18h3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+    </div>
+    <h1 id="maintenance-title" class="maintenance-title">We'll be right back</h1>
+    <p class="maintenance-msg">SG Bus can't reach the live-data service right now — it may be restarting for maintenance, or your connection dropped. This page reconnects on its own, so there's no need to refresh.</p>
+    <div class="maintenance-status">
+      <span class="maintenance-spinner" aria-hidden="true"></span>
+      <span id="maintenance-status-txt">Reconnecting…</span>
+    </div>
+    <button id="maintenance-retry" class="maintenance-retry" type="button">Try again now</button>
+    <div class="maintenance-foot">SG Bus · live arrivals &amp; AI-adjusted predictions</div>
+  </div>
 </div>
 
 <div id="share-toast" class="share-toast hidden" role="status" aria-live="polite">Link copied to clipboard</div>
@@ -947,6 +964,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=1.2.1"></script>
+<script src="app.js?v=1.2.2"></script>
 </body>
 </html>

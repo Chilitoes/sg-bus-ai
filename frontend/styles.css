@@ -2220,3 +2220,61 @@ th.num, td.num { text-align: right; }
   width: 10px; height: 10px; border-radius: 2px;
   background: var(--surface-2); opacity: .4; display: inline-block;
 }
+
+/* ── Maintenance page (backend unreachable) ──────────────── */
+.maintenance-overlay {
+  position: fixed; inset: 0; z-index: 100000;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  padding: calc(env(safe-area-inset-top) + 1.2rem) 1.2rem calc(env(safe-area-inset-bottom) + 1.2rem);
+  animation: maint-fade .25s ease;
+}
+@keyframes maint-fade { from { opacity: 0; } to { opacity: 1; } }
+.maintenance-card {
+  width: 100%; max-width: 360px; text-align: center;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 20px; padding: 2rem 1.5rem 1.4rem;
+  box-shadow: 0 12px 40px rgba(0,0,0,.18);
+}
+.maintenance-icon {
+  width: 64px; height: 64px; margin: 0 auto 1.1rem;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 18px; color: var(--accent);
+  background: var(--surface-2);  /* fallback for browsers without color-mix */
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.maintenance-title {
+  font-size: 1.3rem; font-weight: 700; letter-spacing: -.02em;
+  color: var(--ink); margin: 0 0 .55rem;
+}
+.maintenance-msg {
+  font-size: .88rem; line-height: 1.55; color: var(--ink-2);
+  margin: 0 0 1.3rem;
+}
+.maintenance-status {
+  display: inline-flex; align-items: center; gap: .5rem;
+  font-size: .8rem; font-weight: 500; color: var(--ink-3);
+  margin-bottom: 1.2rem;
+}
+.maintenance-spinner {
+  width: 15px; height: 15px; flex-shrink: 0;
+  border: 2px solid var(--line); border-top-color: var(--accent);
+  border-radius: 50%; animation: maint-spin .8s linear infinite;
+}
+@keyframes maint-spin { to { transform: rotate(360deg); } }
+.maintenance-retry {
+  width: 100%; padding: .7rem 1rem; border-radius: 12px;
+  border: none; background: var(--accent); color: #fff;
+  font-size: .9rem; font-weight: 600; cursor: pointer;
+}
+.maintenance-retry:active { transform: scale(.99); }
+.maintenance-retry:disabled { opacity: .6; cursor: default; }
+.maintenance-foot {
+  margin-top: 1.1rem; font-size: .72rem; color: var(--ink-3);
+}
+/* Stop the app behind the overlay from scrolling while it's up. */
+body.maintenance-open { overflow: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .maintenance-overlay { animation: none; }
+  .maintenance-spinner { animation: none; }
+}

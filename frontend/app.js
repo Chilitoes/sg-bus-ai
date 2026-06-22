@@ -29,7 +29,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.1";
+const APP_VERSION = "1.2.2";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -128,7 +128,15 @@ async function api(path, opts = {}) {
     opts.headers["Content-Type"] = "application/json";
   }
   if (S.token) opts.headers["Authorization"] = `Bearer ${S.token}`;
-  const r = await fetch(API_BASE + path, opts);
+  let r;
+  try {
+    r = await fetch(API_BASE + path, opts);
+  } catch (e) {
+    // Network-level failure (server / tunnel down): confirm with a health probe,
+    // which raises the maintenance page if the backend really is unreachable.
+    checkBackend();
+    throw e;
+  }
   if (!r.ok) {
     // Any 401 while holding a token means the session is dead — except a
     // failed login/register attempt, which is just wrong credentials.
@@ -3114,16 +3122,65 @@ window.addEventListener("pagehide", () => {
   clearInterval(S.tickTmr);
 });
 
+// Backend reachability → full-screen maintenance page. The health check resolves
+// whenever the FastAPI process answers (even an error status), and rejects only
+// when the box / Tailscale tunnel is unreachable or times out — exactly the
+// "service is down / restarting" case the maintenance page is for.
+let _backendDown    = false;
+let _backendRetryTmr = null;
+let _backendChecking = false;
+
 async function checkBackend() {
+  if (_backendChecking) return !_backendDown;
+  _backendChecking = true;
+  let ok = false;
   try {
     const ctrl = new AbortController();
-    setTimeout(() => ctrl.abort(), 6000);
-    await fetch(API_BASE + "/api/health", { signal: ctrl.signal });
+    const t = setTimeout(() => ctrl.abort(), 6000);
+    const r = await fetch(API_BASE + "/api/health", { signal: ctrl.signal, cache: "no-store" });
+    clearTimeout(t);
+    ok = r.ok;
+  } catch { ok = false; }
+  _backendChecking = false;
+  setBackendStatus(ok);
+  return ok;
+}
+
+function setBackendStatus(ok) {
+  const overlay = $("maintenance-overlay");
+  if (ok) {
+    const wasDown = _backendDown;
+    _backendDown = false;
+    hide(overlay);
     hide($("offline-banner"));
-  } catch {
-    show($("offline-banner"));
+    document.body.classList.remove("maintenance-open");
+    if (_backendRetryTmr) { clearInterval(_backendRetryTmr); _backendRetryTmr = null; }
+    // Recovered mid-session: re-pull account state and any open stop quietly.
+    if (wasDown) {
+      hydrateServerFavs();
+      loadNotifications();
+      if (S.stop) refreshStop(S.stop);
+    }
+  } else {
+    _backendDown = true;
+    show(overlay);
+    document.body.classList.add("maintenance-open");
+    const txt = $("maintenance-status-txt");
+    if (txt) txt.textContent = "Reconnecting…";
+    // Keep probing so the page dismisses itself the moment the backend is back.
+    if (!_backendRetryTmr) _backendRetryTmr = setInterval(checkBackend, 15000);
   }
 }
+
+$("maintenance-retry")?.addEventListener("click", async () => {
+  const btn = $("maintenance-retry");
+  const txt = $("maintenance-status-txt");
+  btn.disabled = true;
+  if (txt) txt.textContent = "Checking…";
+  const ok = await checkBackend();
+  if (!ok && txt) txt.textContent = "Still offline — retrying automatically…";
+  btn.disabled = false;
+});
 
 // ── Change password ───────────────────────────────────────
 function _clearPwForm() {
