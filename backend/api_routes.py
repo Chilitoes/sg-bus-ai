@@ -2111,11 +2111,28 @@ def list_notifications(
                 "body":       n.body,
                 "level":      n.level,
                 "created_at": n.created_at.isoformat(),
+                "popup_at":   n.popup_at.isoformat() if n.popup_at else None,
                 "read":       seen_at is not None and n.created_at <= seen_at,
             }
             for n in notifs
         ],
     }
+
+
+@router.post("/notifications/{notif_id}/popup")
+def promote_notification_popup(
+    notif_id: int,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Re-broadcast a notification as a popup. Stamps popup_at = now so every
+    client surfaces it once on next open, even if already read. Admin only."""
+    n = db.query(SystemNotification).filter_by(id=notif_id).first()
+    if not n:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    n.popup_at = datetime.utcnow()
+    db.commit()
+    return {"status": "ok", "popup_at": n.popup_at.isoformat()}
 
 
 @router.post("/notifications/mark-read")

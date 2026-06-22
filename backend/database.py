@@ -235,6 +235,9 @@ class SystemNotification(Base):
     body       = Column(String(2000), nullable=True)
     level      = Column(String(10), default="info", nullable=False)  # info | warning | update
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Set when an admin re-broadcasts this as a popup; clients show it once per
+    # new popup_at, even if already read.
+    popup_at   = Column(DateTime, nullable=True)
 
 
 class DailyActivity(Base):
@@ -321,12 +324,24 @@ def _migrate_notifications_column() -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN notifications_seen_at DATETIME"))
 
 
+def _migrate_notification_popup_column() -> None:
+    """Add popup_at to a pre-existing system_notifications table."""
+    insp = inspect(engine)
+    if "system_notifications" not in insp.get_table_names():
+        return
+    existing = {c["name"] for c in insp.get_columns("system_notifications")}
+    if "popup_at" not in existing:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE system_notifications ADD COLUMN popup_at DATETIME"))
+
+
 def init_db(seed_stops: list[str] | None = None) -> None:
     """Create all tables and optionally seed the monitored-stops list."""
     Base.metadata.create_all(bind=engine)
     _migrate_user_columns()
     _migrate_feedback_columns()
     _migrate_notifications_column()
+    _migrate_notification_popup_column()
     # DailyActivity is new — create_all handles it; no column migration needed.
     if seed_stops:
         db = SessionLocal()

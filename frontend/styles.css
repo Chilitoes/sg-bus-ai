@@ -1996,6 +1996,14 @@ th.num, td.num { text-align: right; }
 .notif-level-update  { background: rgba(80,200,120,.15); color: #44b87e; }
 .notif-level-warning { background: rgba(255,180,40,.15);  color: #d0960a; }
 .notif-admin-body { font-size: .78rem; color: var(--ink-3); }
+.notif-admin-push {
+  display: inline-flex; align-items: center; gap: .25rem; margin-left: auto;
+  font-size: .7rem; font-weight: 600; color: var(--accent);
+  background: none; border: 1px solid var(--line); border-radius: 7px;
+  padding: .18rem .45rem; cursor: pointer; transition: background .12s;
+}
+.notif-admin-push:hover { background: var(--surface-2); }
+.notif-admin-push:disabled { opacity: .5; cursor: default; }
 
 /* ── Analytics dashboard ─────────────────────────── */
 .anlyt-metrics {
@@ -2131,34 +2139,33 @@ th.num, td.num { text-align: right; }
 
 /* ── Punctuality heatmap (admin) ─────────────────────────── */
 .heatmap-sub { font-size: .76rem; color: var(--ink-3); line-height: 1.4; margin-bottom: .6rem; }
+/* Uniform fixed-height rows via grid-auto-rows: every cell (and the day/hour
+   labels) fills exactly one row, so columns and labels line up perfectly and
+   each cell reads as a distinct tile rather than a merged band. */
 .heatmap-grid {
   display: grid;
-  grid-template-columns: 26px repeat(24, 1fr);
-  gap: 1.5px;
-  padding: 7px 7px 6px;
+  grid-template-columns: 24px repeat(24, 1fr);
+  grid-auto-rows: 13px;
+  gap: 2.5px;
+  padding: 9px 9px 8px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 12px;
 }
 .heatmap-corner { grid-column: 1; }
 .heatmap-hour {
-  font-size: .54rem; color: var(--ink-3); text-align: center;
-  font-variant-numeric: tabular-nums; line-height: 1;
-  align-self: end; padding-bottom: 3px; overflow: visible; white-space: nowrap;
+  font-size: .5rem; color: var(--ink-3); text-align: center;
+  font-variant-numeric: tabular-nums; line-height: 13px;
+  white-space: nowrap; overflow: visible;
 }
 .heatmap-day {
-  font-size: .64rem; font-weight: 600; color: var(--ink-2);
-  padding-right: .3rem;
-  display: flex; align-items: center; justify-content: flex-end;
+  font-size: .58rem; font-weight: 600; color: var(--ink-2);
+  text-align: right; padding-right: 4px; line-height: 13px;
+  white-space: nowrap; overflow: visible;
 }
-/* Fixed-height cells that fill their column (no aspect-ratio / centering gaps),
-   so every row lines up cleanly. */
-.heatmap-cell {
-  height: 15px; border-radius: 2px;
-  background: var(--surface-2);
-}
-/* No-data cells: a clearly visible flat grey tile (full opacity) so the
-   overnight no-service hours read as deliberate "no data", not a dark void. */
+.heatmap-cell { border-radius: 2px; background: var(--surface-2); }
+/* No-data cells: a clearly visible flat grey tile so the overnight no-service
+   hours read as deliberate "no data", not a dark void. */
 .heatmap-cell.empty { background: var(--surface-2); }
 .heatmap-legend {
   display: flex; align-items: center; gap: .45rem;

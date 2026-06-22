@@ -28,7 +28,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.6";
+const APP_VERSION = "1.2.7";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -614,21 +614,35 @@ async function loadNotifications() {
 // When the admin sends a notification, surface the newest unread one in a popup
 // the next time the user opens the app. De-duped via the highest id we've shown,
 // so each notification pops at most once. The bell still lists everything.
-const NOTIF_POPUP_KEY = "sgbus_notif_popup_id";
+const NOTIF_POPUP_KEY   = "sgbus_notif_popup_id";   // highest id auto-popped
+const NOTIF_PROMOTE_KEY = "sgbus_notif_promote_ts"; // last admin-promoted popup_at shown
 
 function maybeShowNotifPopup(items) {
   if (!items || !items.length) return;
-  if (!$("notif-popup")) return;
-  if (!$("notif-popup").classList.contains("hidden")) return;  // already open
+  const el = $("notif-popup");
+  if (!el || !el.classList.contains("hidden")) return;  // already open
+
+  // 1) Admin-promoted popup wins: the notification with the newest popup_at,
+  //    shown once per promotion even if already read.
+  const promoted = items
+    .filter((n) => n.popup_at)
+    .sort((a, b) => new Date(b.popup_at + "Z") - new Date(a.popup_at + "Z"))[0];
+  if (promoted) {
+    const ts = new Date(promoted.popup_at + "Z").getTime();
+    const lastTs = parseInt(localStorage.getItem(NOTIF_PROMOTE_KEY) || "0", 10);
+    if (ts > lastTs) { _renderNotifPopup([promoted], null, ts); return; }
+  }
+
+  // 2) Otherwise the newest unread notification not yet auto-popped (by id).
   const lastShown = parseInt(localStorage.getItem(NOTIF_POPUP_KEY) || "0", 10);
   const fresh = items.filter((n) => !n.read && Number(n.id) > lastShown);
   if (!fresh.length) return;
   fresh.sort((a, b) => Number(b.id) - Number(a.id));
   const maxId = Math.max(...items.map((n) => Number(n.id)));
-  _renderNotifPopup(fresh, maxId);
+  _renderNotifPopup(fresh, maxId, null);
 }
 
-function _renderNotifPopup(fresh, maxId) {
+function _renderNotifPopup(fresh, maxId, promoteTs) {
   const el = $("notif-popup");
   const n  = fresh[0];
   const levelIcon = { info: "ℹ️", update: "🆕", warning: "⚠️" };
@@ -649,6 +663,7 @@ function _renderNotifPopup(fresh, maxId) {
     more.classList.add("hidden");
   }
   el._maxId = maxId;
+  el._promoteTs = promoteTs;
   show(el);
   requestAnimationFrame(() => el.classList.add("show"));
 }
@@ -656,7 +671,10 @@ function _renderNotifPopup(fresh, maxId) {
 function dismissNotifPopup() {
   const el = $("notif-popup");
   if (!el) return;
+  // Auto-popups advance the id watermark; promoted popups advance the promo
+  // timestamp (leaving the id watermark so genuinely-new ones still pop).
   if (el._maxId) localStorage.setItem(NOTIF_POPUP_KEY, String(el._maxId));
+  if (el._promoteTs) localStorage.setItem(NOTIF_PROMOTE_KEY, String(el._promoteTs));
   el.classList.remove("show");
   setTimeout(() => hide(el), 280);
 }
@@ -2371,6 +2389,10 @@ async function _loadAdminNotifications() {
             <span class="notif-admin-level notif-level-${esc(n.level)}">${esc(n.level)}</span>
             <strong>${esc(n.title)}</strong>
             <span class="fb-admin-time">${esc(fmtDate(n.created_at))}</span>
+            <button class="notif-admin-push" data-push-notif="${n.id}" title="Push to popup" aria-label="Push to popup">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+              Popup
+            </button>
             <button class="fb-admin-del" data-del-notif="${n.id}" aria-label="Delete">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/></svg>
             </button>
@@ -2386,6 +2408,18 @@ async function _loadAdminNotifications() {
         await api(`/api/notifications/${id}`, { method: "DELETE" });
         btn.closest(".notif-admin-item").remove();
       } catch (e) { toast("Could not delete: " + e.message); }
+    });
+  });
+
+  // "Push to popup" — re-broadcast this notice so it pops for everyone again.
+  adminList.querySelectorAll("[data-push-notif]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.pushNotif;
+      btn.disabled = true;
+      try {
+        await api(`/api/notifications/${id}/popup`, { method: "POST" });
+        toast("Pushed — it'll pop up for everyone on next open");
+      } catch (e) { toast("Could not push: " + e.message); btn.disabled = false; }
     });
   });
 }
