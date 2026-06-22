@@ -2255,3 +2255,40 @@ def get_analytics(
         },
         "top_stops": top_stops,
     }
+
+
+@router.get("/analytics/heatmap")
+def get_punctuality_heatmap(
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Average measured delay by day-of-week × hour-of-day, from 90 days of
+    ground-truth records. Admin only — powers the punctuality heatmap that
+    surfaces real value over the raw LTA feed (which hour/day buses run late).
+    """
+    cutoff = datetime.utcnow() - timedelta(days=90)
+    rows = (
+        db.query(
+            BusArrivalRecord.day_of_week,
+            BusArrivalRecord.hour_of_day,
+            func.avg(BusArrivalRecord.delay_seconds).label("avg_delay"),
+            func.count().label("n"),
+        )
+        .filter(
+            BusArrivalRecord.delay_seconds.isnot(None),
+            BusArrivalRecord.collection_time >= cutoff,
+        )
+        .group_by(BusArrivalRecord.day_of_week, BusArrivalRecord.hour_of_day)
+        .all()
+    )
+    # grid[day][hour]; day 0 = Mon … 6 = Sun. None = no data for that cell.
+    grid: list[list[dict | None]] = [[None] * 24 for _ in range(7)]
+    total = 0
+    for r in rows:
+        d, h = r.day_of_week, r.hour_of_day
+        if d is None or h is None or not (0 <= d <= 6) or not (0 <= h <= 23):
+            continue
+        n = int(r.n)
+        grid[d][h] = {"avg": round(r.avg_delay, 1), "n": n}
+        total += n
+    return {"grid": grid, "total_records": total, "days": 90}

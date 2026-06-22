@@ -15,6 +15,11 @@ const REFRESH_MS = 30_000;
 const DUE_SECS   = 45;
 const FAV_KEY    = "sgbus_favs";
 const RECENT_KEY = "sgbus_recent";
+const ALERTS_KEY = "sgbus_alerts";   // { stopCode: { service: thresholdSec } }
+const COMMUTE_KEY = "sgbus_commute"; // { am: {code,…}, pm: {code,…} }
+// Fire the arrival alert once the next bus is within this many seconds — early
+// enough that there's still time to walk to the stop.
+const ALERT_THRESHOLD_SEC = 150;
 const THEME_KEY  = "sgbus_theme";
 const TOKEN_KEY  = "sgbus_token";
 const USER_KEY   = "sgbus_user";
@@ -24,7 +29,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.1.34";
+const APP_VERSION = "1.2.0";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -51,6 +56,8 @@ const S = {
   tickTmr: null,
   acTmr: null,
   chartsDirty: false,
+  alerts: readJSON(ALERTS_KEY, {}),
+  firedAlerts: new Set(),  // de-dupe alerts already fired this session
 };
 const charts = { service: null, ontime: null, hour: null, trend: null };
 
@@ -195,6 +202,7 @@ function _updateSettingsUI() {
   const ver = $("stg-version-val");
   if (ver) ver.textContent = APP_VERSION;
   _updateSettingsHomeUI();
+  _updateCommuteSettingsUI();
 }
 
 // ── Home location ─────────────────────────────────────────────────────────────
@@ -308,6 +316,112 @@ $("stg-home-clear-btn").addEventListener("click", () => {
     $("stg-home-row").classList.remove("open");
   });
 });
+
+// ── Commute shortcut ──────────────────────────────────────────────────────────
+// A morning + evening stop. A card on the home screen jumps straight to the
+// time-appropriate one (before noon SGT → morning, else evening), so the daily
+// commute is one tap instead of a search.
+function getCommute() { return readJSON(COMMUTE_KEY, {}); }
+function setCommuteSlot(slot, stop) {
+  const c = getCommute();
+  if (stop) c[slot] = stop; else delete c[slot];
+  writeJSON(COMMUTE_KEY, c);
+  _updateCommuteSettingsUI();
+  renderCommute();
+}
+
+function _commuteActiveSlot() {
+  const h = parseInt(new Date().toLocaleString("en-US",
+    { hour: "2-digit", hour12: false, timeZone: "Asia/Singapore" }), 10);
+  return (h >= 4 && h < 12) ? "am" : "pm";   // 4am–noon = morning, else evening
+}
+
+function renderCommute() {
+  const box = $("commute-card");
+  if (!box) return;
+  const c = getCommute();
+  if (!c.am && !c.pm) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+
+  let slot = _commuteActiveSlot();
+  if (!c[slot]) slot = (slot === "am" ? "pm" : "am");  // fall back to whichever is set
+  const stop = c[slot];
+  const isAm = slot === "am";
+  const icon = isAm
+    ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>`
+    : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`;
+  const other = isAm ? c.pm : c.am;
+  const otherSlot = isAm ? "pm" : "am";
+  const otherHtml = other ? `
+    <button class="commute-alt" data-code="${esc(other.code)}">
+      ${otherSlot === "am" ? "Morning" : "Evening"}: ${esc(other.description || other.code)}
+    </button>` : "";
+
+  box.innerHTML = `
+    <button class="commute-main" data-code="${esc(stop.code)}">
+      <span class="commute-icon">${icon}</span>
+      <span class="commute-text">
+        <span class="commute-label">${isAm ? "Morning commute" : "Evening commute"}</span>
+        <span class="commute-stop">${esc(stop.description || "Bus stop")} <span class="stop-code">${esc(stop.code)}</span></span>
+      </span>
+      <svg class="commute-go" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+    ${otherHtml}`;
+  box.classList.remove("hidden");
+}
+
+$("commute-card").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-code]");
+  if (btn) loadStop(btn.dataset.code);
+});
+
+function _updateCommuteSettingsUI() {
+  const c = getCommute();
+  ["am", "pm"].forEach((slot) => {
+    const nameEl = $(`stg-commute-${slot}-name`);
+    const clearBtn = $(`stg-commute-${slot}-clear`);
+    const stop = c[slot];
+    if (nameEl) nameEl.textContent = stop ? (stop.description || stop.code) : "Not set";
+    clearBtn?.classList.toggle("hidden", !stop);
+  });
+}
+
+function setupCommuteSearch(slot) {
+  const input = $(`stg-commute-${slot}-input`);
+  const clearBtn = $(`stg-commute-${slot}-input-clear`);
+  const ac = $(`stg-commute-${slot}-ac`);
+  if (!input) return;
+  let tmr;
+  input.addEventListener("input", () => {
+    const v = input.value.trim();
+    v ? show(clearBtn) : hide(clearBtn);
+    clearTimeout(tmr);
+    tmr = setTimeout(async () => {
+      if (!v || v.length < 2) { ac.innerHTML = ""; return; }
+      const stops = await api(`/api/stops/search?q=${encodeURIComponent(v)}&limit=6`)
+        .catch(() => ({ results: [] }));
+      ac.innerHTML = (stops.results || []).map((s) => `
+        <div class="ac-item" data-code="${esc(s.bus_stop_code)}"
+             data-name="${esc(s.description || s.bus_stop_code)}" data-road="${esc(s.road_name || "")}">
+          <span class="ac-code">${esc(s.bus_stop_code)}</span>
+          <div><div class="ac-name">${esc(s.description || "Bus stop")}</div>
+          <div class="ac-road">${esc(s.road_name || "")}</div></div>
+        </div>`).join("") || `<div class="ac-empty">No stops found.</div>`;
+    }, 250);
+  });
+  clearBtn.addEventListener("click", () => {
+    input.value = ""; hide(clearBtn); ac.innerHTML = ""; input.focus();
+  });
+  ac.addEventListener("click", (e) => {
+    const item = e.target.closest(".ac-item");
+    if (!item) return;
+    setCommuteSlot(slot, { code: item.dataset.code, description: item.dataset.name, road_name: item.dataset.road });
+    input.value = ""; hide(clearBtn); ac.innerHTML = "";
+    toast(`${slot === "am" ? "Morning" : "Evening"} commute set`);
+  });
+}
+
+$("stg-commute-am-clear").addEventListener("click", () => setCommuteSlot("am", null));
+$("stg-commute-pm-clear").addEventListener("click", () => setCommuteSlot("pm", null));
 
 function openSheet() {
   show($("sheet-backdrop")); show($("account-sheet"));
@@ -639,7 +753,7 @@ function switchView(name) {
     v.classList.toggle("active", v.id === `view-${name}`));
   if (name === "saved") renderSaved();
   if (name === "data") loadData();
-  if (name === "arrivals") setTimeout(() => _arrMap?.invalidateSize(), 60);
+  if (name === "arrivals") { renderCommute(); setTimeout(() => _arrMap?.invalidateSize(), 60); }
   if (name === "settings") _updateSettingsUI();
   if (name === "checkpoint") loadCheckpoint();
 }
@@ -1120,16 +1234,22 @@ function svcCard(svc) {
   const laterIsos = later.map((b) => b.api_arrival).join(",");
   const laterTxt = later.map((b) => fmtMin(secsUntil(parseUTC(b.api_arrival)))).join(" · ");
   const TYPE_LABEL = { SD: "Single deck", DD: "Double deck", BD: "Bendy" };
+  // Crowd indicator: a scannable coloured dot on the collapsed card so you can
+  // read how full the next bus is without expanding it. Green=seats,
+  // amber=standing, red=crowded. (Full label still shown per-bus when expanded.)
+  const crowdDot = next.load
+    ? `<span class="load-dot ${esc(next.load)}" title="${LOAD_LABEL[next.load] || esc(next.load)}"></span>` : "";
   const tags = [
     next.type && next.type !== "SD" ? `<span class="tag" title="${TYPE_LABEL[next.type] || next.type}">${esc(next.type)}</span>` : "",
     next.feature === "WAB" ? `<span class="tag wab" title="Wheelchair accessible">♿</span>` : "",
   ].join("");
+  const alerted = _alertActive(S.stop, svc.service_no);
   return `
     <div class="svc" data-svc="${esc(svc.service_no)}">
       <button class="svc-head">
         <span class="route-badge">${esc(svc.service_no)}</span>
         <span class="svc-mid">
-          <span class="svc-tags">${tags}</span>
+          <span class="svc-tags">${crowdDot}${tags}</span>
         </span>
         <span class="svc-eta">
           <span class="eta-now ${due ? "due" : ""}" data-eta-iso="${esc(next.api_arrival || "")}">${fmtMin(secs)}${due ? "" : `<span class="eta-unit">min</span>`}</span>
@@ -1141,6 +1261,10 @@ function svcCard(svc) {
       <div class="svc-detail"><div class="svc-detail-inner">
         ${relLine(svc.reliability)}
         ${svc.buses.map(busLine).join("")}
+        <button class="svc-alert-btn${alerted ? " on" : ""}" data-alert-svc="${esc(svc.service_no)}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="svc-alert-txt">${alerted ? "Alert on — we'll ping you before it arrives" : "Alert me before this bus arrives"}</span>
+        </button>
       </div></div>
     </div>`;
 }
@@ -1185,6 +1309,13 @@ function renderArrivals(data) {
 }
 
 $("rows").addEventListener("click", (e) => {
+  // Arrival alert toggle (inside the expanded detail)
+  const alertBtn = e.target.closest(".svc-alert-btn");
+  if (alertBtn) {
+    e.stopPropagation();
+    toggleAlert(S.stop, alertBtn.dataset.alertSvc);
+    return;
+  }
   // Clicking the route badge opens the route viewer instead of toggling expand
   const badge = e.target.closest(".route-badge");
   if (badge) {
@@ -1216,7 +1347,87 @@ function startTicker() {
         .map((iso) => fmtMin(secsUntil(parseUTC(iso)))).join(" · ");
       if (txt) node.textContent = `then ${txt} min`;
     });
+    _checkAlerts();
   }, 1000);
+}
+
+// ── Arrival alerts ────────────────────────────────────────
+// Per-service "ping me before it arrives" alerts. Fully client-side: while the
+// stop is open and refreshing, the 1 s ticker watches the next bus and fires a
+// system Notification (falling back to an in-app toast) once it's within the
+// threshold. One-shot — clears itself after firing so it won't nag on the
+// next bus. Persisted so reopening the same stop restores pending alerts.
+function _alertActive(stop, svc) { return !!(stop && S.alerts[stop] && S.alerts[stop][svc]); }
+
+function toggleAlert(stop, svc) {
+  if (!stop || !svc) return;
+  if (_alertActive(stop, svc)) {
+    delete S.alerts[stop][svc];
+    if (!Object.keys(S.alerts[stop]).length) delete S.alerts[stop];
+    writeJSON(ALERTS_KEY, S.alerts);
+    toast(`Alert off for bus ${svc}`);
+  } else {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+    S.alerts[stop] = S.alerts[stop] || {};
+    S.alerts[stop][svc] = ALERT_THRESHOLD_SEC;
+    S.firedAlerts.delete(`${stop}|${svc}`);
+    writeJSON(ALERTS_KEY, S.alerts);
+    const denied = "Notification" in window && Notification.permission === "denied";
+    toast(denied ? `Alert set for bus ${svc} (in-app only)` : `You'll be pinged before bus ${svc} arrives`);
+  }
+  _syncAlertBtns();
+}
+
+// Reflect alert state on the rendered buttons without a full re-render.
+function _syncAlertBtns() {
+  document.querySelectorAll(".svc-alert-btn[data-alert-svc]").forEach((btn) => {
+    const on = _alertActive(S.stop, btn.dataset.alertSvc);
+    btn.classList.toggle("on", on);
+    const txt = btn.querySelector(".svc-alert-txt");
+    if (txt) txt.textContent = on
+      ? "Alert on — we'll ping you before it arrives"
+      : "Alert me before this bus arrives";
+  });
+}
+
+function _checkAlerts() {
+  if (!S.stop || !S.alerts[S.stop]) return;
+  document.querySelectorAll("#rows .svc[data-svc]").forEach((card) => {
+    const svc = card.dataset.svc;
+    if (!S.alerts[S.stop]?.[svc]) return;
+    const thr = S.alerts[S.stop][svc];
+    const iso = card.querySelector(".eta-now[data-eta-iso]")?.dataset.etaIso;
+    const secs = secsUntil(parseUTC(iso));
+    if (secs === null) return;
+    const key = `${S.stop}|${svc}`;
+    if (secs <= thr && secs > -45 && !S.firedAlerts.has(key)) {
+      S.firedAlerts.add(key);
+      _fireArrivalAlert(svc, secs);
+      delete S.alerts[S.stop][svc];
+      if (!Object.keys(S.alerts[S.stop]).length) delete S.alerts[S.stop];
+      writeJSON(ALERTS_KEY, S.alerts);
+      _syncAlertBtns();
+    }
+  });
+}
+
+function _fireArrivalAlert(svc, secs) {
+  const stopName = S.stopInfo?.description || `stop ${S.stop}`;
+  const when = secs < DUE_SECS ? "now" : `in ~${Math.max(1, Math.round(secs / 60))} min`;
+  const title = `Bus ${svc} arriving ${when}`;
+  try { navigator.vibrate?.([200, 100, 200]); } catch {}
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      const n = new Notification(title, {
+        body: stopName, tag: `sgbus-${S.stop}-${svc}`, icon: "icons/icon-192.png",
+      });
+      n.onclick = () => { window.focus(); n.close(); };
+      return;
+    } catch { /* fall through to toast */ }
+  }
+  toast(`🔔 ${title}`);
 }
 
 async function loadStop(code) {
@@ -1285,6 +1496,26 @@ async function refreshStop(code) {
 }
 
 $("refresh-btn").addEventListener("click", () => { if (S.stop) refreshStop(S.stop); });
+
+// ── Share a stop ──────────────────────────────────────────
+// Copies a deep link (…/bus?stop=12345) — opening it auto-loads that stop.
+// Uses the native share sheet when available, clipboard otherwise.
+$("share-stop-btn")?.addEventListener("click", async () => {
+  if (!S.stop) return;
+  const url  = `${location.origin}${location.pathname}?stop=${S.stop}`;
+  const name = S.stopInfo?.description || `stop ${S.stop}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: `SG Bus — ${name}`, text: `Live bus arrivals for ${name}`, url }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }  // user dismissed — fall through to copy
+  }
+  try {
+    if (!navigator.clipboard) throw new Error("no clipboard");
+    await navigator.clipboard.writeText(url);
+    toast("Stop link copied to clipboard");
+  } catch {
+    fallbackCopy(url);  // legacy execCommand path + its own copied toast (defined below)
+  }
+});
 
 // ── Charts ────────────────────────────────────────────────
 function prepareStats(stats) {
@@ -1868,6 +2099,12 @@ async function loadData() {
       await loadAdminAnalytics();
       show($("analytics-block"));
     } catch { /* not admin */ }
+
+    // Punctuality heatmap
+    try {
+      await loadHeatmap();
+      show($("heatmap-block"));
+    } catch { /* not admin or no data */ }
   } catch (err) {
     $("data-grid").innerHTML = "";
     const el = $("data-error");
@@ -2011,6 +2248,46 @@ async function loadAdminAnalytics() {
           <td class="num">${usr.favourites}★ / ${usr.journeys}⤳</td>
         </tr>`).join("")
     : `<tr><td colspan="5" style="color:var(--ink-3)">No registered users yet</td></tr>`;
+}
+
+// ── Punctuality heatmap (admin) ────────────────────────────────────────────────
+
+async function loadHeatmap() {
+  const d = await api("/api/analytics/heatmap");
+  renderHeatmap(d);
+}
+
+// Map an average delay (seconds) to a cell colour: green = early, neutral =
+// on time, red = late, intensity scaling with magnitude (clamped at ±2 min).
+function _heatColor(avg) {
+  if (Math.abs(avg) < 10) return "var(--good-soft)";
+  const mag = Math.min(Math.abs(avg), 120) / 120;     // 0..1
+  const a = (0.18 + 0.62 * mag).toFixed(2);
+  return avg > 0 ? `rgba(220,38,38,${a})` : `rgba(22,163,74,${a})`;
+}
+
+function renderHeatmap(d) {
+  const grid = $("heatmap-grid");
+  if (!grid) return;
+  const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  if (!d || !d.total_records) {
+    grid.innerHTML = `<p class="empty" style="grid-column:1/-1">No ground-truth records yet — the heatmap fills in as buses are tracked.</p>`;
+    return;
+  }
+  let html = `<div class="heatmap-corner"></div>`;
+  for (let h = 0; h < 24; h++) {
+    html += `<div class="heatmap-hour">${h % 3 === 0 ? h : ""}</div>`;
+  }
+  d.grid.forEach((row, di) => {
+    html += `<div class="heatmap-day">${DAYS[di]}</div>`;
+    row.forEach((cell, h) => {
+      if (!cell) { html += `<div class="heatmap-cell empty"></div>`; return; }
+      const sign = cell.avg > 0 ? "+" : "";
+      html += `<div class="heatmap-cell" style="background:${_heatColor(cell.avg)}"
+        title="${DAYS[di]} ${String(h).padStart(2, "0")}:00 · ${sign}${Math.round(cell.avg)}s avg · ${cell.n.toLocaleString()} obs"></div>`;
+    });
+  });
+  grid.innerHTML = html;
 }
 
 // ── Admin notifications ────────────────────────────────────────────────────────
@@ -3688,6 +3965,9 @@ checkBackend();
 setupPlanField("from");
 setupPlanField("to");
 setupHomeSearch();
+setupCommuteSearch("am");
+setupCommuteSearch("pm");
+renderCommute();
 renderRecents();
 _updateSettingsUI();
 _updatePlanHomeChip();
@@ -3701,11 +3981,12 @@ if ("serviceWorker" in navigator) {
 const bootStop = location.hash.replace("#", "").trim();
 const _bootParams = new URLSearchParams(location.search);
 const hasShareParams = _bootParams.get("fName");
-const hasLoadStop   = _bootParams.get("loadStop");
+// ?stop= (shared stop link) and ?loadStop= (legacy from map.html) are aliases.
+const stopParam = _bootParams.get("stop") || _bootParams.get("loadStop");
 if (hasShareParams) {
   bootFromUrl();
-} else if (hasLoadStop && /^\d{5}$/.test(hasLoadStop)) {
-  loadStop(hasLoadStop);
+} else if (stopParam && /^\d{5}$/.test(stopParam)) {
+  loadStop(stopParam);
   history.replaceState(null, "", location.pathname);
 } else if (/^\d{5}$/.test(bootStop)) {
   loadStop(bootStop);

@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.1.34" />
+  <link rel="stylesheet" href="styles.css?v=1.2.0" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -74,6 +74,7 @@
 
       <!-- Nearby / default state -->
       <div id="arr-nearby">
+        <div id="commute-card" class="commute-card hidden"></div>
         <div id="chips-area" class="chips-area"></div>
         <div id="arr-stops-section" class="hidden">
           <div class="arr-section-hd">
@@ -103,6 +104,9 @@
               <button id="save-btn" class="pillbtn">
                 <svg id="save-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
                 <span id="save-label">Save</span>
+              </button>
+              <button id="share-stop-btn" class="iconbtn" aria-label="Share this stop" title="Copy a link to this stop">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
               </button>
               <button id="refresh-btn" class="iconbtn" aria-label="Refresh">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
@@ -542,6 +546,18 @@
       </div>
     </div>
 
+    <div id="heatmap-block" class="block hidden">
+      <div class="block-head">Punctuality heatmap <span class="panel-badge">90 days</span></div>
+      <div class="heatmap-sub">Average measured delay by day &amp; hour — when buses actually run late across every monitored stop.</div>
+      <div id="heatmap-grid" class="heatmap-grid"></div>
+      <div class="heatmap-legend">
+        <span class="heatmap-legend-lbl">Early</span>
+        <span class="heatmap-legend-bar"></span>
+        <span class="heatmap-legend-lbl">Late</span>
+        <span class="heatmap-legend-na"><span class="heatmap-na-swatch"></span> no data</span>
+      </div>
+    </div>
+
     <div id="notif-admin-block" class="block hidden">
       <div class="block-head">System notifications</div>
       <form id="notif-create-form" class="notif-create-form">
@@ -617,6 +633,50 @@
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
               Clear home
             </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Commute -->
+      <div class="stg-section">
+        <div class="stg-section-title">Commute</div>
+        <div class="stg-card">
+          <div class="stg-commute-hint">Set your morning and evening stops for one-tap arrivals. A shortcut appears on the home screen, switching by time of day.</div>
+          <div class="stg-commute-slot" data-slot="am">
+            <div class="stg-commute-head">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+              Morning stop
+              <span id="stg-commute-am-name" class="stg-commute-name">Not set</span>
+              <button id="stg-commute-am-clear" class="stg-commute-clear hidden" aria-label="Clear morning stop">×</button>
+            </div>
+            <div class="stg-home-search-wrap">
+              <div class="search-box">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input id="stg-commute-am-input" type="text" inputmode="search" placeholder="Search a bus stop" autocomplete="off" spellcheck="false" />
+                <button id="stg-commute-am-input-clear" class="search-clear hidden" aria-label="Clear">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+              <div id="stg-commute-am-ac" class="autocomplete" style="position:absolute;left:0;right:0;top:calc(100% + 4px)"></div>
+            </div>
+          </div>
+          <div class="stg-commute-slot" data-slot="pm">
+            <div class="stg-commute-head">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+              Evening stop
+              <span id="stg-commute-pm-name" class="stg-commute-name">Not set</span>
+              <button id="stg-commute-pm-clear" class="stg-commute-clear hidden" aria-label="Clear evening stop">×</button>
+            </div>
+            <div class="stg-home-search-wrap">
+              <div class="search-box">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input id="stg-commute-pm-input" type="text" inputmode="search" placeholder="Search a bus stop" autocomplete="off" spellcheck="false" />
+                <button id="stg-commute-pm-input-clear" class="search-clear hidden" aria-label="Clear">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+              <div id="stg-commute-pm-ac" class="autocomplete" style="position:absolute;left:0;right:0;top:calc(100% + 4px)"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -887,6 +947,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=1.1.34"></script>
+<script src="app.js?v=1.2.0"></script>
 </body>
 </html>
