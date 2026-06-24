@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -51,11 +52,14 @@ async def lifespan(app: FastAPI):
         try:
             admin = db.query(User).filter_by(username="admin").first()
             if admin is None:
-                db.add(User(username="admin", password_hash=hash_password(admin_pw)))
+                db.add(User(username="admin", password_hash=hash_password(admin_pw), is_admin=True))
                 logger.info("Admin account created.")
-            elif not verify_password(admin_pw, admin.password_hash):
-                admin.password_hash = hash_password(admin_pw)
-                logger.info("Admin password rotated from ADMIN_PASSWORD.")
+            else:
+                if not verify_password(admin_pw, admin.password_hash):
+                    admin.password_hash = hash_password(admin_pw)
+                    logger.info("Admin password rotated from ADMIN_PASSWORD.")
+                # Idempotently ensure the flag is set (covers pre-is_admin accounts).
+                admin.is_admin = True
             db.commit()
         finally:
             db.close()
@@ -139,6 +143,9 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(_SecurityHeadersMiddleware)
+# Compress large JSON/text responses (e.g. /api/stops/all ~5000 rows, the admin
+# dashboards). ~5–10× smaller over the wire for a few ms of CPU.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api")

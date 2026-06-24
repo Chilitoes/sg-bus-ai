@@ -101,10 +101,35 @@ _DUMMY_HASH = unusable_password_hash()
 
 
 def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    peer = request.client.host if request.client else "unknown"
+    # Trust X-Forwarded-For only when the direct peer is the local reverse proxy
+    # (Tailscale Funnel terminates to loopback). Take the LAST hop — the value the
+    # trusted proxy appended — so a client can't spoof an earlier entry to mint a
+    # fresh throttle bucket on every request.
+    if peer in ("127.0.0.1", "::1"):
+        fwd = request.headers.get("x-forwarded-for")
+        if fwd:
+            parts = [p.strip() for p in fwd.split(",") if p.strip()]
+            if parts:
+                return parts[-1]
+    return peer
+
+
+# Global, IP-independent ceiling on new-account creation. The per-(IP, username)
+# bucket in _throttle keys on the attacker-chosen username, so it doesn't cap
+# registration on its own; this does, regardless of X-Forwarded-For. Only
+# successful creations count, so a flood of invalid attempts can't lock out
+# sign-ups for everyone.
+_register_times: list[float] = []
+_REGISTER_WINDOW_SEC = 15 * 60
+_REGISTER_LIMIT = 60
+
+
+def _check_registration_cap() -> None:
+    now = time.monotonic()
+    _register_times[:] = [t for t in _register_times if now - t < _REGISTER_WINDOW_SEC]
+    if len(_register_times) >= _REGISTER_LIMIT:
+        raise HTTPException(status_code=429, detail="Too many sign-ups right now. Try again later.")
 
 
 def _throttle(request: Request, username: str = "", account_scope: bool = False) -> None:
@@ -185,7 +210,7 @@ def get_optional_user(
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    if user.username.lower() != "admin":
+    if not getattr(user, "is_admin", False):
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
@@ -235,6 +260,7 @@ def _ensure_monitored(db: Session, stop_code: str) -> None:
 @router.post("/auth/register")
 def register(creds: Credentials, request: Request, db: Session = Depends(get_db)) -> dict:
     _throttle(request, creds.username)
+    _check_registration_cap()
     username = creds.username.strip()
     if not USERNAME_RE.match(username):
         raise HTTPException(
@@ -254,6 +280,7 @@ def register(creds: Credentials, request: Request, db: Session = Depends(get_db)
     db.add(user)
     db.commit()
     db.refresh(user)
+    _register_times.append(time.monotonic())  # count only successful creations
     return {"token": _issue_token(db, user.id), "username": user.username}
 
 

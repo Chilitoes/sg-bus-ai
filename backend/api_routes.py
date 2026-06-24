@@ -24,7 +24,7 @@ import itertools
 import logging
 import math
 import time as _time
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -160,6 +160,24 @@ def _fmt_minutes(dt: datetime | None) -> str | None:
 _LTA_CACHE: dict[str, tuple[float, dict]] = {}
 _LTA_CACHE_TTL = 12.0  # seconds
 
+# Global safety valve on *upstream* LTA calls (cache hits don't count), protecting
+# our API-key quota. The public endpoints are unauthenticated and one
+# /journey/multimodal request can fan out to several stops; an attacker iterating
+# distinct stop codes also bypasses the per-stop cache. Sized well above normal
+# combined collector + visitor traffic so it only trips on genuine abuse/runaway.
+_lta_call_times: "deque[float]" = deque()
+_LTA_RATE_WINDOW = 60.0
+_LTA_RATE_MAX = 250  # upstream calls per minute
+
+
+def _lta_rate_guard(now: float) -> None:
+    while _lta_call_times and now - _lta_call_times[0] > _LTA_RATE_WINDOW:
+        _lta_call_times.popleft()
+    if len(_lta_call_times) >= _LTA_RATE_MAX:
+        logger.warning("LTA upstream rate cap hit (%d/min) — shedding load.", _LTA_RATE_MAX)
+        raise HTTPException(status_code=503, detail="Bus data is busy right now. Try again shortly.")
+    _lta_call_times.append(now)
+
 
 async def _call_lta(stop_code: str) -> tuple[dict, bool]:
     """Fetch a stop's raw LTA payload. Returns (payload, is_fresh); is_fresh is
@@ -169,6 +187,7 @@ async def _call_lta(stop_code: str) -> tuple[dict, bool]:
     if cached is not None and (now - cached[0]) < _LTA_CACHE_TTL:
         return cached[1], False
 
+    _lta_rate_guard(now)  # only reached on a cache miss → real upstream call
     headers = {"AccountKey": LTA_API_KEY}
     params  = {"BusStopCode": stop_code}
     async with httpx.AsyncClient(timeout=10) as client:
@@ -362,6 +381,92 @@ async def get_arrivals(
 
 # ── Statistics ────────────────────────────────────────────────
 
+# Per-stop accuracy is derived from historical data + the current model. It's
+# expensive (one model inference per sampled row) and barely changes between
+# requests, so memoise it with a short TTL instead of recomputing on every
+# /stats hit. The model retrains at most twice an hour, so a 5-min staleness is
+# invisible.
+_ACC_CACHE: dict[str, tuple[float, dict | None]] = {}
+_ACC_CACHE_TTL = 300.0
+_ACC_SAMPLE_CAP = 600  # statistically ample for a percentage; was 2000
+
+
+def _stop_accuracy(stop_code: str, base_q) -> dict | None:
+    """Retroactively apply the current model to recent labelled rows for a stop
+    and compare ±60 s accuracy against the raw LTA estimate. Cached per stop."""
+    now = _time.monotonic()
+    hit = _ACC_CACHE.get(stop_code)
+    if hit is not None and now - hit[0] < _ACC_CACHE_TTL:
+        return hit[1]
+
+    accuracy = None
+    try:
+        labeled_rows = (
+            base_q
+            .with_entities(
+                BusArrivalRecord.bus_service,
+                BusArrivalRecord.bus_stop_code,
+                BusArrivalRecord.hour_of_day,
+                BusArrivalRecord.day_of_week,
+                BusArrivalRecord.bus_load,
+                BusArrivalRecord.bus_type,
+                BusArrivalRecord.delay_seconds,
+            )
+            .limit(_ACC_SAMPLE_CAP)
+            .all()
+        )
+        if len(labeled_rows) >= 50:
+            lta_ok = ai_ok = 0
+            for row in labeled_rows:
+                d = row.delay_seconds
+                ai_adj = global_model.predict(
+                    hour=row.hour_of_day,
+                    day_of_week=row.day_of_week,
+                    bus_load=row.bus_load or "SEA",
+                    bus_type=row.bus_type or "SD",
+                    service_no=row.bus_service,
+                    stop_code=row.bus_stop_code,
+                )
+                if abs(d) <= 60:
+                    lta_ok += 1
+                if abs(d - ai_adj) <= 60:
+                    ai_ok += 1
+            n = len(labeled_rows)
+            accuracy = {
+                "samples":   n,
+                "lta_pct":   round(lta_ok / n * 100),
+                "ai_pct":    round(ai_ok  / n * 100),
+                "delta_pct": round((ai_ok - lta_ok) / n * 100),
+            }
+    except Exception:
+        pass  # accuracy is a bonus, never break stats over it
+
+    _ACC_CACHE[stop_code] = (now, accuracy)
+    if len(_ACC_CACHE) > 800:
+        for k in [k for k, (ts, _) in _ACC_CACHE.items() if now - ts > _ACC_CACHE_TTL]:
+            _ACC_CACHE.pop(k, None)
+    return accuracy
+
+
+# Short-TTL cache for the admin dashboard endpoints. They re-scan the growing
+# arrivals table per page load and don't need to be real-time, so a 60 s cache
+# turns a refresh-spam into a single recompute.
+_admin_cache: dict[str, tuple[float, dict]] = {}
+_ADMIN_CACHE_TTL = 60.0
+
+
+def _admin_cache_get(key: str) -> dict | None:
+    hit = _admin_cache.get(key)
+    if hit is not None and _time.monotonic() - hit[0] < _ADMIN_CACHE_TTL:
+        return hit[1]
+    return None
+
+
+def _admin_cache_put(key: str, value: dict) -> dict:
+    _admin_cache[key] = (_time.monotonic(), value)
+    return value
+
+
 @router.get("/stats/{stop_code}")
 def get_stats(stop_code: str = Path(..., max_length=10), db: Session = Depends(get_db)) -> dict:
     """
@@ -441,50 +546,8 @@ def get_stats(stop_code: str = Path(..., max_length=10), db: Session = Depends(g
     )
     trend = [{"date": str(r.day), "avg_delay_sec": round(r.avg_delay, 1)} for r in trend_q]
 
-    # ── AI vs LTA accuracy ──────────────────────────────────────────────
-    # Retroactively apply the current model to historical records and compare
-    # against the raw LTA estimate.  Uses the same threshold (±60 s) for both.
-    accuracy = None
-    try:
-        labeled_rows = (
-            base_q
-            .with_entities(
-                BusArrivalRecord.bus_service,
-                BusArrivalRecord.bus_stop_code,
-                BusArrivalRecord.hour_of_day,
-                BusArrivalRecord.day_of_week,
-                BusArrivalRecord.bus_load,
-                BusArrivalRecord.bus_type,
-                BusArrivalRecord.delay_seconds,
-            )
-            .limit(2000)
-            .all()
-        )
-        if len(labeled_rows) >= 50:
-            lta_ok = ai_ok = 0
-            for row in labeled_rows:
-                d = row.delay_seconds
-                ai_adj = global_model.predict(
-                    hour=row.hour_of_day,
-                    day_of_week=row.day_of_week,
-                    bus_load=row.bus_load or "SEA",
-                    bus_type=row.bus_type or "SD",
-                    service_no=row.bus_service,
-                    stop_code=row.bus_stop_code,
-                )
-                if abs(d) <= 60:
-                    lta_ok += 1
-                if abs(d - ai_adj) <= 60:
-                    ai_ok += 1
-            n = len(labeled_rows)
-            accuracy = {
-                "samples":       n,
-                "lta_pct":       round(lta_ok / n * 100),
-                "ai_pct":        round(ai_ok  / n * 100),
-                "delta_pct":     round((ai_ok - lta_ok) / n * 100),
-            }
-    except Exception:
-        pass  # accuracy is a bonus, never break stats over it
+    # ── AI vs LTA accuracy (cached per stop) ────────────────────────────
+    accuracy = _stop_accuracy(stop_code, base_q)
 
     return {
         "bus_stop_code":  stop_code,
@@ -1319,25 +1382,33 @@ async def plan_multimodal(
                     break
 
     # ── Phase 2: fetch LTA arrivals for all boarding stops ───
-    unique_boards: set[str] = set()
+    # Insertion-ordered dedup (dict keys) so best-first plans keep priority when
+    # the fan-out is capped below.
+    unique_boards: dict[str, None] = {}
     for raw, *_ in raw_bus_plans[:3]:
         for leg in raw["legs"]:
-            unique_boards.add(leg["from_stop"])
+            unique_boards[leg["from_stop"]] = None
     if mrt_feeder:
         for leg in mrt_feeder[0]["legs"]:
-            unique_boards.add(leg["from_stop"])
+            unique_boards[leg["from_stop"]] = None
     if dest_feeder:
         for leg in dest_feeder[0]["legs"]:
-            unique_boards.add(leg["from_stop"])
+            unique_boards[leg["from_stop"]] = None
 
     async def _fetch(c):
         try: return c, (await _call_lta(c))[0]
         except: return c, None
 
+    # Cap the upstream fan-out per request so a single multimodal query can't
+    # amplify into many LTA calls. The boarding stops of the chosen options come
+    # first (raw_bus_plans is best-first), so the cap only drops marginal extras.
+    _MAX_BOARD_FETCH = 8
+    boards = list(unique_boards)[:_MAX_BOARD_FETCH]
+
     # Live arrivals only exist for "now" — for a future trip there is nothing to
     # fetch, so leg waits degrade to schedule-based estimates (wait_min = None).
     arr_cache: dict[str, dict | None] = {} if is_future else dict(
-        await asyncio.gather(*[_fetch(c) for c in unique_boards])
+        await asyncio.gather(*[_fetch(c) for c in boards])
     )
 
     # ── enrich_bus_leg (uses arr_cache closure) ───────────────
@@ -1701,6 +1772,9 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
     - Monitored stops
     - ML model status
     """
+    cached = _admin_cache_get("data")
+    if cached is not None:
+        return cached
     db_type = "PostgreSQL" if DATABASE_URL.startswith("postgresql") else "SQLite"
 
     # Table counts
@@ -1823,7 +1897,7 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
         for r in top_stops_q
     ]
 
-    return {
+    return _admin_cache_put("data", {
         "database": {
             "type":           db_type,
             "arrival_records": arrival_count,
@@ -1840,7 +1914,7 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
         },
         "recent_records":  recent,
         "recent_tracking": tracking,
-    }
+    })
 
 
 # ── Checkpoint traffic ────────────────────────────────────────────────────────
@@ -2154,6 +2228,9 @@ def get_analytics(
     db: Session = Depends(get_db),
 ) -> dict:
     """Usage dashboard data. Admin only."""
+    cached = _admin_cache_get("analytics")
+    if cached is not None:
+        return cached
     sgt_now = datetime.utcnow() + timedelta(hours=8)
     today     = sgt_now.strftime("%Y-%m-%d")
     yesterday = (sgt_now - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -2311,7 +2388,7 @@ def get_analytics(
     )
     avg_rating = round(float(avg_rating_raw), 1) if avg_rating_raw else None
 
-    return {
+    return _admin_cache_put("analytics", {
         "queries": {
             "today":     today_queries,
             "yesterday": yesterday_queries,
@@ -2333,7 +2410,7 @@ def get_analytics(
             "avg_rating": avg_rating,
         },
         "top_stops": top_stops,
-    }
+    })
 
 
 @router.get("/analytics/heatmap")
@@ -2345,6 +2422,9 @@ def get_punctuality_heatmap(
     ground-truth records. Admin only — powers the punctuality heatmap that
     surfaces real value over the raw LTA feed (which hour/day buses run late).
     """
+    cached = _admin_cache_get("heatmap")
+    if cached is not None:
+        return cached
     cutoff = datetime.utcnow() - timedelta(days=90)
     rows = (
         db.query(
@@ -2370,4 +2450,4 @@ def get_punctuality_heatmap(
         n = int(r.n)
         grid[d][h] = {"avg": round(r.avg_delay, 1), "n": n}
         total += n
-    return {"grid": grid, "total_records": total, "days": 90}
+    return _admin_cache_put("heatmap", {"grid": grid, "total_records": total, "days": 90})

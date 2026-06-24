@@ -18,10 +18,12 @@ from sqlalchemy import (
     Column,
     DateTime,
     Float,
+    Index,
     Integer,
     String,
     UniqueConstraint,
     create_engine,
+    event,
     inspect,
     text,
 )
@@ -33,6 +35,20 @@ from config import DATABASE_URL
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+# SQLite tuning: WAL lets readers run concurrently with a writer (the background
+# collector + every passive-collection write would otherwise lock out readers),
+# and busy_timeout makes a writer wait instead of erroring with "database is
+# locked". Applied per-connection; no-op on non-SQLite engines.
+if DATABASE_URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.close()
 
 
 class Base(DeclarativeBase):
@@ -157,6 +173,10 @@ class User(Base):
     username      = Column(String(30), unique=True, index=True, nullable=False)
     password_hash = Column(String(200), nullable=False)
     created_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Explicit admin flag — authorization no longer depends on the username
+    # string being "admin". Set only on the provisioned admin account.
+    is_admin      = Column(Boolean, default=False, nullable=False)
 
     # OAuth / profile (nullable: password-only accounts leave these empty)
     email         = Column(String(255), index=True, nullable=True)
@@ -335,6 +355,56 @@ def _migrate_notification_popup_column() -> None:
             conn.execute(text("ALTER TABLE system_notifications ADD COLUMN popup_at DATETIME"))
 
 
+def _migrate_admin_column() -> None:
+    """Add the is_admin flag to a pre-existing users table and set it on the
+    existing 'admin' account so it keeps its access after the upgrade."""
+    insp = inspect(engine)
+    if "users" not in insp.get_table_names():
+        return
+    existing = {c["name"] for c in insp.get_columns("users")}
+    if "is_admin" not in existing:
+        with engine.begin() as conn:
+            # SQLite needs a literal default; 0/1 works on both SQLite and Postgres.
+            conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0"))
+            conn.execute(text("UPDATE users SET is_admin = 1 WHERE lower(username) = 'admin'"))
+
+
+def _migrate_arrival_indexes() -> None:
+    """Composite / partial indexes for the hot bus_arrival_records read paths.
+
+    create_all() only builds indexes when it first creates a table, so an
+    existing database needs them added explicitly. Partial indexes
+    (WHERE delay_seconds IS NOT NULL) are far smaller because only the labelled
+    minority of rows is indexed, and every hot aggregation filters on exactly
+    that predicate. Each statement is independent and best-effort.
+    """
+    if "bus_arrival_records" not in inspect(engine).get_table_names():
+        return
+    statements = [
+        # /arrivals reliability + /stats: stop + time window over labelled rows.
+        "CREATE INDEX IF NOT EXISTS ix_arr_stop_time_lbl ON bus_arrival_records "
+        "(bus_stop_code, collection_time) WHERE delay_seconds IS NOT NULL",
+        # Leaderboards: time window over labelled rows, grouped by service/stop.
+        "CREATE INDEX IF NOT EXISTS ix_arr_time_lbl ON bus_arrival_records "
+        "(collection_time) WHERE delay_seconds IS NOT NULL",
+        # Heatmap: group-by (day_of_week, hour_of_day) over labelled rows.
+        "CREATE INDEX IF NOT EXISTS ix_arr_dow_hour_lbl ON bus_arrival_records "
+        "(day_of_week, hour_of_day) WHERE delay_seconds IS NOT NULL",
+        # Collector back-fill: find the open (delay NULL) row for a tracked bus.
+        "CREATE INDEX IF NOT EXISTS ix_arr_stop_svc_est ON bus_arrival_records "
+        "(bus_stop_code, bus_service, estimated_arrival)",
+        # Daily prune scans by collection_time.
+        "CREATE INDEX IF NOT EXISTS ix_arr_collection_time ON bus_arrival_records "
+        "(collection_time)",
+    ]
+    for stmt in statements:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(stmt))
+        except Exception:  # noqa: BLE001 — a single index failure must not block startup
+            pass
+
+
 def init_db(seed_stops: list[str] | None = None) -> None:
     """Create all tables and optionally seed the monitored-stops list."""
     Base.metadata.create_all(bind=engine)
@@ -342,6 +412,8 @@ def init_db(seed_stops: list[str] | None = None) -> None:
     _migrate_feedback_columns()
     _migrate_notifications_column()
     _migrate_notification_popup_column()
+    _migrate_admin_column()
+    _migrate_arrival_indexes()
     # DailyActivity is new — create_all handles it; no column migration needed.
     if seed_stops:
         db = SessionLocal()
