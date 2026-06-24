@@ -28,7 +28,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.8";
+const APP_VERSION = "1.2.9";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1416,24 +1416,31 @@ $("rows").addEventListener("click", (e) => {
 
 function startTicker() {
   clearInterval(S.tickTmr);
+  const rows = $("rows");
   S.tickTmr = setInterval(() => {
-    document.querySelectorAll("[data-eta-iso]").forEach((node) => {
-      const s = secsUntil(parseUTC(node.dataset.etaIso));
-      const due = s !== null && s < DUE_SECS;
-      node.classList.toggle("due", due);
-      node.innerHTML = `${fmtMin(s)}${due ? "" : `<span class="eta-unit">min</span>`}`;
-    });
-    document.querySelectorAll("[data-ai-iso]").forEach((node) => {
-      if (!node.dataset.aiIso) return;
-      node.textContent = aiText(
-        secsUntil(parseUTC(node.dataset.aiIso)),
-        Number(node.dataset.adj || 0));
-    });
-    document.querySelectorAll("[data-next-isos]").forEach((node) => {
-      const txt = node.dataset.nextIsos.split(",").filter(Boolean)
-        .map((iso) => fmtMin(secsUntil(parseUTC(iso)))).join(" · ");
-      if (txt) node.textContent = `then ${txt} min`;
-    });
+    // Only churn the visible eta DOM when the arrivals view is actually on screen
+    // and the tab is foregrounded — nothing else changes per second. Queries are
+    // scoped to #rows, not the whole document. Alerts are still checked every
+    // tick (cheap + self-guarded) so they fire regardless of the current view.
+    if (rows && !document.hidden && S.view === "arrivals") {
+      rows.querySelectorAll("[data-eta-iso]").forEach((node) => {
+        const s = secsUntil(parseUTC(node.dataset.etaIso));
+        const due = s !== null && s < DUE_SECS;
+        node.classList.toggle("due", due);
+        node.innerHTML = `${fmtMin(s)}${due ? "" : `<span class="eta-unit">min</span>`}`;
+      });
+      rows.querySelectorAll("[data-ai-iso]").forEach((node) => {
+        if (!node.dataset.aiIso) return;
+        node.textContent = aiText(
+          secsUntil(parseUTC(node.dataset.aiIso)),
+          Number(node.dataset.adj || 0));
+      });
+      rows.querySelectorAll("[data-next-isos]").forEach((node) => {
+        const txt = node.dataset.nextIsos.split(",").filter(Boolean)
+          .map((iso) => fmtMin(secsUntil(parseUTC(iso)))).join(" · ");
+        if (txt) node.textContent = `then ${txt} min`;
+      });
+    }
     _checkAlerts();
   }, 1000);
 }
@@ -2059,9 +2066,9 @@ async function loadData() {
     ];
     $("data-grid").innerHTML = cards.map(([l, v, s]) => `
       <div class="stat-card">
-        <div class="stat-label">${l}</div>
-        <div class="stat-value">${v}</div>
-        ${s ? `<div class="stat-sub">${s}</div>` : ""}
+        <div class="stat-label">${esc(l)}</div>
+        <div class="stat-value">${esc(v)}</div>
+        ${s ? `<div class="stat-sub">${esc(s)}</div>` : ""}
       </div>`).join("");
 
     const mon = d.monitored_stops || [];
@@ -3391,9 +3398,24 @@ async function _loadArrStops(lat, lng) {
       });
       _arrPinStore.set(s.bus_stop_code, { marker, label, stop: s });
     });
+    _evictArrPins();
     _arrMap.invalidateSize();
     _renderArrNearbyList(stops);
   } catch {}
+}
+
+// Markers accumulate as the user pans / re-geolocates; cap the store so the map
+// can't grow unbounded. Evict the oldest pins (Map preserves insertion order),
+// never the currently-selected stop.
+const _ARR_PIN_CAP = 80;
+function _evictArrPins() {
+  if (_arrPinStore.size <= _ARR_PIN_CAP) return;
+  for (const code of _arrPinStore.keys()) {
+    if (_arrPinStore.size <= _ARR_PIN_CAP) break;
+    if (code === S.stop || code === S._arrHighlightCode) continue;
+    _arrPinStore.get(code)?.marker?.remove();
+    _arrPinStore.delete(code);
+  }
 }
 
 function _renderArrNearbyList(stops) {

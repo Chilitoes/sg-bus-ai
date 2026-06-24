@@ -2,6 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <!-- Content-Security-Policy: contain any injected markup. script-src has no
+       'unsafe-inline' (the app uses no inline scripts/handlers), so an injected
+       <script> or onerror= can't run. style-src keeps 'unsafe-inline' because
+       Leaflet and the map-render code rely on inline styles. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com https://cdn.jsdelivr.net https://accounts.google.com https://www.gstatic.com; style-src 'self' https://unpkg.com 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://alston-b550mh.tail8c7cb3.ts.net https://www.onemap.gov.sg https://overpass-api.de https://router.project-osrm.org https://accounts.google.com; frame-src https://accounts.google.com; object-src 'none'; base-uri 'self'" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" id="theme-color-meta" content="#0d0e10" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -14,11 +19,11 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.2.8" />
+  <link rel="stylesheet" href="styles.css?v=1.2.9" />
   <link rel="preconnect" href="https://unpkg.com" />
-  <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
+  <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer crossorigin="anonymous" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -968,7 +973,7 @@
   <div id="notif-panel-list" class="notif-list"></div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=1.2.8"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"></script>
+<script src="app.js?v=1.2.9"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
    moment you're online. The cache is only an offline fallback. (A previous
    cache-first strategy could serve stale app.js even after a version bump.) */
 
-const CACHE = "sgbus-shell-v1.2.8";
+const CACHE = "sgbus-shell-v1.2.9";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -33,8 +33,13 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     fetch(e.request)
       .then((r) => {
-        const copy = r.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        // Only cache real, successful same-origin responses. Caching a 404/500
+        // page or an opaque redirect would later be served as the offline
+        // fallback, masking the real asset.
+        if (r.ok && r.type === "basic") {
+          const copy = r.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+        }
         return r;
       })
       .catch(() => caches.match(e.request))
