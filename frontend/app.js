@@ -28,7 +28,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.9";
+const APP_VERSION = "1.2.10";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
