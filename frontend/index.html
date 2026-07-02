@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.2.10" />
+  <link rel="stylesheet" href="styles.css?v=1.2.11" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" />
@@ -27,10 +27,6 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-
-<div id="offline-banner" class="offline-banner hidden">
-  ⚠️ Backend server is offline — arrivals and search unavailable.
-</div>
 
 <!-- Full-screen maintenance page — shown when the live-data backend can't be reached. -->
 <div id="maintenance-overlay" class="maintenance-overlay hidden" role="alertdialog" aria-modal="true" aria-labelledby="maintenance-title" aria-live="assertive">
@@ -645,7 +641,6 @@
       </form>
       <div id="notif-admin-list" class="notif-admin-list"></div>
     </div>
-      </div>
   </section>
 
   <!-- ════ SETTINGS VIEW ════ -->
@@ -755,7 +750,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">1.1.21</span>
+            <span class="stg-row-val" id="stg-version-val">1.2.11</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -980,6 +975,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"></script>
-<script src="app.js?v=1.2.10"></script>
+<script src="app.js?v=1.2.11"></script>
 </body>
 </html>

@@ -95,16 +95,6 @@ body {
 .hidden { display: none !important; }
 button { font-family: inherit; cursor: pointer; }
 
-/* ── Offline banner ───────────────────────────────────── */
-.offline-banner {
-  background: var(--warn-soft);
-  border-bottom: 1px solid rgba(180,83,9,.3);
-  color: var(--warn);
-  font-size: .78rem; font-weight: 500;
-  text-align: center;
-  padding: .5rem 1rem;
-}
-
 /* Topbar removed — replaced by Settings tab */
 
 .iconbtn {
@@ -123,12 +113,6 @@ button { font-family: inherit; cursor: pointer; }
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--good); border: 1.5px solid var(--surface);
 }
-
-/* Icon toggle — initTheme() always sets data-theme so @media fallback not needed */
-.icon-sun  { display: none; }
-.icon-moon { display: block; }
-[data-theme="dark"] .icon-sun  { display: block; }
-[data-theme="dark"] .icon-moon { display: none; }
 
 /* ── Layout ──────────────────────────────────────────── */
 .main {
@@ -657,7 +641,6 @@ th.num, td.num { text-align: right; }
 }
 .bigbtn:active { opacity: .82; }
 .bigbtn.outline { background: none; border: 1.5px solid var(--line); color: var(--ink-2); }
-.sheet-hint { font-size: .74rem; color: var(--ink-3); margin-top: .8rem; text-align: center; line-height: 1.55; }
 .profile-avatar {
   width: 48px; height: 48px; border-radius: 50%;
   background: var(--accent-soft); color: var(--accent);
@@ -1082,16 +1065,6 @@ th.num, td.num { text-align: right; }
 .jcard-save.saved svg { fill: currentColor; }
 .jcard-save:active { background: var(--surface-2); }
 
-/* ── Map tab view ──────────────────────────────────────── */
-.map-view-outer {
-  position: fixed;
-  top: var(--topbar-h, 60px);
-  left: 0; right: 0;
-  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
-  z-index: 5;
-  background: var(--bg);
-}
-#map-tab-container { width: 100%; height: 100%; }
 /* HTML marker for tappable bus stops — button inside divIcon for iOS compat */
 .stop-pin { background: none; border: none; overflow: visible; }
 .stop-pin-btn {
@@ -1135,25 +1108,6 @@ th.num, td.num { text-align: right; }
 }
 [data-theme="dark"] .leaflet-tile-pane {
   filter: invert(85%) hue-rotate(210deg) brightness(1.0) saturate(1.15);
-}
-/* Leaflet overrides inside map tab */
-#map-tab-container .leaflet-control-zoom { border: none !important; }
-#map-tab-container .leaflet-control-zoom a {
-  background: rgba(13,14,16,.88) !important;
-  color: #eceef2 !important;
-  border-color: rgba(255,255,255,.14) !important;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) #map-tab-container .leaflet-control-zoom a {
-    background: rgba(255,255,255,.9) !important;
-    color: #1a1b1e !important;
-    border-color: rgba(0,0,0,.12) !important;
-  }
-}
-[data-theme="light"] #map-tab-container .leaflet-control-zoom a {
-  background: rgba(255,255,255,.9) !important;
-  color: #1a1b1e !important;
-  border-color: rgba(0,0,0,.12) !important;
 }
 /* ── Per-card inline map ─────────────────────────────────── */
 .jcard-map-wrap {
@@ -1641,35 +1595,6 @@ th.num, td.num { text-align: right; }
 }
 .cp-cam-hd { display: flex; align-items: center; gap: .5rem; }
 .cp-cam-note { font-size: .68rem; font-weight: 400; letter-spacing: 0; text-transform: none; }
-.cp-cong-card {
-  background: var(--surface); border-radius: var(--radius);
-  box-shadow: var(--shadow-sm); padding: .85rem 1rem;
-  margin-bottom: .5rem;
-}
-.cp-cong-row {
-  display: flex; align-items: center; justify-content: space-between; gap: .5rem;
-}
-.cp-cong-label { font-size: .88rem; color: var(--ink-2); }
-.cp-cong-badge {
-  display: flex; align-items: center; gap: .35rem;
-  font-size: .88rem; font-weight: 700;
-}
-.cp-cong-dot {
-  width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
-}
-.cp-cong-dot.light    { background: var(--good); }
-.cp-cong-dot.moderate { background: var(--warn); }
-.cp-cong-dot.heavy    { background: var(--bad); }
-.cp-cong-speed {
-  font-size: .72rem; color: var(--ink-3); margin-top: .35rem;
-}
-.cp-cong-note {
-  font-size: .72rem; color: var(--ink-3); margin-top: .3rem;
-}
-.cp-cong-divider {
-  border: none; border-top: 1px solid var(--border); margin: .55rem 0;
-}
-.cp-cong-na { color: var(--ink-3); font-weight: 400; }
 .cp-cameras { display: flex; flex-direction: column; gap: .75rem; }
 .cp-camera-card {
   border-radius: 10px; overflow: hidden;

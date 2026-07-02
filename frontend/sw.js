@@ -4,7 +4,7 @@
    moment you're online. The cache is only an offline fallback. (A previous
    cache-first strategy could serve stale app.js even after a version bump.) */
 
-const CACHE = "sgbus-shell-v1.2.10";
+const CACHE = "sgbus-shell-v1.2.11";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -42,6 +42,15 @@ self.addEventListener("fetch", (e) => {
         }
         return r;
       })
-      .catch(() => caches.match(e.request))
+      .catch(() => {
+        // Offline fallback. Navigations must ignore the query string — deep
+        // links like /bus/?stop=83139 are cached under the bare URL, so an
+        // exact match would fail precisely when a shared link opens offline.
+        if (e.request.mode === "navigate") {
+          return caches.match(e.request, { ignoreSearch: true })
+            .then((r) => r || caches.match("./index.html", { ignoreSearch: true }));
+        }
+        return caches.match(e.request);
+      })
   );
 });

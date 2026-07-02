@@ -28,7 +28,7 @@ const USER_KEY   = "sgbus_user";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.10";
+const APP_VERSION = "1.2.11";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -57,6 +57,7 @@ const S = {
   chartsDirty: false,
   alerts: readJSON(ALERTS_KEY, {}),
   firedAlerts: new Set(),  // de-dupe alerts already fired this session
+  alertEtas: {},           // "stop|svc" → last known arrival ISO, for alerts
 };
 const charts = { service: null, ontime: null, hour: null, trend: null };
 
@@ -105,11 +106,14 @@ function showConfirm(msg, okLabel, onConfirm) {
 
 function parseUTC(iso) {
   if (!iso) return null;
-  return new Date(iso.endsWith("Z") ? iso : iso + "Z");
+  const d = new Date(iso.endsWith("Z") ? iso : iso + "Z");
+  // A malformed timestamp yields an Invalid Date, which would flow through
+  // secsUntil as NaN and render a literal "NaN min" to the user.
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 function secsUntil(dt) { return dt ? (dt - Date.now()) / 1000 : null; }
 function fmtMin(s) {
-  if (s === null) return "–";
+  if (s === null || Number.isNaN(s)) return "–";
   if (s < DUE_SECS) return "Arr";
   return String(Math.max(1, Math.floor(s / 60)));
 }
@@ -674,7 +678,12 @@ function _renderNotifPopup(fresh, maxId, promoteTs) {
   if (maxId) localStorage.setItem(NOTIF_POPUP_KEY, String(maxId));
   if (promoteTs) localStorage.setItem(NOTIF_PROMOTE_KEY, String(promoteTs));
   show(el);
-  requestAnimationFrame(() => el.classList.add("show"));
+  requestAnimationFrame(() => {
+    el.classList.add("show");
+    // Move focus into the dialog so keyboard/screen-reader users land on it
+    // (aria-modal alone doesn't move focus).
+    $("notif-popup-ok")?.focus();
+  });
 }
 
 function dismissNotifPopup() {
@@ -686,6 +695,21 @@ function dismissNotifPopup() {
 
 $("notif-popup-ok")?.addEventListener("click", dismissNotifPopup);
 $("notif-popup")?.querySelector(".notif-popup-backdrop")?.addEventListener("click", dismissNotifPopup);
+
+// Escape closes the topmost open overlay — none of the dialogs handled the
+// keyboard at all, leaving keyboard users stuck behind aria-modal surfaces.
+const _isOpen = (id) => { const el = $(id); return el && !el.classList.contains("hidden"); };
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (_isOpen("notif-popup"))        { dismissNotifPopup(); }
+  else if (_isOpen("a2hs-guide"))    { dismissInstallGuide(); }
+  else if (_isOpen("feedback-overlay")) { $("feedback-close")?.click(); }
+  else if (_isOpen("stop-picker-modal")) { closeStopPicker(); }
+  else if (_isOpen("route-sheet"))   { closeRouteSheet(); }
+  else if (_isOpen("account-sheet")) { closeSheet(); }
+  else return;
+  e.preventDefault();
+});
 
 $("notif-panel-mark-read")?.addEventListener("click", async () => {
   // Guests have no account to store read state on — mark read locally.
@@ -1011,10 +1035,13 @@ function _renderCpPanel(key, cp) {
       const cams = dirs[idx].ids.map((id) => camMap[id]).filter(Boolean);
       _renderCamGrid(body, cams, bust);
     }
-    camEl.addEventListener("click", (e) => {
+    // Property assignment (not addEventListener): this panel re-renders every
+    // 120 s, and stacked listeners would each rebuild the grid per tap with
+    // progressively stale cache-busters captured in their closures.
+    camEl.onclick = (e) => {
       const btn = e.target.closest(".cp-cam-dir-tab");
       if (btn) showDir(parseInt(btn.dataset.dir));
-    });
+    };
     showDir(0);
   } else if (cp.cameras && cp.cameras.length) {
     _renderCamGrid(camEl, cp.cameras, bust);
@@ -1244,8 +1271,10 @@ $("autocomplete").addEventListener("click", async (e) => {
   if (item.dataset.code) loadStop(item.dataset.code);
 });
 document.addEventListener("click", (e) => {
+  // .near-btn is a class (the locate/pick buttons beside the plan inputs) —
+  // "#near-btn" matched nothing, making the guard always pass.
   if (!$("autocomplete").contains(e.target) && e.target !== input
-      && !e.target.closest("#near-btn")) hideAc();
+      && !e.target.closest(".near-btn")) hideAc();
 });
 
 // (Stops-near-me lives on the arrivals map now — the map auto-geolocates and
@@ -1387,6 +1416,15 @@ function renderArrivals(data) {
   }
   hide($("no-services"));
   $("rows").innerHTML = data.services.map(svcCard).join("");
+  // Keep the alert watcher's ETA store fresh from every render, so armed
+  // alerts keep tracking even after the user navigates away from this stop.
+  if (S.stop && S.alerts[S.stop]) {
+    data.services.forEach((svc) => {
+      if (S.alerts[S.stop][svc.service_no] && svc.buses?.[0]?.api_arrival) {
+        S.alertEtas[`${S.stop}|${svc.service_no}`] = svc.buses[0].api_arrival;
+      }
+    });
+  }
   document.querySelectorAll(".svc").forEach((c) => {
     if (open.has(c.dataset.svc)) c.classList.add("open");
   });
@@ -1420,37 +1458,43 @@ function startTicker() {
   S.tickTmr = setInterval(() => {
     // Only churn the visible eta DOM when the arrivals view is actually on screen
     // and the tab is foregrounded — nothing else changes per second. Queries are
-    // scoped to #rows, not the whole document. Alerts are still checked every
-    // tick (cheap + self-guarded) so they fire regardless of the current view.
+    // scoped to #rows, not the whole document. (Arrival alerts run on their own
+    // standing interval below, decoupled from this view-bound ticker.)
     if (rows && !document.hidden && S.view === "arrivals") {
+      // Skip DOM writes when the text hasn't changed — fmtMin only moves at
+      // minute granularity, so most 1 s ticks would otherwise force layout
+      // work on every card for nothing.
       rows.querySelectorAll("[data-eta-iso]").forEach((node) => {
         const s = secsUntil(parseUTC(node.dataset.etaIso));
         const due = s !== null && s < DUE_SECS;
+        const html = `${fmtMin(s)}${due ? "" : `<span class="eta-unit">min</span>`}`;
         node.classList.toggle("due", due);
-        node.innerHTML = `${fmtMin(s)}${due ? "" : `<span class="eta-unit">min</span>`}`;
+        if (node._etaHtml !== html) { node._etaHtml = html; node.innerHTML = html; }
       });
       rows.querySelectorAll("[data-ai-iso]").forEach((node) => {
         if (!node.dataset.aiIso) return;
-        node.textContent = aiText(
+        const txt = aiText(
           secsUntil(parseUTC(node.dataset.aiIso)),
           Number(node.dataset.adj || 0));
+        if (node.textContent !== txt) node.textContent = txt;
       });
       rows.querySelectorAll("[data-next-isos]").forEach((node) => {
         const txt = node.dataset.nextIsos.split(",").filter(Boolean)
           .map((iso) => fmtMin(secsUntil(parseUTC(iso)))).join(" · ");
-        if (txt) node.textContent = `then ${txt} min`;
+        if (txt && node.textContent !== `then ${txt} min`) node.textContent = `then ${txt} min`;
       });
     }
-    _checkAlerts();
   }, 1000);
 }
 
 // ── Arrival alerts ────────────────────────────────────────
-// Per-service "ping me before it arrives" alerts. Fully client-side: while the
-// stop is open and refreshing, the 1 s ticker watches the next bus and fires a
-// system Notification (falling back to an in-app toast) once it's within the
-// threshold. One-shot — clears itself after firing so it won't nag on the
-// next bus. Persisted so reopening the same stop restores pending alerts.
+// Per-service "ping me before it arrives" alerts. Fully client-side: a
+// standing 1 s watcher checks last-known ETAs (refreshed by the open stop's
+// renders, or a 45 s background fetch once you navigate away) and fires a
+// system Notification (falling back to an in-app toast) once a bus is within
+// the threshold. One-shot — clears itself after firing so it won't nag on the
+// next bus. Persisted so reopening the app restores pending alerts. Foreground
+// only: the page must be open (background push needs a push server).
 function _alertActive(stop, svc) { return !!(stop && S.alerts[stop] && S.alerts[stop][svc]); }
 
 function toggleAlert(stop, svc) {
@@ -1467,6 +1511,11 @@ function toggleAlert(stop, svc) {
     S.alerts[stop] = S.alerts[stop] || {};
     S.alerts[stop][svc] = ALERT_THRESHOLD_SEC;
     S.firedAlerts.delete(`${stop}|${svc}`);
+    // Seed the watcher's ETA from the rendered card right away — arming
+    // happens after render, so waiting for the next refresh would leave the
+    // alert blind if the user backs out immediately.
+    const iso = document.querySelector(`#rows .svc[data-svc="${CSS.escape(svc)}"] .eta-now[data-eta-iso]`)?.dataset.etaIso;
+    if (iso) S.alertEtas[`${stop}|${svc}`] = iso;
     writeJSON(ALERTS_KEY, S.alerts);
     const denied = "Notification" in window && Notification.permission === "denied";
     toast(denied ? `Alert set for bus ${svc} (in-app only)` : `You'll be pinged before bus ${svc} arrives`);
@@ -1487,35 +1536,59 @@ function _syncAlertBtns() {
 }
 
 function _checkAlerts() {
-  if (!S.stop || !S.alerts[S.stop]) return;
-  document.querySelectorAll("#rows .svc[data-svc]").forEach((card) => {
-    const svc = card.dataset.svc;
-    if (!S.alerts[S.stop]?.[svc]) return;
-    const thr = S.alerts[S.stop][svc];
-    const iso = card.querySelector(".eta-now[data-eta-iso]")?.dataset.etaIso;
-    const secs = secsUntil(parseUTC(iso));
-    if (secs === null) return;
-    const key = `${S.stop}|${svc}`;
-    if (secs <= thr && secs > -45 && !S.firedAlerts.has(key)) {
-      S.firedAlerts.add(key);
-      _fireArrivalAlert(svc, secs);
-      delete S.alerts[S.stop][svc];
-      if (!Object.keys(S.alerts[S.stop]).length) delete S.alerts[S.stop];
-      writeJSON(ALERTS_KEY, S.alerts);
-      _syncAlertBtns();
+  // Works entirely off S.alertEtas (kept fresh by renderArrivals for the open
+  // stop and by _refreshAlertEtas for everything else) — NOT the rendered
+  // DOM. Tying this to #rows meant tapping Back silently disarmed alerts the
+  // user had just been promised.
+  for (const stop of Object.keys(S.alerts)) {
+    for (const svc of Object.keys(S.alerts[stop])) {
+      const thr = S.alerts[stop][svc];
+      const key = `${stop}|${svc}`;
+      const secs = secsUntil(parseUTC(S.alertEtas[key]));
+      if (secs === null) continue;
+      if (secs <= thr && secs > -45 && !S.firedAlerts.has(key)) {
+        S.firedAlerts.add(key);
+        _fireArrivalAlert(stop, svc, secs);
+        delete S.alerts[stop][svc];
+        if (!Object.keys(S.alerts[stop]).length) delete S.alerts[stop];
+        delete S.alertEtas[key];
+        writeJSON(ALERTS_KEY, S.alerts);
+        _syncAlertBtns();
+      }
     }
-  });
+  }
 }
 
-function _fireArrivalAlert(svc, secs) {
-  const stopName = S.stopInfo?.description || `stop ${S.stop}`;
+// Refresh ETAs for stops with armed alerts that are NOT currently open (the
+// open stop's 30 s refresh already feeds renderArrivals). Cheap: alerts are
+// one-shot and rarely armed for more than a stop or two.
+async function _refreshAlertEtas() {
+  for (const stop of Object.keys(S.alerts)) {
+    if (stop === S.stop) continue;
+    try {
+      const d = await api(`/api/arrivals/${stop}`);
+      (d.services || []).forEach((svc) => {
+        if (S.alerts[stop]?.[svc.service_no] && svc.buses?.[0]?.api_arrival) {
+          S.alertEtas[`${stop}|${svc.service_no}`] = svc.buses[0].api_arrival;
+        }
+      });
+    } catch { /* keep last known ETA; next round may succeed */ }
+  }
+}
+
+// Standing watcher, independent of the arrivals view/ticker lifecycle.
+setInterval(_checkAlerts, 1000);
+setInterval(() => { if (Object.keys(S.alerts).length) _refreshAlertEtas(); }, 45 * 1000);
+
+function _fireArrivalAlert(stop, svc, secs) {
+  const stopName = (stop === S.stop && S.stopInfo?.description) || `stop ${stop}`;
   const when = secs < DUE_SECS ? "now" : `in ~${Math.max(1, Math.round(secs / 60))} min`;
   const title = `Bus ${svc} arriving ${when}`;
   try { navigator.vibrate?.([200, 100, 200]); } catch {}
   if ("Notification" in window && Notification.permission === "granted") {
     try {
       const n = new Notification(title, {
-        body: stopName, tag: `sgbus-${S.stop}-${svc}`, icon: "icons/icon-192.png",
+        body: stopName, tag: `sgbus-${stop}-${svc}`, icon: "icons/icon-192.png",
       });
       n.onclick = () => { window.focus(); n.close(); };
       return;
@@ -1552,6 +1625,10 @@ async function loadStop(code) {
       api(`/api/stats/${code}`).catch(() => null),
       api(`/api/stops/${code}`).catch(() => null),
     ]);
+    // The user may have tapped another stop (or Back) while this request was
+    // in flight — rendering now would clobber the newer stop's UI and leak
+    // this stop's refresh interval into S.refreshTmr.
+    if (S.stop !== code) return;
     S.stopInfo = info;
     S.stats = stats;
     $("stop-name").textContent = info?.description || "Bus stop";
@@ -1567,6 +1644,7 @@ async function loadStop(code) {
     location.hash = code;
     S.refreshTmr = setInterval(() => refreshStop(code), REFRESH_MS);
   } catch (err) {
+    if (S.stop !== code) return;
     $("rows").innerHTML = "";
     $("stop-name").textContent = "Bus stop";
     const el = $("arrivals-error");
@@ -1579,8 +1657,13 @@ async function refreshStop(code) {
   $("rows").classList.add("refreshing");
   try {
     const arrivals = await api(`/api/arrivals/${code}`);
+    // Stale response guard: the user may have switched stops or tapped Back
+    // (which nulls S.stop) while this fetch was in flight — rendering would
+    // resurrect the dismissed stop's rows and restart its ticker.
+    if (S.stop !== code) return;
     renderArrivals(arrivals);
   } catch (err) {
+    if (S.stop !== code) return;
     const el = $("arrivals-error");
     el.textContent = `Refresh failed: ${err.message}`;
     show(el);
@@ -2758,6 +2841,12 @@ async function doJourneyPlan() {
   const err  = $("plan-error");
   const res  = $("plan-results");
   const load = $("plan-loading");
+  // Dispose per-card Leaflet maps before wiping the DOM — L.map registers a
+  // window resize listener, so discarded maps (tiles, layers, containers)
+  // stay reachable forever without an explicit remove().
+  res.querySelectorAll(".journey-card").forEach((card) => {
+    try { card._jmap?.remove(); } catch {}
+  });
   hide(err); res.innerHTML = ""; show(load);
   $("plan-btn").disabled = true;
 
@@ -2801,7 +2890,7 @@ async function doJourneyPlan() {
       updateShareUrl();
     }
     updateJourneyCardSaveBtns();
-    pushRecent();
+    pushRecentPlan();
   } catch (e) {
     const msg = e.message.includes("503")
       ? "Route data not loaded yet on the server — try again shortly."
@@ -2815,7 +2904,9 @@ async function doJourneyPlan() {
 // ── Recent searches ───────────────────────────────────────
 const RECENTS_KEY = "sgbus_recent_plans";
 
-function pushRecent() {
+// NOTE: distinct name from pushRecent(code, info) above — two top-level
+// declarations of the same name would silently shadow the stop-recents one.
+function pushRecentPlan() {
   const { fromName, fromLat, fromLng, fromCode, toName, toLat, toLng, toCode } = planState;
   if (!fromName || !toName) return;
   const list = readJSON(RECENTS_KEY, []).filter(
@@ -3165,7 +3256,6 @@ function setBackendStatus(ok) {
     const wasDown = _backendDown;
     _backendDown = false;
     hide(overlay);
-    hide($("offline-banner"));
     document.body.classList.remove("maintenance-open");
     if (_backendRetryTmr) { clearInterval(_backendRetryTmr); _backendRetryTmr = null; }
     // Recovered mid-session: re-pull account state and any open stop quietly.
@@ -3392,10 +3482,10 @@ async function _loadArrStops(lat, lng) {
       const marker = L.marker([s.latitude, s.longitude], {
         icon: _stopPinIcon(label, true), title: label,
       }).addTo(_arrMap);
-      marker._icon?.querySelector(".stop-pin-btn")?.addEventListener("click", (e) => {
-        e.stopPropagation();
-        loadStop(s.bus_stop_code);
-      });
+      // Bind on the marker, not the icon's inner DOM — setIcon() (highlight /
+      // clear-highlight) replaces the icon element, which would strip a DOM-
+      // level listener and leave every once-selected pin permanently dead.
+      marker.on("click", () => loadStop(s.bus_stop_code));
       _arrPinStore.set(s.bus_stop_code, { marker, label, stop: s });
     });
     _evictArrPins();
@@ -3501,14 +3591,6 @@ function _isDark() {
 function _sgTiles() {
   return L.tileLayer(
     "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-    { maxZoom: 19, subdomains: "abcd", detectRetina: true, keepBuffer: 3,
-      attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>' }
-  );
-}
-
-function _darkTiles() {
-  return L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
     { maxZoom: 19, subdomains: "abcd", detectRetina: true, keepBuffer: 3,
       attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>' }
   );
@@ -4063,29 +4145,33 @@ function _loadPickerStops(lat, lng) {
     _pickerLayers.forEach((m) => m.remove());
     _pickerLayers = [];
 
-    const stopIcon = L.divIcon({
-      className: "",
-      html: `<div style="width:12px;height:12px;border-radius:50%;background:var(--accent);border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)"></div>`,
-      iconSize: [12, 12], iconAnchor: [6, 6],
-    });
-    const stopIconSel = L.divIcon({
-      className: "",
-      html: `<div style="width:16px;height:16px;border-radius:50%;background:var(--accent);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.5)"></div>`,
-      iconSize: [16, 16], iconAnchor: [8, 8],
-    });
-
     d.results?.forEach((s) => {
       if (!s.latitude) return;
       const isSelected = _pickerStop?.bus_stop_code === s.bus_stop_code;
-      const m = L.marker([s.latitude, s.longitude], { icon: isSelected ? stopIconSel : stopIcon })
+      const m = L.marker([s.latitude, s.longitude], { icon: _pickerIcon(isSelected) })
         .on("click", () => _selectPickerStop(s))
         .addTo(_pickerMap);
+      m._stopCode = s.bus_stop_code;
       // Simple tooltip on hover for desktop
       m.bindTooltip(`<b>${esc(s.description)}</b><br><span style="font-size:.8em;color:#888">${s.bus_stop_code} · ${s.road_name || ""}</span>`,
         { direction: "top", offset: [0, -8], opacity: 1 });
       _pickerLayers.push(m);
     });
   }).catch(() => {});
+}
+
+function _pickerIcon(selected) {
+  return selected
+    ? L.divIcon({
+        className: "",
+        html: `<div style="width:16px;height:16px;border-radius:50%;background:var(--accent);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.5)"></div>`,
+        iconSize: [16, 16], iconAnchor: [8, 8],
+      })
+    : L.divIcon({
+        className: "",
+        html: `<div style="width:12px;height:12px;border-radius:50%;background:var(--accent);border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)"></div>`,
+        iconSize: [12, 12], iconAnchor: [6, 6],
+      });
 }
 
 function _selectPickerStop(stop) {
@@ -4095,11 +4181,10 @@ function _selectPickerStop(stop) {
     [stop.road_name, stop.bus_stop_code, stop.distance_m ? `${stop.distance_m} m away` : ""]
     .filter(Boolean).join(" · ");
   show($("stop-picker-selected"));
-  // Re-render markers so selected one uses bigger icon
-  if (_pickerMap) {
-    const c = _pickerMap.getCenter();
-    _loadPickerStops(c.lat, c.lng);
-  }
+  // Swap icons in place — a full _loadPickerStops here refired the nearby
+  // fetch and rebuilt all 40 markers just to restyle two of them, so the
+  // highlight lagged by a network round trip.
+  _pickerLayers.forEach((m) => m.setIcon(_pickerIcon(m._stopCode === stop.bus_stop_code)));
 }
 
 function _confirmPickerStop() {
@@ -4212,11 +4297,11 @@ maybeShowInstallGuide();
 // working without a connection. Cheap no-op when the cache is already fresh.
 (window.requestIdleCallback || ((fn) => setTimeout(fn, 2500)))(() => ensureStopsCache());
 
-// Boot: shared journey URL takes priority; map.html posts ?loadStop=CODE; stop hash last
+// Boot: shared journey URL takes priority; ?stop=/?loadStop= deep links next; stop hash last
 const bootStop = location.hash.replace("#", "").trim();
 const _bootParams = new URLSearchParams(location.search);
 const hasShareParams = _bootParams.get("fName");
-// ?stop= (shared stop link) and ?loadStop= (legacy from map.html) are aliases.
+// ?stop= (shared stop link) and ?loadStop= (legacy alias) both work.
 const stopParam = _bootParams.get("stop") || _bootParams.get("loadStop");
 if (hasShareParams) {
   bootFromUrl();
