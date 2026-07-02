@@ -6,7 +6,6 @@ load_dotenv()
 LTA_API_KEY: str = os.getenv("LTA_API_KEY", "")
 LTA_BASE_URL: str = "https://datamall2.mytransport.sg/ltaodataservice"
 LTA_ARRIVAL_ENDPOINT: str = f"{LTA_BASE_URL}/v3/BusArrival"
-LTA_STOPS_ENDPOINT: str = f"{LTA_BASE_URL}/BusStops"
 
 DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./bus_data.db")
 

@@ -444,7 +444,10 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) ->
         "created_at": user.created_at.isoformat(),
         "favourite_count": fav_count,
         "journey_count": journey_count,
-        "is_admin": user.username.lower() == "admin",
+        # Must mirror require_admin (the is_admin column), not the username
+        # string — a second admin provisioned via the flag would otherwise be
+        # authorized server-side but never shown the admin UI.
+        "is_admin": bool(getattr(user, "is_admin", False)),
         "email": user.email,
         "auth_provider": user.auth_provider or "password",
     }
@@ -608,13 +611,20 @@ def sync_favourites(
     }
     for fav in body.favourites:
         code = str(fav.get("code", "")).strip()
-        if not code or code in existing_codes or len(existing_codes) >= MAX_FAVOURITES:
+        # Same validation as add_favourite — without it, garbage codes from a
+        # hand-crafted request would become active MonitoredStops the collector
+        # polls against the LTA API forever (nothing cleans them up).
+        if not code or not _STOP_CODE_RE.match(code):
             continue
+        if code in existing_codes or len(existing_codes) >= MAX_FAVOURITES:
+            continue
+        desc = fav.get("description")
+        road = fav.get("road_name")
         db.add(UserFavourite(
             user_id=user.id,
             bus_stop_code=code,
-            description=fav.get("description"),
-            road_name=fav.get("road_name"),
+            description=str(desc)[:120] if desc else None,
+            road_name=str(road)[:120] if road else None,
         ))
         _ensure_monitored(db, code)
         existing_codes.add(code)

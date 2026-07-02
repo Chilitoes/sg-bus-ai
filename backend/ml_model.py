@@ -207,9 +207,17 @@ class BusDelayModel:
     def load(self) -> bool:
         if not os.path.exists(self.model_path):
             return False
-        data = joblib.load(self.model_path)
-        self._pipeline    = data["pipeline"]
-        self.last_trained = data["last_trained"]
+        try:
+            data = joblib.load(self.model_path)
+            self._pipeline    = data["pipeline"]
+            self.last_trained = data["last_trained"]
+        except Exception as exc:
+            # A truncated/incompatible file (disk-full during save, sklearn
+            # version bump) must not crash-loop the service at startup —
+            # fall through to retraining from scratch instead.
+            logger.error("Saved model unreadable (%s) — will retrain: %s",
+                         self.model_path, exc)
+            return False
         self.training_rows = data.get("training_rows", 0)
         self.mae          = data.get("mae")
         logger.info("Model loaded  rows=%d  MAE=%.1fs", self.training_rows, self.mae or 0)
@@ -256,7 +264,10 @@ class BusDelayModel:
         X_train, X_val, y_train, y_val, w_train, _w_val = train_test_split(
             X, y, weights, test_size=0.15, random_state=42)
 
-        self._pipeline = Pipeline([
+        # Fit into a local, then publish. predict() runs concurrently from
+        # other threads; assigning the shared attribute before fit() finishes
+        # would expose an unfitted pipeline (NotFittedError) mid-retrain.
+        pipeline = Pipeline([
             ("scaler", StandardScaler()),
             ("gbr", GradientBoostingRegressor(
                 n_estimators=200,
@@ -266,7 +277,8 @@ class BusDelayModel:
                 random_state=42,
             )),
         ])
-        self._pipeline.fit(X_train, y_train, gbr__sample_weight=w_train)
+        pipeline.fit(X_train, y_train, gbr__sample_weight=w_train)
+        self._pipeline = pipeline
 
         y_pred = self._pipeline.predict(X_val)
         self.mae = float(mean_absolute_error(y_val, y_pred))

@@ -58,7 +58,7 @@ def _check_service_no(svc: str) -> str:
     return svc
 from sqlalchemy.orm import Session
 
-from auth_routes import get_current_user, get_optional_user, require_admin
+from auth_routes import _client_ip, get_current_user, get_optional_user, require_admin
 from config import LTA_API_KEY, LTA_ARRIVAL_ENDPOINT, LTA_BASE_URL, DATABASE_URL
 from data_collector import persist_arrival_payload
 from database import BusArrivalRecord, BusRoute, BusStop, BusTracking, DailyActivity, Feedback, MonitoredStop, SavedJourney, SessionLocal, SystemNotification, User, UserFavourite, UserSession, get_db
@@ -179,6 +179,11 @@ def _lta_rate_guard(now: float) -> None:
     _lta_call_times.append(now)
 
 
+# Shared client so cache-miss arrival fetches reuse pooled connections
+# instead of paying a fresh TCP+TLS handshake to LTA on every call.
+_lta_client = httpx.AsyncClient(timeout=10)
+
+
 async def _call_lta(stop_code: str) -> tuple[dict, bool]:
     """Fetch a stop's raw LTA payload. Returns (payload, is_fresh); is_fresh is
     False when served from the short-lived cache (caller skips re-persisting)."""
@@ -190,23 +195,22 @@ async def _call_lta(stop_code: str) -> tuple[dict, bool]:
     _lta_rate_guard(now)  # only reached on a cache miss → real upstream call
     headers = {"AccountKey": LTA_API_KEY}
     params  = {"BusStopCode": stop_code}
-    async with httpx.AsyncClient(timeout=10) as client:
-        try:
-            resp = await client.get(LTA_ARRIVAL_ENDPOINT, headers=headers, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-        except httpx.HTTPStatusError as exc:
-            # 401 means our own LTA key is bad — surface that to the admin clearly,
-            # but never echo the raw upstream error (it leaks the endpoint URL and
-            # request internals) to ordinary clients.
-            if exc.response.status_code == 401:
-                logger.error("LTA API rejected our key (401).")
-                raise HTTPException(status_code=502, detail="Upstream bus data is temporarily unavailable.")
-            logger.warning("LTA API error: %s", exc)
+    try:
+        resp = await _lta_client.get(LTA_ARRIVAL_ENDPOINT, headers=headers, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+    except httpx.HTTPStatusError as exc:
+        # 401 means our own LTA key is bad — surface that to the admin clearly,
+        # but never echo the raw upstream error (it leaks the endpoint URL and
+        # request internals) to ordinary clients.
+        if exc.response.status_code == 401:
+            logger.error("LTA API rejected our key (401).")
             raise HTTPException(status_code=502, detail="Upstream bus data is temporarily unavailable.")
-        except Exception as exc:
-            logger.warning("Could not reach LTA API: %s: %s", type(exc).__name__, exc)
-            raise HTTPException(status_code=502, detail="Upstream bus data is temporarily unavailable.")
+        logger.warning("LTA API error: %s", exc)
+        raise HTTPException(status_code=502, detail="Upstream bus data is temporarily unavailable.")
+    except Exception as exc:
+        logger.warning("Could not reach LTA API: %s: %s", type(exc).__name__, exc)
+        raise HTTPException(status_code=502, detail="Upstream bus data is temporarily unavailable.")
 
     _LTA_CACHE[stop_code] = (now, data)
     # Light prune so the cache can't grow unbounded across many distinct stops.
@@ -533,15 +537,19 @@ def get_stats(stop_code: str = Path(..., max_length=10), db: Session = Depends(g
     by_hour_full = [by_hour.get(str(h)) for h in range(24)]
 
     # ── Trend (daily average over last 14 days) ──────────────────────────────
+    # Bucket by SGT calendar date (timestamps are stored naive-UTC; SQLite's
+    # date() modifier shifts them) — otherwise records from 00:00–07:59 SGT
+    # land on the previous day's bar, unlike every other SGT-based chart.
+    sgt_date = func.date(BusArrivalRecord.collection_time, "+8 hours")
     trend_q = (
         base_q
         .filter(BusArrivalRecord.collection_time >= datetime.utcnow() - timedelta(days=14))
         .with_entities(
-            func.date(BusArrivalRecord.collection_time).label("day"),
+            sgt_date.label("day"),
             func.avg(BusArrivalRecord.delay_seconds).label("avg_delay"),
         )
-        .group_by(func.date(BusArrivalRecord.collection_time))
-        .order_by(func.date(BusArrivalRecord.collection_time))
+        .group_by(sgt_date)
+        .order_by(sgt_date)
         .all()
     )
     trend = [{"date": str(r.day), "avg_delay_sec": round(r.avg_delay, 1)} for r in trend_q]
@@ -570,7 +578,9 @@ def model_status(admin: User = Depends(require_admin)) -> dict:
 async def retrain_model(admin: User = Depends(require_admin)) -> dict:
     """Trigger an immediate model retrain from DB data. Admin only."""
     try:
-        global_model.retrain_from_db()
+        # Seconds of CPU — run in a worker thread so this async endpoint
+        # doesn't freeze every other request on the event loop.
+        await asyncio.to_thread(global_model.retrain_from_db)
         return {"status": "ok", **global_model.status()}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -732,6 +742,12 @@ async def _sync_stops_impl() -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         db = get_db().__next__()  # raw session for bulk upsert
         try:
+            # Preload existing rows once. A per-row SELECT here is ~5,000
+            # queries every startup (this runs in lifespan) — the dict lookup
+            # cuts the sync from thousands of round-trips to one.
+            by_code: dict[str, BusStop] = {
+                b.bus_stop_code: b for b in db.query(BusStop).all()
+            }
             while True:
                 resp = await client.get(url, headers=headers, params={"$skip": skip})
                 resp.raise_for_status()
@@ -742,7 +758,7 @@ async def _sync_stops_impl() -> dict:
                     code = s.get("BusStopCode", "")
                     if not code:
                         continue
-                    existing = db.query(BusStop).filter_by(bus_stop_code=code).first()
+                    existing = by_code.get(code)
                     if existing:
                         existing.description = s.get("Description")
                         existing.road_name   = s.get("RoadName")
@@ -750,13 +766,15 @@ async def _sync_stops_impl() -> dict:
                         existing.longitude   = s.get("Longitude")
                         existing.synced_at   = datetime.utcnow()
                     else:
-                        db.add(BusStop(
+                        row = BusStop(
                             bus_stop_code = code,
                             description   = s.get("Description"),
                             road_name     = s.get("RoadName"),
                             latitude      = s.get("Latitude"),
                             longitude     = s.get("Longitude"),
-                        ))
+                        )
+                        db.add(row)
+                        by_code[code] = row
                     total += 1
                 db.commit()
                 skip += 500
@@ -926,6 +944,12 @@ async def sync_routes(admin: User = Depends(require_admin)) -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         db_raw = get_db().__next__()
         try:
+            # Preload existing rows once — the route graph is ~26,000 rows, so
+            # a per-row SELECT made this endpoint take minutes.
+            by_key: dict[tuple, BusRoute] = {
+                (b.service_no, b.direction, b.stop_sequence): b
+                for b in db_raw.query(BusRoute).all()
+            }
             while True:
                 resp = await client.get(url, headers=headers, params={"$skip": skip})
                 resp.raise_for_status()
@@ -939,19 +963,19 @@ async def sync_routes(admin: User = Depends(require_admin)) -> dict:
                     code = r.get("BusStopCode", "")
                     if not svc or not code:
                         continue
-                    existing = db_raw.query(BusRoute).filter_by(
-                        service_no=svc, direction=direction, stop_sequence=seq,
-                    ).first()
+                    existing = by_key.get((svc, direction, seq))
                     if existing:
                         existing.bus_stop_code = code
                         existing.distance_km = r.get("Distance")
                         existing.synced_at = datetime.utcnow()
                     else:
-                        db_raw.add(BusRoute(
+                        row = BusRoute(
                             service_no=svc, direction=direction,
                             stop_sequence=seq, bus_stop_code=code,
                             distance_km=r.get("Distance"),
-                        ))
+                        )
+                        db_raw.add(row)
+                        by_key[(svc, direction, seq)] = row
                     total += 1
                 db_raw.commit()
                 skip += 500
@@ -1048,8 +1072,10 @@ async def plan_journey(
 
     now, sgt, is_future, planned_for = _resolve_plan_time(depart_at)
 
-    # Fetch live arrivals for all unique boarding stops (concurrent)
-    unique_boards = {leg["from_stop"] for opt in raw_options[:3] for leg in opt["legs"]}
+    # Fetch live arrivals for all unique boarding stops (concurrent). Must
+    # cover the same slice that gets built below (raw_options[:5]) — a
+    # narrower slice here silently leaves options 4–5 with no live data.
+    unique_boards = {leg["from_stop"] for opt in raw_options[:5] for leg in opt["legs"]}
 
     async def _fetch(code: str) -> tuple[str, dict | None]:
         try:
@@ -1385,7 +1411,9 @@ async def plan_multimodal(
     # Insertion-ordered dedup (dict keys) so best-first plans keep priority when
     # the fan-out is capped below.
     unique_boards: dict[str, None] = {}
-    for raw, *_ in raw_bus_plans[:3]:
+    # Same slice as the option-build loop below (raw_bus_plans[:4]) so every
+    # returned option has live arrivals available.
+    for raw, *_ in raw_bus_plans[:4]:
         for leg in raw["legs"]:
             unique_boards[leg["from_stop"]] = None
     if mrt_feeder:
@@ -1965,31 +1993,42 @@ async def checkpoint_traffic() -> dict:
             client.get("https://api.data.gov.sg/v1/transport/carpark-availability"),
             return_exceptions=True,
         )
+    # Each provider parse is guarded independently: gather's return_exceptions
+    # only covers transport errors — a 200 with an HTML/garbage body (JSON
+    # decode error), an empty carpark_info list, or string lot counts ("")
+    # would otherwise 500 the whole endpoint (and, uncached, keep 500ing).
     if not isinstance(img_r, Exception) and img_r.status_code == 200:
-        items = img_r.json().get("items", [])
-        if items:
-            for cam in items[0].get("cameras", []):
-                loc = cam.get("location", {})
-                cameras_raw.append({
-                    "CameraID":  cam.get("camera_id", ""),
-                    "ImageLink": cam.get("image", ""),
-                    "Latitude":  loc.get("latitude", 0),
-                    "Longitude": loc.get("longitude", 0),
-                })
+        try:
+            items = img_r.json().get("items", [])
+            if items:
+                for cam in items[0].get("cameras", []):
+                    loc = cam.get("location", {})
+                    cameras_raw.append({
+                        "CameraID":  cam.get("camera_id", ""),
+                        "ImageLink": cam.get("image", ""),
+                        "Latitude":  loc.get("latitude", 0),
+                        "Longitude": loc.get("longitude", 0),
+                    })
+        except Exception as exc:
+            logger.warning("traffic-images payload unparseable: %s", exc)
     if not isinstance(cp_r, Exception) and cp_r.status_code == 200:
-        items = cp_r.json().get("items", [])
-        if items:
-            for cp_entry in items[0].get("carpark_data", []):
-                if cp_entry.get("carpark_number") == "W11M":
-                    info = cp_entry.get("carpark_info", [{}])[0]
-                    carpark_data = {
-                        "id":         "W11M",
-                        "name":       "Blk 29A Marsiling Dr MSCP",
-                        "available":  int(info.get("lots_available", 0)),
-                        "total":      int(info.get("total_lots", 0)),
-                        "updated_at": cp_entry.get("update_datetime", ""),
-                    }
-                    break
+        try:
+            items = cp_r.json().get("items", [])
+            if items:
+                for cp_entry in items[0].get("carpark_data", []):
+                    if cp_entry.get("carpark_number") == "W11M":
+                        infos = cp_entry.get("carpark_info") or [{}]
+                        info = infos[0]
+                        carpark_data = {
+                            "id":         "W11M",
+                            "name":       "Blk 29A Marsiling Dr MSCP",
+                            "available":  int(info.get("lots_available") or 0),
+                            "total":      int(info.get("total_lots") or 0),
+                            "updated_at": cp_entry.get("update_datetime", ""),
+                        }
+                        break
+        except Exception as exc:
+            logger.warning("carpark-availability payload unparseable: %s", exc)
 
     out: dict = {"carpark": carpark_data}
 
@@ -2034,8 +2073,11 @@ def submit_feedback(
     if not rating and not message:
         raise HTTPException(status_code=422, detail="Provide at least a rating or a message.")
 
-    # Rate-limit anonymous submissions: 5 per hour per IP.
-    ip = request.client.host if request.client else "unknown"
+    # Rate-limit anonymous submissions: 5 per hour per IP. Must use the
+    # XFF-aware helper: behind the local reverse proxy the raw socket peer is
+    # 127.0.0.1 for every visitor, which would make this one shared bucket
+    # for the whole site (and store a useless IP on the feedback row).
+    ip = _client_ip(request)
     now_ts = _time.time()
     _fb_attempts[ip] = [t for t in _fb_attempts[ip] if now_ts - t < _FB_WINDOW_SEC]
     if len(_fb_attempts[ip]) >= _FB_LIMIT:
@@ -2049,7 +2091,6 @@ def submit_feedback(
     # Resolve username from token if present (best-effort, never blocks submission)
     username: str | None = None
     if authorization and authorization.startswith("Bearer "):
-        from database import UserSession
         token = authorization.removeprefix("Bearer ").strip()
         session = db.query(UserSession).filter_by(token=token).first()
         if session:
@@ -2374,7 +2415,7 @@ def get_analytics(
             "last_seen":     last_seen[u.id].isoformat() if last_seen.get(u.id) else None,
             "favourites":    int(fav_counts.get(u.id, 0)),
             "journeys":      int(journey_counts.get(u.id, 0)),
-            "is_admin":      u.username.lower() == "admin",
+            "is_admin":      bool(getattr(u, "is_admin", False)),
         }
         for u in user_rows
     ]

@@ -220,7 +220,10 @@ def persist_arrival_payload(
     track=False is used for rotation-scan stops, which are sampled too
     sparsely for the disappearance method to produce valid labels.
     """
-    if not services:
+    # An empty payload still matters when tracking: it means every previously
+    # sighted bus is gone (e.g. service ended for the night), which is exactly
+    # when their tracking rows should close and produce labels.
+    if not services and not track:
         return 0
 
     sgt = now + timedelta(hours=8)
@@ -263,8 +266,22 @@ def persist_arrival_payload(
                     active_keys_by_service[service_no].add(_round_dt(estimated))
 
         if track:
-            for service_no, active_keys in active_keys_by_service.items():
-                _close_stale_tracking(db, stop_code, service_no, active_keys, now)
+            # Close open rows for EVERY service with tracking at this stop,
+            # not just services present in this payload. A service that
+            # vanished from the response entirely (last bus of the night) is
+            # precisely the case where ground truth should be written — only
+            # iterating payload services would leave those rows open until
+            # the labelling window expired.
+            open_services = {
+                s for (s,) in db.query(BusTracking.bus_service)
+                .filter_by(bus_stop_code=stop_code, is_closed=False)
+                .distinct()
+            }
+            for service_no in open_services:
+                _close_stale_tracking(
+                    db, stop_code, service_no,
+                    active_keys_by_service.get(service_no, set()), now,
+                )
 
         db.commit()
     except Exception as exc:
@@ -332,9 +349,17 @@ def _prune_old_data() -> None:
             .filter(BusTracking.is_closed.is_(True), BusTracking.first_seen < cutoff_tracking)
             .delete(synchronize_session=False)
         )
+        # Open rows that never closed (one-off passive queries, discontinued
+        # services, deactivated stops) would otherwise accumulate forever.
+        n3 = (
+            db.query(BusTracking)
+            .filter(BusTracking.is_closed.is_(False), BusTracking.last_seen < cutoff_tracking)
+            .delete(synchronize_session=False)
+        )
         db.commit()
-        if n1 or n2:
-            logger.info("Pruned %d unlabeled records, %d old tracking rows", n1, n2)
+        if n1 or n2 or n3:
+            logger.info("Pruned %d unlabeled records, %d closed + %d stale-open tracking rows",
+                        n1, n2, n3)
     except Exception as exc:
         logger.error("Prune failed: %s", exc)
         db.rollback()
@@ -368,28 +393,35 @@ async def start_data_collection() -> None:
                 await asyncio.sleep(interval_sec)
                 continue
 
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            db = SessionLocal()
+            # One bad cycle (e.g. "database is locked" outlasting the busy
+            # timeout while a retrain or big admin query holds the lock) must
+            # never kill this task for good — it would silently stop all data
+            # collection until the service is manually restarted.
             try:
-                monitored = [
-                    s.bus_stop_code
-                    for s in db.query(MonitoredStop).filter_by(is_active=True).all()
-                ]
-                rotation = _rotation_batch(db, exclude=set(monitored))
-            finally:
-                db.close()
+                now = datetime.now(timezone.utc).replace(tzinfo=None)
+                db = SessionLocal()
+                try:
+                    monitored = [
+                        s.bus_stop_code
+                        for s in db.query(MonitoredStop).filter_by(is_active=True).all()
+                    ]
+                    rotation = _rotation_batch(db, exclude=set(monitored))
+                finally:
+                    db.close()
 
-            tasks = (
-                [collect_stop(client, code, now, track=True) for code in monitored]
-                + [collect_stop(client, code, now, track=False) for code in rotation]
-            )
-            if tasks:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                total   = sum(r for r in results if isinstance(r, int))
-                logger.info(
-                    "Collected %d records  (%d monitored + %d rotation stops)",
-                    total, len(monitored), len(rotation),
+                tasks = (
+                    [collect_stop(client, code, now, track=True) for code in monitored]
+                    + [collect_stop(client, code, now, track=False) for code in rotation]
                 )
+                if tasks:
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    total   = sum(r for r in results if isinstance(r, int))
+                    logger.info(
+                        "Collected %d records  (%d monitored + %d rotation stops)",
+                        total, len(monitored), len(rotation),
+                    )
+            except Exception:
+                logger.exception("Collection cycle failed; retrying next interval")
 
             # Periodic model retraining
             elapsed = time.monotonic() - last_retrain
@@ -397,7 +429,9 @@ async def start_data_collection() -> None:
                 last_retrain = time.monotonic()  # always advance so failures don't cause infinite retries
                 logger.info("Triggering scheduled model retrain")
                 try:
-                    global_model.retrain_from_db()
+                    # Training fits a 200-estimator GBR on ~35k rows — seconds of
+                    # CPU. Off the event loop so API requests don't stall.
+                    await asyncio.to_thread(global_model.retrain_from_db)
                 except Exception as exc:
                     logger.exception("Model retrain failed: %s", exc)
 
