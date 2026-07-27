@@ -182,6 +182,10 @@ class User(Base):
     email         = Column(String(255), index=True, nullable=True)
     google_sub    = Column(String(64), unique=True, index=True, nullable=True)
     auth_provider = Column(String(20), default="password", nullable=True)
+    # Human name exactly as the provider gives it ("Jayden Ng"). `username` is
+    # the login handle, restricted to [A-Za-z0-9_], so it can't keep the space —
+    # this is what the UI greets people by.
+    display_name  = Column(String(120), nullable=True)
 
     # Notifications: all system notifications created after this timestamp are
     # "unread" for this user. NULL means never checked → all are unread.
@@ -321,6 +325,7 @@ def _migrate_user_columns() -> None:
         "email": "VARCHAR(255)",
         "google_sub": "VARCHAR(64)",
         "auth_provider": "VARCHAR(20) DEFAULT 'password'",
+        "display_name": "VARCHAR(120)",
     }
     with engine.begin() as conn:
         for name, ddl in additions.items():

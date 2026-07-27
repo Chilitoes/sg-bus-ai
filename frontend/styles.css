@@ -546,14 +546,6 @@ th.num, td.num { text-align: right; }
 .nav-item.active { color: var(--accent); background: var(--accent-soft); }
 .nav-item.active::before { background: var(--accent); }
 .nav-item:active { background: var(--surface-2); }
-.nav-badge {
-  position: absolute; top: 2px; right: calc(50% - 18px);
-  background: var(--accent); color: #fff;
-  font-size: .58rem; font-weight: 700;
-  min-width: 15px; height: 15px; border-radius: 8px;
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 0 .25rem;
-}
 
 /* ── Sheet (account) ─────────────────────────────────── */
 .sheet-backdrop {

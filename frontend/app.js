@@ -22,13 +22,14 @@ const ALERT_THRESHOLD_SEC = 150;
 const THEME_KEY  = "sgbus_theme";
 const TOKEN_KEY  = "sgbus_token";
 const USER_KEY   = "sgbus_user";
+const DISPLAY_KEY = "sgbus_display_name";
 // Version scheme — MAJOR.MINOR.PATCH (semver-style):
 //   MAJOR  → big monthly overhauls / redesigns
 //   MINOR  → new features
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.11";
+const APP_VERSION = "1.2.12";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -50,6 +51,7 @@ const S = {
   recent: readJSON(RECENT_KEY, []),
   token: localStorage.getItem(TOKEN_KEY) || null,
   username: localStorage.getItem(USER_KEY) || null,
+  displayName: localStorage.getItem(DISPLAY_KEY) || null,
   authMode: "login",
   refreshTmr: null,
   tickTmr: null,
@@ -235,16 +237,24 @@ function initTheme() {
 // theme-btn is now the "Light" seg button in Settings; toggling handled there
 
 // ── Auth ──────────────────────────────────────────────────
-function setAuth(token, username) {
+// `username` is the login handle ([A-Za-z0-9_] only, so "Jayden Ng" becomes
+// "JaydenNg"); `displayName` is the real name from the provider, which is what
+// we greet people by. Falls back to the handle for password accounts.
+function setAuth(token, username, displayName) {
   S.token = token; S.username = username;
+  S.displayName = displayName || null;
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, username);
+  if (displayName) localStorage.setItem(DISPLAY_KEY, displayName);
+  else localStorage.removeItem(DISPLAY_KEY);
   syncAccountUI();
 }
+function displayName() { return S.displayName || S.username || ""; }
 function clearAuth() {
-  S.token = null; S.username = null;
+  S.token = null; S.username = null; S.displayName = null;
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(DISPLAY_KEY);
   S.favs = [];
   S.savedJourneys = [];
   syncAccountUI();
@@ -260,11 +270,12 @@ function syncAccountUI() {
   $("auth-forms").classList.toggle("hidden", loggedIn);
   $("auth-profile").classList.toggle("hidden", !loggedIn);
   if (loggedIn) {
-    $("profile-name").textContent = S.username;
-    $("profile-avatar").textContent = (S.username || "?")[0];
+    const name = displayName();
+    $("profile-name").textContent = name;
+    $("profile-avatar").textContent = (name || "?")[0].toUpperCase();
   }
   $("saved-sync-note").textContent = loggedIn
-    ? `Synced to ${S.username}'s account · monitored 24/7 for sharper predictions`
+    ? `Synced to ${displayName()}'s account · monitored 24/7 for sharper predictions`
     : "";
   $("nav-data-btn")?.classList.toggle("hidden", !admin);
   if (S.view === "data" && !admin) switchView("arrivals");
@@ -274,7 +285,7 @@ function syncAccountUI() {
 function _updateSettingsUI() {
   const loggedIn = !!S.token;
   const lbl = $("stg-account-label");
-  if (lbl) lbl.textContent = loggedIn ? S.username : "Sign in";
+  if (lbl) lbl.textContent = loggedIn ? displayName() : "Sign in";
   const cur = document.documentElement.getAttribute("data-theme") || "dark";
   document.querySelectorAll(".theme-seg-btn").forEach((b) =>
     b.classList.toggle("active", b.dataset.themeOpt === cur));
@@ -401,6 +412,13 @@ function openSheet() {
   if (!S.token) { ensureGoogleSignIn(); return; }
   api("/api/auth/me")
     .then((me) => {
+      // Backfills the display name for sessions that predate it (or if the
+      // Google profile was renamed since login).
+      if (me.display_name && me.display_name !== S.displayName) {
+        S.displayName = me.display_name;
+        localStorage.setItem(DISPLAY_KEY, me.display_name);
+        syncAccountUI();
+      }
       const since = new Date(me.created_at + "Z").toLocaleDateString("en-SG",
         { day: "numeric", month: "short", year: "numeric" });
       const via = me.auth_provider === "google" ? " · Google account" : "";
@@ -442,7 +460,7 @@ $("seg-register").addEventListener("click", () => setAuthMode("register"));
 // Shared post-login flow: store the token, pull the account's favourites /
 // journeys (server is source of truth), refresh the UI and close the sheet.
 async function completeLogin(res, welcomeMsg) {
-  setAuth(res.token, res.username);
+  setAuth(res.token, res.username, res.display_name);
   try {
     const [mine, journeys] = await Promise.all([
       api("/api/favourites"),
@@ -470,7 +488,7 @@ $("auth-form").addEventListener("submit", async (e) => {
       method: "POST",
       body: JSON.stringify({ username, password }),
     });
-    await completeLogin(res, S.authMode === "login" ? `Welcome back, ${res.username}` : "Account created");
+    await completeLogin(res, S.authMode === "login" ? `Welcome back, ${res.display_name || res.username}` : "Account created");
     $("auth-password").value = "";
   } catch (err) {
     const el = $("auth-error");
@@ -524,7 +542,7 @@ async function onGoogleCredential(response) {
       method: "POST",
       body: JSON.stringify({ credential: response.credential }),
     });
-    await completeLogin(res, `Welcome, ${res.username}`);
+    await completeLogin(res, `Welcome, ${res.display_name || res.username}`);
   } catch (err) {
     console.error("Google sign-in failed:", err);
     const msg = err.message.startsWith("HTTP") || err.message.includes("fetch")
@@ -761,10 +779,8 @@ function removeFav(code) {
 }
 
 function afterFavsChanged() {
-  const n = S.favs.length + S.savedJourneys.length;
-  const badge = $("nav-saved-count");
-  badge.textContent = n;
-  badge.classList.toggle("hidden", n === 0);
+  // No count badge on the Saved tab: a red numeric pill on a nav item reads as
+  // "unread notifications", not "saved stops".
   renderChips();
   syncSaveBtn();
   if (S.view === "saved") renderSaved();
@@ -2567,10 +2583,6 @@ async function removeJourney(id) {
 }
 
 function afterJourneysChanged() {
-  const n = S.favs.length + S.savedJourneys.length;
-  const badge = $("nav-saved-count");
-  badge.textContent = n;
-  badge.classList.toggle("hidden", n === 0);
   updateJourneyCardSaveBtns();
   if (S.view === "saved") renderSaved();
 }

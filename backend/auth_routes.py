@@ -374,6 +374,11 @@ def google_auth(body: GoogleAuthIn, request: Request, db: Session = Depends(get_
         if user is not None:
             user.google_sub = sub
 
+    # Google's display name kept verbatim ("Jayden Ng"). _unique_username
+    # strips it to [A-Za-z0-9_] for the login handle, which is why the real
+    # name has to be stored separately rather than derived from the handle.
+    full_name = (info.get("name") or "").strip()[:120] or None
+
     # 3) Brand-new account
     if user is None:
         user = User(
@@ -382,15 +387,24 @@ def google_auth(body: GoogleAuthIn, request: Request, db: Session = Depends(get_
             email=email or None,
             google_sub=sub,
             auth_provider="google",
+            display_name=full_name,
         )
         db.add(user)
     else:
         if email and not user.email:
             user.email = email
+        # Backfills accounts created before display_name existed, and picks up
+        # a rename in the Google profile.
+        if full_name and user.display_name != full_name:
+            user.display_name = full_name
 
     db.commit()
     db.refresh(user)
-    return {"token": _issue_token(db, user.id), "username": user.username}
+    return {
+        "token": _issue_token(db, user.id),
+        "username": user.username,
+        "display_name": user.display_name,
+    }
 
 
 @router.post("/auth/logout")
@@ -448,6 +462,7 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) ->
         # string — a second admin provisioned via the flag would otherwise be
         # authorized server-side but never shown the admin UI.
         "is_admin": bool(getattr(user, "is_admin", False)),
+        "display_name": user.display_name,
         "email": user.email,
         "auth_provider": user.auth_provider or "password",
     }
