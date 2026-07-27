@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.12";
+const APP_VERSION = "1.2.13";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -431,7 +431,10 @@ function openSheet() {
     .catch(() => {});
   loadNotifications();
 }
-function closeSheet() { hide($("sheet-backdrop")); hide($("account-sheet")); }
+function closeSheet() {
+  hide($("sheet-backdrop")); hide($("account-sheet"));
+  hide($("name-edit-form"));   // don't leave the name editor open for next time
+}
 
 $("account-btn").addEventListener("click", openSheet);   // hidden stub
 $("sheet-backdrop").addEventListener("click", closeSheet);
@@ -3378,6 +3381,66 @@ $("pw-change-btn")?.addEventListener("click", async () => {
   } catch (e) {
     err.textContent = e.message || "Couldn't update password.";
     show(err);
+    btn.disabled = false; btn.textContent = "Save";
+  }
+});
+
+// ── Display name ──────────────────────────────────────────
+// The name the app greets you by. Separate from the login handle (which is
+// [A-Za-z0-9_] only), so it can hold spaces and real punctuation.
+function _openNameEdit() {
+  const form = $("name-edit-form");
+  if (!form) return;
+  $("name-input").value = S.displayName || "";
+  hide($("name-error"));
+  show(form);
+  $("name-input").focus();
+  $("name-input").select();
+}
+
+function _closeNameEdit() {
+  hide($("name-edit-form"));
+  hide($("name-error"));
+}
+
+$("name-edit-btn")?.addEventListener("click", () => {
+  const form = $("name-edit-form");
+  if (form && !form.classList.contains("hidden")) _closeNameEdit();
+  else _openNameEdit();
+});
+
+$("name-cancel-btn")?.addEventListener("click", _closeNameEdit);
+
+$("name-input")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); $("name-save-btn").click(); }
+  if (e.key === "Escape") { e.preventDefault(); _closeNameEdit(); }
+});
+
+$("name-save-btn")?.addEventListener("click", async () => {
+  const input = $("name-input");
+  const err   = $("name-error");
+  const btn   = $("name-save-btn");
+  const name  = (input.value || "").trim().replace(/\s+/g, " ");
+  hide(err);
+  if (name && name.length < 2) {
+    err.textContent = "Name must be at least 2 characters."; show(err); return;
+  }
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const res = await api("/api/auth/display-name", {
+      method: "POST",
+      body: JSON.stringify({ display_name: name }),
+    });
+    S.displayName = res.display_name || null;
+    if (S.displayName) localStorage.setItem(DISPLAY_KEY, S.displayName);
+    else localStorage.removeItem(DISPLAY_KEY);
+    syncAccountUI();
+    _closeNameEdit();
+    toast(name ? `Name updated to ${res.effective_name}` : "Name reset");
+  } catch (e) {
+    err.textContent = e.message || "Couldn't update name.";
+    show(err);
+  } finally {
     btn.disabled = false; btn.textContent = "Save";
   }
 });

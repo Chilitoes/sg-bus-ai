@@ -393,9 +393,10 @@ def google_auth(body: GoogleAuthIn, request: Request, db: Session = Depends(get_
     else:
         if email and not user.email:
             user.email = email
-        # Backfills accounts created before display_name existed, and picks up
-        # a rename in the Google profile.
-        if full_name and user.display_name != full_name:
+        # Backfill only. Never overwrite a name the user set themselves —
+        # re-syncing from Google on every login would silently undo their
+        # choice the next time they signed in.
+        if full_name and not user.display_name:
             user.display_name = full_name
 
     db.commit()
@@ -447,6 +448,41 @@ def change_password(
     ).delete()
     db.commit()
     return {"status": "ok"}
+
+
+class ChangeDisplayName(BaseModel):
+    display_name: str = pydantic.Field(..., max_length=120)
+
+
+# Letters (any script, so non-Latin names work), digits, space, and the
+# punctuation that shows up in real names. Explicitly excludes <>&"/\ so the
+# value can't smuggle markup into any surface that renders it.
+_DISPLAY_NAME_BAD = re.compile(r"[<>&\"/\\\x00-\x1f]")
+
+
+@router.post("/auth/display-name")
+def change_display_name(
+    body: ChangeDisplayName,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Set the name the app greets you by. Independent of the login handle."""
+    # Collapse internal runs of whitespace so " Jayden   Ng " reads normally.
+    name = " ".join((body.display_name or "").split())
+    if not name:
+        # Empty clears the override — fall back to the login handle.
+        user.display_name = None
+        db.commit()
+        return {"status": "ok", "display_name": None, "effective_name": user.username}
+    if len(name) < 2:
+        raise HTTPException(status_code=400, detail="Name must be at least 2 characters.")
+    if len(name) > 60:
+        raise HTTPException(status_code=400, detail="Name must be at most 60 characters.")
+    if _DISPLAY_NAME_BAD.search(name):
+        raise HTTPException(status_code=400, detail="Name contains characters that aren't allowed.")
+    user.display_name = name
+    db.commit()
+    return {"status": "ok", "display_name": name, "effective_name": name}
 
 
 @router.get("/auth/me")

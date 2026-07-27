@@ -640,8 +640,34 @@ th.num, td.num { text-align: right; }
   font-weight: 800; font-size: 1.2rem; text-transform: uppercase;
   flex-shrink: 0; border: 2px solid var(--line);
 }
-.profile-name { font-weight: 700; font-size: .97rem; }
+.profile-name { font-weight: 700; font-size: .97rem; overflow-wrap: anywhere; }
 .profile-meta { font-size: .73rem; color: var(--ink-3); margin-top: .2rem; line-height: 1.5; }
+
+/* Editable display name */
+.profile-name-row { display: flex; align-items: center; gap: .4rem; }
+.name-edit-btn {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px;
+  border: 1px solid var(--line); background: none; color: var(--ink-3);
+  cursor: pointer; touch-action: manipulation;
+  transition: color .15s, border-color .15s;
+}
+.name-edit-btn:active { background: var(--surface-2); }
+.name-edit-btn:hover { color: var(--accent); border-color: var(--accent); }
+.name-edit-form { margin-bottom: 1rem; }
+.name-edit-form .field { display: block; margin-bottom: .75rem; }
+.name-edit-form .field > span {
+  display: block; font-size: .78rem; color: var(--ink-2); margin-bottom: .4rem;
+}
+.name-edit-form input {
+  width: 100%; font: inherit; font-size: 16px;   /* 16px: stops iOS zoom-on-focus */
+  background: var(--surface-2); color: var(--ink);
+  border: 1.5px solid var(--line); border-radius: 11px;
+  padding: .7rem .8rem; outline: none;
+  transition: border-color .15s;
+}
+.name-edit-form input:focus { border-color: var(--accent); }
 
 /* ── Misc ────────────────────────────────────────────── */
 .error-note {
