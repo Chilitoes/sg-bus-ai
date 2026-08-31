@@ -454,6 +454,10 @@ button { font-family: inherit; cursor: pointer; }
   border-radius: 999px; padding: .2rem .7rem;
   display: inline-block;
 }
+.acc-mae {
+  font-size: .7rem; color: var(--ink-3);
+  margin-top: .35rem; letter-spacing: .01em;
+}
 
 /* ── Saved view ──────────────────────────────────────── */
 .saved-list { display: flex; flex-direction: column; gap: .5rem; }

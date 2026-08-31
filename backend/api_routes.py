@@ -323,7 +323,13 @@ async def get_arrivals(
             load     = bus.get("Load", "SEA")
             bus_type = bus.get("Type", "SD")
 
-            # AI prediction
+            # How far out this bus is. Passed into the model as a feature: the
+            # target is residual slip, which accrues over the journey still
+            # ahead, so distance is the strongest predictor of how much
+            # correction is left to apply.
+            wait_sec = (estimated - now).total_seconds()
+
+            # AI prediction — the residual slip still expected from here.
             adjustment_sec = global_model.predict(
                 hour        = sgt.hour,
                 day_of_week = sgt.weekday(),
@@ -331,17 +337,14 @@ async def get_arrivals(
                 bus_type    = bus_type,
                 service_no  = service_no,
                 stop_code   = stop_code,
+                wait_sec    = wait_sec,
             )
 
-            # Confidence-aware scaling: the closer the bus, the more accurate
-            # the LTA GPS estimate, so shrink the model's correction.
-            wait_sec = (estimated - now).total_seconds()
-            if wait_sec <= 120:
-                adjustment_sec *= 0.25
-            elif wait_sec <= 300:
-                adjustment_sec *= 0.6
-            # A bus can't have already arrived: an early-correction can never
-            # remove more than half the remaining wait.
+            # The old hand-rolled taper here (×0.25 under 2 min, ×0.6 under
+            # 5 min) was a workaround for the model not knowing the distance.
+            # It's now learned from data, so only the hard physical bound
+            # remains: a correction can't pull arrival more than halfway back
+            # toward now.
             if wait_sec > 0:
                 adjustment_sec = max(-0.5 * wait_sec, adjustment_sec)
             else:
@@ -415,12 +418,19 @@ def _stop_accuracy(stop_code: str, base_q) -> dict | None:
                 BusArrivalRecord.bus_load,
                 BusArrivalRecord.bus_type,
                 BusArrivalRecord.delay_seconds,
+                BusArrivalRecord.wait_seconds,
             )
             .limit(_ACC_SAMPLE_CAP)
             .all()
         )
         if len(labeled_rows) >= 50:
+            # Head-to-head on identical rows. The label `d` is the residual —
+            # how far off the raw LTA estimate turned out to be — so |d| IS the
+            # raw-LTA error and |d - ai_adj| is the error left after the AI's
+            # correction. Reporting both mean errors (not just a hit rate)
+            # makes it obvious whether the adjustment actually earns its place.
             lta_ok = ai_ok = 0
+            lta_err = ai_err = 0.0
             for row in labeled_rows:
                 d = row.delay_seconds
                 ai_adj = global_model.predict(
@@ -430,17 +440,26 @@ def _stop_accuracy(stop_code: str, base_q) -> dict | None:
                     bus_type=row.bus_type or "SD",
                     service_no=row.bus_service,
                     stop_code=row.bus_stop_code,
+                    wait_sec=row.wait_seconds,
                 )
+                lta_err += abs(d)
+                ai_err  += abs(d - ai_adj)
                 if abs(d) <= 60:
                     lta_ok += 1
                 if abs(d - ai_adj) <= 60:
                     ai_ok += 1
             n = len(labeled_rows)
+            lta_mae = lta_err / n
+            ai_mae  = ai_err / n
             accuracy = {
                 "samples":   n,
                 "lta_pct":   round(lta_ok / n * 100),
                 "ai_pct":    round(ai_ok  / n * 100),
                 "delta_pct": round((ai_ok - lta_ok) / n * 100),
+                "lta_mae_sec": round(lta_mae, 1),
+                "ai_mae_sec":  round(ai_mae, 1),
+                # Positive = the AI is closer to the truth than raw LTA.
+                "mae_improvement_pct": round((lta_mae - ai_mae) / lta_mae * 100, 1) if lta_mae > 0 else 0.0,
             }
     except Exception:
         pass  # accuracy is a bonus, never break stats over it
@@ -1141,16 +1160,15 @@ async def plan_journey(
                     wait_sec = (chosen_est - board_ref).total_seconds()
                     wait_min = max(0, int(wait_sec / 60))
 
+                    # Distance is a model feature now, so the old manual taper
+                    # (×0.25 / ×0.6) is gone — it's learned from data.
                     adj = global_model.predict(
                         hour=sgt.hour, day_of_week=sgt.weekday(),
                         bus_load=chosen_bus.get("Load", "SEA"),
                         bus_type=chosen_bus.get("Type", "SD"),
                         service_no=svc, stop_code=board,
+                        wait_sec=wait_sec,
                     )
-                    if wait_sec <= 120:
-                        adj *= 0.25
-                    elif wait_sec <= 300:
-                        adj *= 0.6
                     if wait_sec > 0:
                         adj = max(-0.5 * wait_sec, adj)
                     ai_adj_sec = round(adj)
@@ -1473,14 +1491,14 @@ async def plan_multimodal(
                 if chosen_e:
                     ws = (chosen_e - board_ref).total_seconds()
                     wait_min = max(0, int(ws / 60))
+                    # Distance is a model feature now — no manual taper needed.
                     adj = global_model.predict(
                         hour=sgt.hour, day_of_week=sgt.weekday(),
                         bus_load=chosen_b.get("Load", "SEA"),
                         bus_type=chosen_b.get("Type", "SD"),
                         service_no=svc, stop_code=board,
+                        wait_sec=ws,
                     )
-                    if ws <= 120: adj *= 0.25
-                    elif ws <= 300: adj *= 0.6
                     if ws > 0: adj = max(-0.5 * ws, adj)
                     ai_adj = round(adj)
                     lta_arr     = chosen_e.isoformat()

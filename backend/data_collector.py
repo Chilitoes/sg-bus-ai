@@ -185,13 +185,27 @@ def _close_stale_tracking(db: Session, stop_code: str, service_no: str,
         if not (sighted_twice and fresh_close):
             continue  # closed, unlabeled
 
-        delay = (row.last_estimate - row.first_estimate).total_seconds()
+        # The last estimate before the bus vanished is our best proxy for when
+        # it actually arrived.
+        actual = row.last_estimate
+        # Lifetime drift, kept on the tracking row for reporting.
+        delay = (actual - row.first_estimate).total_seconds()
         row.delay_seconds = delay
 
-        # Back-fill matching BusArrivalRecord rows (same stop/service/key)
+        # Label each snapshot with its OWN residual — how much further that
+        # particular estimate still had to slip:
+        #     residual_i = actual − estimated_arrival_i
+        #
+        # Previously every snapshot of this bus was stamped with the same
+        # lifetime `delay`, so a reading taken 30 s before arrival carried the
+        # same label as one taken 12 min out. The model then learned a constant
+        # per-route offset and added it to estimates that had ALREADY absorbed
+        # that drift — double-counting exactly what LTA had just corrected.
+        # Residual labels make the target "slip remaining from here", which is
+        # the only thing the live LTA number doesn't already tell you.
         window_start = row.arrival_key - timedelta(minutes=2)
         window_end   = row.arrival_key + timedelta(minutes=2)
-        (
+        pending = (
             db.query(BusArrivalRecord)
             .filter(
                 BusArrivalRecord.bus_stop_code == stop_code,
@@ -199,9 +213,12 @@ def _close_stale_tracking(db: Session, stop_code: str, service_no: str,
                 BusArrivalRecord.estimated_arrival.between(window_start, window_end),
                 BusArrivalRecord.delay_seconds.is_(None),
             )
-            .update({"delay_seconds": delay}, synchronize_session=False)
+            .all()
         )
-        logger.debug("Closed tracking %s/%s  delay=%.0fs", stop_code, service_no, delay)
+        for rec in pending:
+            rec.delay_seconds = (actual - rec.estimated_arrival).total_seconds()
+        logger.debug("Closed tracking %s/%s  drift=%.0fs  labelled %d snapshot(s)",
+                     stop_code, service_no, delay, len(pending))
 
 
 # ── Snapshot persistence (shared by collector + passive user queries) ─────────

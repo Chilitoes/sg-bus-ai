@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.13";
+const APP_VERSION = "1.2.14";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1746,6 +1746,16 @@ function renderCharts(stats) {
     $("acc-delta").textContent = `${sign}${d}% more accurate with AI`;
     $("acc-delta").style.background = d >= 0 ? "" : "var(--bad-soft)";
     $("acc-delta").style.color      = d >= 0 ? "" : "var(--bad)";
+    // Average error in seconds — a fairer read than the ±1 min hit-rate,
+    // which can look flat even when the AI is meaningfully closer.
+    const maeEl = $("acc-mae");
+    if (maeEl && acc.lta_mae_sec != null && acc.ai_mae_sec != null) {
+      maeEl.textContent =
+        `Average error: LTA ${Math.round(acc.lta_mae_sec)}s · AI ${Math.round(acc.ai_mae_sec)}s`;
+      show(maeEl);
+    } else if (maeEl) {
+      hide(maeEl);
+    }
     show($("accuracy-scorecard"));
   } else {
     hide($("accuracy-scorecard"));
