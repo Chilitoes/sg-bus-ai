@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.14";
+const APP_VERSION = "1.2.15";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -3480,11 +3480,22 @@ function _sheetSnaps() {
   const max = Math.max(mid + 1, Math.round(bottomY - searchBottom - 12));
   return { min, mid, max };
 }
+let _sheetSnapName = "mid";
 function _snapSheet(name) {
   const s = _sheetSnaps();
-  _setSheetH(s[name] ?? s.mid);
+  _sheetSnapName = name in s ? name : "mid";
+  _setSheetH(s[_sheetSnapName]);
   setTimeout(() => _arrMap?.invalidateSize(), 280);
 }
+// Folding/unfolding an iPhone Duo, rotating, or resizing a Split View pane
+// changes the window size in one jump. The sheet's height is in px computed
+// for the old size, so re-apply the current snap for the new one (this also
+// has Leaflet re-measure the map, which can change size with the layout).
+let _sheetResizeTimer = null;
+addEventListener("resize", () => {
+  clearTimeout(_sheetResizeTimer);
+  _sheetResizeTimer = setTimeout(() => _snapSheet(_sheetSnapName), 120);
+});
 function _initSheetDrag() {
   const sheet  = document.querySelector(".arr-sheet");
   const handle = document.querySelector(".arr-sheet-handle");
@@ -3512,9 +3523,8 @@ function _initSheetDrag() {
     dragging = false;
     sheet.classList.remove("dragging");
     const h = sheet.getBoundingClientRect().height;
-    const snaps = Object.values(_sheetSnaps());
-    _setSheetH(snaps.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a)));
-    setTimeout(() => _arrMap?.invalidateSize(), 280);
+    const s = _sheetSnaps();
+    _snapSheet(Object.keys(s).reduce((a, b) => (Math.abs(s[b] - h) < Math.abs(s[a] - h) ? b : a)));
   };
   handle.addEventListener("pointerup", end);
   handle.addEventListener("pointercancel", end);

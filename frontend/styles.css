@@ -161,7 +161,11 @@ button { font-family: inherit; cursor: pointer; }
   box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-sm);
 }
 .search-box input {
-  flex: 1; border: none; outline: none; background: none;
+  /* min-width: 0 — an input's default minimum width is wider than the space
+     left in narrow windows (e.g. iPhone Duo Split View, ~313px), and without
+     this it pushed the Plan form 12px past the edge, widening the page and
+     dropping the fixed bottom nav off-screen. */
+  flex: 1; min-width: 0; border: none; outline: none; background: none;
   font: inherit; font-size: 16px;
   color: var(--ink); padding: .75rem 0;
   text-overflow: ellipsis;
@@ -2314,4 +2318,66 @@ body.maintenance-open { overflow: hidden; }
 .notif-popup-ok:active { transform: scale(.99); }
 @media (prefers-reduced-motion: reduce) {
   .notif-popup-card { transition: none; }
+}
+
+/* ── Foldables & unusual window shapes (iPhone Duo et al.) ─────────────
+   Safari doesn't report the Duo's fold to web pages (no viewport-segments
+   support), so it's handled purely by window shape. The Duo's screens in
+   CSS px: cover ≈ 466×678, unfolded ≈ 626×890 portrait / 890×626
+   landscape, and a Split View half ≈ 313 wide. Folding/unfolding just
+   resizes the window; app.js re-snaps the sheet on resize. */
+
+.bottomnav {
+  padding-left: max(.5rem, env(safe-area-inset-left));
+  padding-right: max(.5rem, env(safe-area-inset-right));
+}
+
+/* Wide landscape windows (unfolded Duo on its side, iPad, phones in
+   landscape, desktop): the arrivals sheet becomes a full-height side panel
+   with the search bar on top of it, and the map takes the space to its
+   right — instead of a short sheet covering the middle of the map. */
+@media (min-width: 720px) and (orientation: landscape) {
+  :root { --side-w: clamp(300px, 38vw, 400px); --side-gap: 12px; }
+
+  .arr-search-wrap {
+    left: calc(env(safe-area-inset-left) + var(--side-gap));
+    transform: none;
+    width: var(--side-w);
+  }
+  .arr-sheet {
+    top: calc(env(safe-area-inset-top) + var(--side-gap) + 62px);
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + var(--side-gap));
+    left: calc(env(safe-area-inset-left) + var(--side-gap));
+    right: auto;
+    width: var(--side-w); max-width: none; margin: 0;
+    height: auto;
+    border-radius: 22px;
+    border-bottom: 1px solid var(--glass-line);
+    box-shadow: 0 10px 36px rgba(0,0,0,.22);
+  }
+  .arr-sheet:not(.dragging) { transition: none; }
+  .arr-sheet-handle { display: none; }
+  .arr-sheet-scroll { padding: .9rem .9rem 1rem; }
+
+  .arr-map-wrap {
+    left: calc(env(safe-area-inset-left) + var(--side-w) + var(--side-gap) * 2);
+  }
+  .arr-locate-btn {
+    right: calc(env(safe-area-inset-right) + 14px);
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 14px);
+  }
+}
+
+/* Narrow windows (Split View on an unfolded Duo or iPad, ~313px) and the
+   ~300-400px side panel above: tighter stop cards so names get room for
+   two lines instead of three. */
+@media (max-width: 359px), (min-width: 720px) and (orientation: landscape) {
+  .arr-sheet-scroll { padding-left: .6rem; padding-right: .6rem; }
+  .arr-stop-item { gap: .6rem; padding: .8rem .75rem; }
+  .arr-stop-code-badge { padding: .45rem .5rem; min-width: 0; font-size: .8rem; }
+  .arr-stop-name { font-size: .98rem; }
+}
+@media (max-width: 359px) {
+  .plan-form { padding: 1.1rem .8rem .9rem; }
+  .plan-row { gap: .4rem; }
 }
