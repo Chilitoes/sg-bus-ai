@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.16";
+const APP_VERSION = "1.2.17";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -228,6 +228,7 @@ function applyTheme(t) {
   try { localStorage.setItem(THEME_KEY, t); } catch {}
   const meta = document.getElementById("theme-color-meta");
   if (meta) meta.content = t === "light" ? "#f2f3f5" : "#0d0e10";
+  if (typeof _syncTileTheme === "function" && typeof L !== "undefined") _syncTileTheme();
 }
 function initTheme() {
   const saved = localStorage.getItem(THEME_KEY);
@@ -3539,7 +3540,7 @@ function initArrMap() {
   // OneMap tiles (see _sgTiles); dark mode applies a CSS invert filter that
   // darkens the map while keeping hues (water, parks, roads) — see styles.css.
   _arrTileLayer = _sgTiles().addTo(_arrMap);
-  $("arr-locate-btn").addEventListener("click", _arrGeolocate);
+  $("arr-locate-btn").addEventListener("click", _arrRefreshNearby);
   _arrGeolocate();
 }
 
@@ -3547,22 +3548,56 @@ function initArrMap() {
 // theme attribute, so the tiles themselves never need swapping.
 function _swapArrTiles() {}
 
+function _arrShowMyLocation(lat, lng) {
+  _arrMap.setView([lat, lng], Math.max(_arrMap.getZoom(), 16));
+  if (_arrLocMarker) _arrLocMarker.remove();
+  _arrLocMarker = L.circleMarker([lat, lng], {
+    radius: 8, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
+  }).addTo(_arrMap);
+}
+
+// First load: show central Singapore immediately, then switch to the user's
+// position once (a possibly cached) fix arrives.
 function _arrGeolocate() {
   _loadArrStops(1.3521, 103.8198);
   navigator.geolocation?.getCurrentPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
       if (!_arrMap) return;
-      _arrMap.setView([lat, lng], 16);
-      if (_arrLocMarker) _arrLocMarker.remove();
-      _arrLocMarker = L.circleMarker([lat, lng], {
-        radius: 8, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
-      }).addTo(_arrMap);
+      _arrShowMyLocation(lat, lng);
       _loadArrStops(lat, lng);
     },
     () => {},
     { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
   );
 }
+
+// Locate button + "Refresh" in the Nearby stops header: get a fresh fix
+// (no cached position, no flash of central-Singapore stops) and reload the
+// list. Without location access, list the stops around the map's centre.
+let _arrRefreshing = false;
+function _arrRefreshNearby() {
+  if (!_arrMap || _arrRefreshing) return;
+  _arrRefreshing = true;
+  const btn = $("arr-nearby-refresh");
+  btn?.classList.add("spinning");
+  const done = () => { _arrRefreshing = false; btn?.classList.remove("spinning"); };
+  const fromMapCentre = (msg) => {
+    const c = _arrMap.getCenter();
+    _loadArrStops(c.lat, c.lng).finally(done);
+    if (msg) toast(msg);
+  };
+  if (!navigator.geolocation) { fromMapCentre("Location unavailable — showing stops near the map centre"); return; }
+  navigator.geolocation.getCurrentPosition(
+    ({ coords: { latitude: lat, longitude: lng } }) => {
+      if (!_arrMap) { done(); return; }
+      _arrShowMyLocation(lat, lng);
+      _loadArrStops(lat, lng).finally(done);
+    },
+    () => fromMapCentre("Couldn't get your location — showing stops near the map centre"),
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+  );
+}
+$("arr-nearby-refresh")?.addEventListener("click", _arrRefreshNearby);
 
 async function _loadArrStops(lat, lng) {
   if (!_arrMap) return;
@@ -3687,13 +3722,29 @@ function _isDark() {
 // coverage (tiles outside SG come back empty). CARTO's free basemaps started
 // requiring an API key and served "API KEY REQUIRED" placeholder tiles.
 // Dark mode still uses the CSS invert filter on .leaflet-tile-pane.
+// Light mode uses OneMap's neutral "Grey" style so red stop pins and MRT
+// lines stand out; dark mode uses "Default" under a CSS invert filter
+// (styles.css) that yields neutral charcoal. Every map's layer is tracked so
+// a theme switch can swap styles in place.
+const _sgTileLayers = new Set();
+function _sgTileUrl() {
+  return `https://www.onemap.gov.sg/maps/tiles/${_isDark() ? "Default" : "Grey"}_HD/{z}/{x}/{y}.png`;
+}
 function _sgTiles() {
-  return L.tileLayer(
-    "https://www.onemap.gov.sg/maps/tiles/Default_HD/{z}/{x}/{y}.png",
+  const layer = L.tileLayer(_sgTileUrl(),
     { minZoom: 11, maxZoom: 19, detectRetina: true, keepBuffer: 3,
       attribution: '<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener">OneMap</a> © contributors | <a href="https://www.sla.gov.sg/" target="_blank" rel="noopener">Singapore Land Authority</a>' }
   );
+  _sgTileLayers.add(layer);
+  return layer;
 }
+function _syncTileTheme() {
+  const url = _sgTileUrl();
+  _sgTileLayers.forEach((l) => { if (l._url !== url) l.setUrl(url); });
+}
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
+  if (typeof L !== "undefined") _syncTileTheme();
+});
 
 // HTML divIcon marker — taps fire reliably on iOS, unlike SVG circleMarkers
 // (Leaflet 1.7+ dropped its tap handler, so vector layers miss touch clicks).

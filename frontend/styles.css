@@ -1135,19 +1135,25 @@ th.num, td.num { text-align: right; }
   pointer-events: none;
   line-height: 1.4;
 }
-/* Apple Maps-style dark tiles: invert(85%) = white land becomes dark charcoal.
-   210 deg hue-rotate = cooler teal-navy tint matching Apple Maps palette.
-   Dark bg + GPU layer + margin-bottom overlap prevent flash and seam lines. */
-.leaflet-container { background: #1c1c1e; }
+/* Map tiles (OneMap — see _sgTiles in app.js). Light mode: the "Grey"
+   style, shown as-is. Dark mode: the "Default" style through a smart invert —
+   invert flips lightness, and hue-rotate(180deg) turns the hues back (green
+   parks, blue water, red MRT stay roughly their colour); then desaturate for
+   a neutral charcoal. (The old 210deg rotate tinted everything purple.)
+   Background matches each theme's land colour so loading tiles don't flash;
+   GPU layer + 1px overlap prevent seam lines. */
+.leaflet-container { background: #f2f2f2; }
 .leaflet-tile-pane { transform: translateZ(0); }
 .leaflet-tile { will-change: transform; margin-bottom: -1px; }
 @media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .leaflet-container { background: #1e1d1b; }
   :root:not([data-theme="light"]) .leaflet-tile-pane {
-    filter: invert(85%) hue-rotate(210deg) brightness(1.0) saturate(1.15);
+    filter: invert(92%) hue-rotate(180deg) saturate(.55) brightness(.95) contrast(.92);
   }
 }
+[data-theme="dark"] .leaflet-container { background: #1e1d1b; }
 [data-theme="dark"] .leaflet-tile-pane {
-  filter: invert(85%) hue-rotate(210deg) brightness(1.0) saturate(1.15);
+  filter: invert(92%) hue-rotate(180deg) saturate(.55) brightness(.95) contrast(.92);
 }
 /* ── Per-card inline map ─────────────────────────────────── */
 .jcard-map-wrap {
@@ -1368,6 +1374,22 @@ th.num, td.num { text-align: right; }
   font-size: .68rem; font-weight: 700; color: var(--accent);
   text-transform: uppercase; letter-spacing: .09em;
   margin-bottom: .5rem;
+}
+.arr-refresh-btn {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: .35rem;
+  font: inherit; font-size: .66rem; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-2);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 999px; padding: .32rem .7rem;
+  transition: background .12s, color .12s;
+}
+.arr-refresh-btn:active { background: var(--surface-2); }
+.arr-refresh-btn.spinning { color: var(--accent); pointer-events: none; }
+.arr-refresh-btn.spinning svg { animation: arr-spin .8s linear infinite; }
+@keyframes arr-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .arr-refresh-btn.spinning svg { animation: none; }
 }
 #arr-stops-list { display: flex; flex-direction: column; gap: .6rem; }
 
