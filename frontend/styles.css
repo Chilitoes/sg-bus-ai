@@ -115,9 +115,23 @@ button { font-family: inherit; cursor: pointer; }
 }
 
 /* ── Layout ──────────────────────────────────────────── */
+/* App shell: the document itself never scrolls — .main is the scroller.
+   With the whole page scrolling, iOS Safari's collapsing toolbar and
+   rubber-band overscroll drag position:fixed bars around, so the bottom nav
+   didn't stay put on the longer pages (Checkpoint, Settings, Data…). An
+   inner scroll container leaves the nav nothing to move with. The side
+   padding reproduces the old 640px centered column at full width, so the
+   scrollbar/overscroll area spans the whole window. */
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 .main {
-  max-width: 640px; margin: 0 auto;
-  padding: 1rem 1rem calc(var(--nav-h) + env(safe-area-inset-bottom) + 1.5rem);
+  position: fixed; inset: 0;
+  overflow-x: hidden; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  --main-gutter: max(1rem, calc((100% - 640px) / 2 + 1rem));
+  padding: 1rem calc(var(--main-gutter) + env(safe-area-inset-right))
+           calc(var(--nav-h) + env(safe-area-inset-bottom) + 1.5rem)
+           calc(var(--main-gutter) + env(safe-area-inset-left));
 }
 .view { display: none; }
 .view.active { display: block; animation: viewIn .16s ease; }

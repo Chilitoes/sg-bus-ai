@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.15";
+const APP_VERSION = "1.2.16";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -3536,7 +3536,7 @@ function initArrMap() {
   if (_arrMap) { setTimeout(() => _arrMap.invalidateSize(), 60); return; }
   _arrMap = L.map($("arr-map"), { zoomControl: false, attributionControl: false })
              .setView([1.3521, 103.8198], 15);
-  // Colourful voyager tiles; dark mode applies a CSS invert filter that
+  // OneMap tiles (see _sgTiles); dark mode applies a CSS invert filter that
   // darkens the map while keeping hues (water, parks, roads) — see styles.css.
   _arrTileLayer = _sgTiles().addTo(_arrMap);
   $("arr-locate-btn").addEventListener("click", _arrGeolocate);
@@ -3683,11 +3683,15 @@ function _isDark() {
   return t === "dark" || (!t && window.matchMedia("(prefers-color-scheme: dark)").matches);
 }
 
+// OneMap (Singapore Land Authority) — free, no API key, Singapore-only
+// coverage (tiles outside SG come back empty). CARTO's free basemaps started
+// requiring an API key and served "API KEY REQUIRED" placeholder tiles.
+// Dark mode still uses the CSS invert filter on .leaflet-tile-pane.
 function _sgTiles() {
   return L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-    { maxZoom: 19, subdomains: "abcd", detectRetina: true, keepBuffer: 3,
-      attribution: '© <a href="https://openstreetmap.org">OSM</a> © <a href="https://carto.com">CARTO</a>' }
+    "https://www.onemap.gov.sg/maps/tiles/Default_HD/{z}/{x}/{y}.png",
+    { minZoom: 11, maxZoom: 19, detectRetina: true, keepBuffer: 3,
+      attribution: '<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener">OneMap</a> © contributors | <a href="https://www.sla.gov.sg/" target="_blank" rel="noopener">Singapore Land Authority</a>' }
   );
 }
 
