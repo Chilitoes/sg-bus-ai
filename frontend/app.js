@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.17";
+const APP_VERSION = "1.2.18";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -2166,7 +2166,10 @@ $("saved-login-btn").addEventListener("click", openSheet);
 async function loadData() {
   hide($("data-error"));
   $("data-grid").innerHTML = Array.from({ length: 7 }, () => `<div class="skel" style="height:70px"></div>`).join("");
-  try {
+  // Fire every section's request at once and render each as it lands —
+  // these used to run one after another (data → feedback → notifications →
+  // analytics → heatmap), so the page took the sum of five round trips.
+  const main = (async () => {
     const d = await api("/api/data");
     const cards = [
       ["Today", Number(d.database.records_today ?? 0).toLocaleString(), "snapshots collected"],
@@ -2240,8 +2243,15 @@ async function loadData() {
       </tr>`).join("");
     $("leaderboard-stops-block").classList.toggle("hidden", !stops.length);
 
-    // Feedback (admin only)
-    try {
+  })().catch((err) => {
+    $("data-grid").innerHTML = "";
+    const el = $("data-error");
+    el.textContent = `Couldn't load data: ${err.message}`;
+    show(el);
+  });
+
+  // Feedback (admin only)
+  const feedback = (async () => {
       const fb = await api("/api/feedback?limit=200");
       const items = fb.items || [];
       $("feedback-admin-count").textContent = items.length;
@@ -2293,31 +2303,16 @@ async function loadData() {
         });
       }
       show($("feedback-admin-block"));
-    } catch { /* not admin or endpoint unavailable */ }
+  })().catch(() => { /* not admin or endpoint unavailable */ });
 
-    // Notifications admin block
-    try {
-      await _loadAdminNotifications();
-      show($("notif-admin-block"));
-    } catch { /* not admin */ }
+  const notifs = _loadAdminNotifications()
+    .then(() => show($("notif-admin-block"))).catch(() => { /* not admin */ });
+  const analytics = loadAdminAnalytics()
+    .then(() => show($("analytics-block"))).catch(() => { /* not admin */ });
+  const heatmap = loadHeatmap()
+    .then(() => show($("heatmap-block"))).catch(() => { /* not admin or no data */ });
 
-    // Usage analytics dashboard
-    try {
-      await loadAdminAnalytics();
-      show($("analytics-block"));
-    } catch { /* not admin */ }
-
-    // Punctuality heatmap
-    try {
-      await loadHeatmap();
-      show($("heatmap-block"));
-    } catch { /* not admin or no data */ }
-  } catch (err) {
-    $("data-grid").innerHTML = "";
-    const el = $("data-error");
-    el.textContent = `Couldn't load data: ${err.message}`;
-    show(el);
-  }
+  await Promise.all([main, feedback, notifs, analytics, heatmap]);
 }
 
 // ── Admin analytics dashboard ──────────────────────────────────────────────────
@@ -3458,7 +3453,6 @@ $("name-save-btn")?.addEventListener("click", async () => {
 
 // ── Arrivals map ──────────────────────────────────────────
 let _arrMap       = null;
-let _arrTileLayer = null;
 let _arrLocMarker = null;
 let _arrPinStore  = new Map(); // code → { marker, label }
 
@@ -3537,9 +3531,8 @@ function initArrMap() {
   if (_arrMap) { setTimeout(() => _arrMap.invalidateSize(), 60); return; }
   _arrMap = L.map($("arr-map"), { zoomControl: false, attributionControl: false })
              .setView([1.3521, 103.8198], 15);
-  // OneMap tiles (see _sgTiles); dark mode applies a CSS invert filter that
-  // darkens the map while keeping hues (water, parks, roads) — see styles.css.
-  _arrTileLayer = _sgTiles().addTo(_arrMap);
+  // Vector base map with a OneMap raster fallback — see _sgAddBase.
+  _sgAddBase(_arrMap, true);
   $("arr-locate-btn").addEventListener("click", _arrRefreshNearby);
   _arrGeolocate();
 }
@@ -3718,33 +3711,186 @@ function _isDark() {
   return t === "dark" || (!t && window.matchMedia("(prefers-color-scheme: dark)").matches);
 }
 
-// OneMap (Singapore Land Authority) — free, no API key, Singapore-only
-// coverage (tiles outside SG come back empty). CARTO's free basemaps started
-// requiring an API key and served "API KEY REQUIRED" placeholder tiles.
-// Dark mode still uses the CSS invert filter on .leaflet-tile-pane.
-// Light mode uses OneMap's neutral "Grey" style so red stop pins and MRT
-// lines stand out; dark mode uses "Default" under a CSS invert filter
-// (styles.css) that yields neutral charcoal. Every map's layer is tracked so
-// a theme switch can swap styles in place.
-const _sgTileLayers = new Set();
+// ── Base maps ─────────────────────────────────────────────
+// Arrivals + stop-picker maps: OpenFreeMap vector tiles (free, no API key,
+// OpenStreetMap data) drawn by MapLibre GL inside Leaflet, with the stock
+// "liberty" style tuned by _sgTuneStyle below — no shop icons, OSM bus stops
+// or 3D buildings, bold MRT/LRT lines + labelled stations, and a derived
+// dark palette. Vector rendering simplifies HDB blocks when zoomed out
+// instead of baking every outline into raster images.
+//
+// Everything else (route mini-maps on the Plan screen, which can be several
+// at once — each vector map holds a WebGL context and phones cap those), and
+// the fallback when WebGL / the library / the style isn't available, uses
+// OneMap raster tiles (Singapore Land Authority, free, Singapore-only):
+// "Grey" in light mode, "Default" under a CSS invert filter in dark mode.
+const _ONEMAP_ATTR = '<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener">OneMap</a> © contributors | <a href="https://www.sla.gov.sg/" target="_blank" rel="noopener">Singapore Land Authority</a>';
+const _sgTileLayers = new Set();   // OneMap raster layers (theme-swapped by URL)
+const _sgVectorLayers = new Set(); // MapLibre layers (theme-swapped by style)
+
 function _sgTileUrl() {
   return `https://www.onemap.gov.sg/maps/tiles/${_isDark() ? "Default" : "Grey"}_HD/{z}/{x}/{y}.png`;
 }
 function _sgTiles() {
   const layer = L.tileLayer(_sgTileUrl(),
-    { minZoom: 11, maxZoom: 19, detectRetina: true, keepBuffer: 3,
-      attribution: '<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener">OneMap</a> © contributors | <a href="https://www.sla.gov.sg/" target="_blank" rel="noopener">Singapore Land Authority</a>' }
-  );
+    { minZoom: 11, maxZoom: 19, detectRetina: true, keepBuffer: 3, attribution: _ONEMAP_ATTR });
+  layer._sgBase = true;
   _sgTileLayers.add(layer);
   return layer;
 }
+
+// Lazy-load MapLibre + the Leaflet bridge + the base style once, in the
+// background, so the 1 MB library never delays the app's first paint.
+const _VEC_LIBS = [
+  ["link", "https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css", "sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK"],
+  ["script", "https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js", "sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp"],
+  ["script", "https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js", "sha384-tXYNKOHx4T02jMP7YYCtBxPIv1B5gaA5mcVPBzqMp6d7VzWzxJgI2aWF/nJLrQdS"],
+];
+let _vecReady = null;
+function _loadVectorMaps() {
+  if (_vecReady) return _vecReady;
+  const webgl = (() => { try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); } catch { return false; } })();
+  if (!webgl) return (_vecReady = Promise.reject(new Error("no WebGL")));
+  const load = ([tag, url, integrity]) => new Promise((res, rej) => {
+    const el = document.createElement(tag);
+    if (tag === "link") { el.rel = "stylesheet"; el.href = url; } else { el.src = url; el.async = false; }
+    el.integrity = integrity; el.crossOrigin = "anonymous";
+    el.onload = res; el.onerror = () => rej(new Error("failed to load " + url));
+    document.head.appendChild(el);
+  });
+  _vecReady = Promise.all([
+    Promise.all(_VEC_LIBS.map(load)),
+    fetch("https://tiles.openfreemap.org/styles/liberty").then((r) => { if (!r.ok) throw new Error("style " + r.status); return r.json(); }),
+  ]).then(([, style]) => {
+    if (typeof L.maplibreGL !== "function") throw new Error("maplibre-gl-leaflet missing");
+    return style;
+  });
+  return _vecReady;
+}
+
+// Add the base map to `map`. vector=true tries MapLibre first; until it's
+// ready (or if it can't be used) the map shows its land colour, then OneMap.
+function _sgAddBase(map, vector) {
+  if (!vector) { _sgTiles().addTo(map); return; }
+  let settled = false;
+  const fallback = () => { if (settled) return; settled = true; _sgTiles().addTo(map); };
+  const timer = setTimeout(fallback, 6000);
+  _loadVectorMaps().then((base) => {
+    if (settled) return;
+    settled = true; clearTimeout(timer);
+    const layer = L.maplibreGL({ style: _sgTuneStyle(base, _isDark()), attributionControl: false });
+    layer._sgBase = true; layer._sgStyleBase = base; layer._sgDark = _isDark();
+    _sgVectorLayers.add(layer);
+    layer.addTo(map);
+    map.getContainer().classList.add("sg-vector");
+  }).catch(fallback);
+}
+
 function _syncTileTheme() {
   const url = _sgTileUrl();
   _sgTileLayers.forEach((l) => { if (l._url !== url) l.setUrl(url); });
+  const dark = _isDark();
+  _sgVectorLayers.forEach((l) => {
+    if (l._sgDark === dark) return;
+    l._sgDark = dark;
+    l.getMaplibreMap()?.setStyle(_sgTuneStyle(l._sgStyleBase, dark));
+  });
 }
 matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
   if (typeof L !== "undefined") _syncTileTheme();
 });
+
+// Tune OpenFreeMap's "liberty" style for a transit app: drop clutter (shop
+// POIs, OSM bus stops, 3D buildings, relief shading, one-way arrows, road
+// shields), quiet the palette so the red stop pins lead, make MRT/LRT lines
+// bold and label their stations. Dark mode derives every colour by inverting
+// its lightness (hue kept, saturation muted), then hand-sets the key groups.
+const _sgColorCtx = document.createElement("canvas").getContext("2d");
+function _sgIsColor(c) {
+  // Style expressions also hold plain strings ("match", "get", property names).
+  const x = _sgColorCtx;
+  x.fillStyle = "#010203"; x.fillStyle = c; const a = x.fillStyle;
+  x.fillStyle = "#040506"; x.fillStyle = c; return a === x.fillStyle;
+}
+function _sgDarkColor(c) {
+  if (typeof c !== "string" || !_sgIsColor(c)) return c;
+  const x = _sgColorCtx; x.fillStyle = c; const v = x.fillStyle;
+  const [r, g, b, al] = v[0] === "#"
+    ? [parseInt(v.slice(1, 3), 16), parseInt(v.slice(3, 5), 16), parseInt(v.slice(5, 7), 16), 1]
+    : (() => { const m = v.match(/[\d.]+/g).map(Number); return [m[0], m[1], m[2], m[3] ?? 1]; })();
+  const R = r / 255, G = g / 255, B = b / 255, mx = Math.max(R, G, B), mn = Math.min(R, G, B), l = (mx + mn) / 2;
+  let h = 0, s = 0;
+  if (mx !== mn) {
+    const d = mx - mn; s = l > .5 ? d / (2 - mx - mn) : d / (mx + mn);
+    h = (mx === R ? (G - B) / d + (G < B ? 6 : 0) : mx === G ? (B - R) / d + 2 : (R - G) / d + 4) * 60;
+  }
+  return `hsla(${Math.round(h)}, ${Math.round(s * 45)}%, ${Math.round((0.11 + (1 - l) * 0.72) * 100)}%, ${al})`;
+}
+function _sgMapColors(v, f) {
+  if (typeof v === "string") return f(v);
+  if (Array.isArray(v)) return v.map((x) => _sgMapColors(x, f));
+  if (v && typeof v === "object" && v.stops) return { ...v, stops: v.stops.map(([z, c]) => [z, _sgMapColors(c, f)]) };
+  return v;
+}
+const _SG_DROP = /^(natural_earth|poi_r\d+|building-3d|road_one_way_arrow.*|highway-shield.*|road_shield_us|road_area_pattern|.*_hatching)$/;
+function _sgTuneStyle(base, dark) {
+  const s = JSON.parse(JSON.stringify(base));
+  delete s.sources.ne2_shaded;
+  s.layers = s.layers.filter((l) => !_SG_DROP.test(l.id));
+  const P = dark
+    ? { bg: "#1c1d20", building: "#2a2c31", bOutline: "#34373d", minor: "#33363c", major: "#41444b", motorway: "#4d4a43",
+        casing: "#1c1d20", rail: "#8a93a6", railTunnel: "#5d6372", label: "#c9ccd2", halo: "#1c1d20", station: "#e8ebf0",
+        water: "#1f3448", green: "#20302a", special: "#2b2a30" }
+    : { bg: "#f4f3f0", building: "#e6e4df", bOutline: "#dbd8d2", minor: "#ffffff", major: "#ffffff", motorway: "#fde3a7",
+        casing: "#dcd9d3", rail: "#5f6b7e", railTunnel: "#9aa3b2", label: "#4a4f58", halo: "#ffffff", station: "#2b3240",
+        water: "#aad3ee", green: "#d8ecd2", special: null };
+  for (const l of s.layers) {
+    const p = (l.paint = l.paint || {});
+    const id = l.id;
+    if (dark) for (const k of Object.keys(p)) if (/color$/.test(k)) p[k] = _sgMapColors(p[k], _sgDarkColor);
+    if (id === "background") p["background-color"] = P.bg;
+    else if (id === "water") p["fill-color"] = P.water;
+    else if (/^(park|landcover_(grass|wood)|landuse_pitch)$/.test(id)) { p["fill-color"] = P.green; p["fill-opacity"] = 0.9; }
+    else if (dark && /^landuse_(hospital|school|cemetery|track|residential)$/.test(id)) { p["fill-color"] = P.special; p["fill-opacity"] = 0.6; }
+    else if (id === "building") { p["fill-color"] = P.building; p["fill-outline-color"] = P.bOutline; p["fill-opacity"] = 1; }
+    else if (/_casing$/.test(id) && l.type === "line") p["line-color"] = P.casing;
+    else if (/motorway(_link)?$/.test(id) && l.type === "line") p["line-color"] = P.motorway;
+    else if (/(trunk_primary|secondary_tertiary)$/.test(id)) p["line-color"] = P.major;
+    else if (/(minor|street|link|service_track)$/.test(id) && l.type === "line") p["line-color"] = P.minor;
+    else if (/(transit|major)_rail$/.test(id)) {
+      const tunnel = id.startsWith("tunnel");
+      p["line-color"] = tunnel ? P.railTunnel : P.rail;
+      p["line-width"] = ["interpolate", ["exponential", 1.4], ["zoom"], 11, 1, 14, 2.2, 17, 4.5];
+      p["line-opacity"] = tunnel ? 0.7 : 1;
+      if (tunnel) p["line-dasharray"] = [2, 1.5]; else delete p["line-dasharray"];
+      l.minzoom = 10;
+    }
+    if (l.type === "symbol" && p["text-color"] !== undefined && !/^label_(city|town|country|state)/.test(id)) {
+      p["text-color"] = P.label; p["text-halo-color"] = P.halo;
+    }
+  }
+  // poi_transit = airports + OSM bus stops (the app has its own stop pins);
+  // swap it for MRT/LRT stations, which liberty never labels (OpenMapTiles
+  // tags them class "railway", subclass subway / light_rail).
+  const i = s.layers.findIndex((l) => l.id === "poi_transit");
+  if (i >= 0) {
+    const font = (s.layers[i].layout?.["text-font"] || ["Noto Sans Italic"]).map((f) => f.replace("Italic", "Bold"));
+    s.layers.splice(i, 1, {
+      id: "sg_mrt_station", type: "symbol", source: "openmaptiles", "source-layer": "poi", minzoom: 12,
+      filter: ["all", ["==", ["get", "class"], "railway"], ["match", ["get", "subclass"], ["subway", "light_rail"], true, false]],
+      layout: {
+        "icon-image": ["match", ["get", "subclass"], "light_rail", "railway_light", "railway_metro"],
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 12, 0.75, 16, 1],
+        "text-field": ["coalesce", ["get", "name_en"], ["get", "name"]],
+        "text-font": font,
+        "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10.5, 16, 13],
+        "text-anchor": "left", "text-offset": [0.95, 0], "text-optional": true,
+      },
+      paint: { "text-color": P.station, "text-halo-color": P.halo, "text-halo-width": 1.4 },
+    });
+  }
+  return s;
+}
 
 // HTML divIcon marker — taps fire reliably on iOS, unlike SVG circleMarkers
 // (Leaflet 1.7+ dropped its tap handler, so vector layers miss touch clicks).
@@ -3962,7 +4108,7 @@ function _openCardMap(card, data, coords, optIdx) {
   if (!card._jmap) {
     card._jmap = L.map(container, { zoomControl: false, attributionControl: false })
                   .setView([1.3521, 103.8198], 13);
-    _sgTiles().addTo(card._jmap);
+    _sgAddBase(card._jmap, false);
     // Add fit-to-route button
     const wrap = card.querySelector(".jcard-map-wrap");
     if (wrap) {
@@ -3991,7 +4137,7 @@ function _openCardMap(card, data, coords, optIdx) {
 }
 
 function _drawOnMap(map, data, coords, optIdx = 0) {
-  map.eachLayer((l) => { if (!(l instanceof L.TileLayer)) l.remove(); });
+  map.eachLayer((l) => { if (!l._sgBase) l.remove(); });
 
   let { fLat, fLng, tLat, tLng, fromName, toName } = coords;
   // Fall back to coords in the response (bus-only plan has them in data.from/to)
@@ -4247,7 +4393,7 @@ function openStopPicker(field) {
       // Start at Singapore centre; jump to user location if available
       _pickerMap = L.map(container, { zoomControl: true, attributionControl: false })
                    .setView(SG_CENTER, 15);
-      _sgTiles().addTo(_pickerMap);
+      _sgAddBase(_pickerMap, true);
       _pickerMap.on("moveend", _onPickerMove);
 
       // Try to centre on user GPS first

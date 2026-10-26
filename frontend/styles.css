@@ -1135,8 +1135,9 @@ th.num, td.num { text-align: right; }
   pointer-events: none;
   line-height: 1.4;
 }
-/* Map tiles (OneMap — see _sgTiles in app.js). Light mode: the "Grey"
-   style, shown as-is. Dark mode: the "Default" style through a smart invert —
+/* Raster map tiles (OneMap — see _sgTiles in app.js; the fallback and the
+   Plan route mini-maps). Light mode: the "Grey" style, shown as-is. Dark
+   mode: the "Default" style through a smart invert —
    invert flips lightness, and hue-rotate(180deg) turns the hues back (green
    parks, blue water, red MRT stay roughly their colour); then desaturate for
    a neutral charcoal. (The old 210deg rotate tinted everything purple.)
@@ -1147,14 +1148,21 @@ th.num, td.num { text-align: right; }
 .leaflet-tile { will-change: transform; margin-bottom: -1px; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .leaflet-container { background: #1e1d1b; }
-  :root:not([data-theme="light"]) .leaflet-tile-pane {
+  :root:not([data-theme="light"]) .leaflet-container:not(.sg-vector) .leaflet-tile-pane {
     filter: invert(92%) hue-rotate(180deg) saturate(.55) brightness(.95) contrast(.92);
   }
 }
 [data-theme="dark"] .leaflet-container { background: #1e1d1b; }
-[data-theme="dark"] .leaflet-tile-pane {
+[data-theme="dark"] .leaflet-container:not(.sg-vector) .leaflet-tile-pane {
   filter: invert(92%) hue-rotate(180deg) saturate(.55) brightness(.95) contrast(.92);
 }
+/* Vector base maps (MapLibre, see _sgAddBase) are themed by their style —
+   no filter; background matches each style's land colour. */
+.leaflet-container.sg-vector { background: #f4f3f0; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .leaflet-container.sg-vector { background: #1c1d20; }
+}
+[data-theme="dark"] .leaflet-container.sg-vector { background: #1c1d20; }
 /* ── Per-card inline map ─────────────────────────────────── */
 .jcard-map-wrap {
   border-top: 1px solid var(--line);
