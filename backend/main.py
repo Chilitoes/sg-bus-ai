@@ -79,16 +79,29 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting background data collector …")
     collector_task = asyncio.create_task(start_data_collection())
+    warmer_task = asyncio.create_task(_admin_cache_warmer())
 
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
     logger.info("Shutting down …")
-    collector_task.cancel()
-    try:
-        await collector_task
-    except asyncio.CancelledError:
-        pass
+    for task in (collector_task, warmer_task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+async def _admin_cache_warmer() -> None:
+    """Keep the Data tab's aggregates precomputed (see warm_admin_cache) so
+    opening it never waits on a full-table scan. Starts after a short delay so
+    it doesn't compete with startup, then refreshes every 5 minutes."""
+    from api_routes import warm_admin_cache
+    await asyncio.sleep(30)
+    while True:
+        await asyncio.to_thread(warm_admin_cache)
+        await asyncio.sleep(300)
 
 
 # ── App ───────────────────────────────────────────────────────────────────────

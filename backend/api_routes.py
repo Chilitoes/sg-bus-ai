@@ -23,6 +23,7 @@ import asyncio
 import itertools
 import logging
 import math
+import threading
 import time as _time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -471,23 +472,71 @@ def _stop_accuracy(stop_code: str, base_q) -> dict | None:
     return accuracy
 
 
-# Short-TTL cache for the admin dashboard endpoints. They re-scan the growing
-# arrivals table per page load and don't need to be real-time, so a 60 s cache
-# turns a refresh-spam into a single recompute.
+# Admin dashboard cache (Data tab: /data, /analytics, /analytics/heatmap).
+# Each one aggregates over the whole, ever-growing arrivals table, which takes
+# seconds on the home server, and with a plain 60 s TTL the Data tab waited for
+# those recomputes on almost every visit. Now it's stale-while-revalidate: a
+# cached result is always served immediately, and if it's older than the TTL a
+# background thread recomputes it for next time. warm_admin_cache() (run
+# periodically from main.py's lifespan) keeps entries fresh so even a first
+# visit is fast. Only a cold start with nothing cached computes inline.
 _admin_cache: dict[str, tuple[float, dict]] = {}
 _ADMIN_CACHE_TTL = 60.0
+_admin_refreshing: set[str] = set()
+_admin_lock = threading.Lock()
 
 
-def _admin_cache_get(key: str) -> dict | None:
-    hit = _admin_cache.get(key)
-    if hit is not None and _time.monotonic() - hit[0] < _ADMIN_CACHE_TTL:
-        return hit[1]
-    return None
-
-
-def _admin_cache_put(key: str, value: dict) -> dict:
+def _admin_compute_and_store(key: str, compute, db: Session | None = None) -> dict:
+    own = db is None
+    if own:
+        db = SessionLocal()
+    try:
+        value = compute(db)
+    finally:
+        if own:
+            db.close()
     _admin_cache[key] = (_time.monotonic(), value)
     return value
+
+
+def _admin_refresh_bg(key: str, compute) -> None:
+    with _admin_lock:
+        if key in _admin_refreshing:
+            return
+        _admin_refreshing.add(key)
+
+    def run() -> None:
+        try:
+            _admin_compute_and_store(key, compute)
+        except Exception as exc:  # noqa: BLE001 — keep serving the old value
+            logger.warning("Admin cache refresh failed for %s: %s", key, exc)
+        finally:
+            with _admin_lock:
+                _admin_refreshing.discard(key)
+
+    threading.Thread(target=run, name=f"admin-cache-{key}", daemon=True).start()
+
+
+def _admin_serve(key: str, compute, db: Session) -> dict:
+    hit = _admin_cache.get(key)
+    if hit is None:
+        return _admin_compute_and_store(key, compute, db)
+    if _time.monotonic() - hit[0] >= _ADMIN_CACHE_TTL:
+        _admin_refresh_bg(key, compute)
+    return hit[1]
+
+
+def warm_admin_cache() -> None:
+    """Recompute every admin dashboard entry. Blocking — call from a thread."""
+    for key, compute in (
+        ("data", _compute_data_overview),
+        ("analytics", _compute_analytics),
+        ("heatmap", _compute_heatmap),
+    ):
+        try:
+            _admin_compute_and_store(key, compute)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Admin cache warm failed for %s: %s", key, exc)
 
 
 @router.get("/stats/{stop_code}")
@@ -1818,9 +1867,10 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
     - Monitored stops
     - ML model status
     """
-    cached = _admin_cache_get("data")
-    if cached is not None:
-        return cached
+    return _admin_serve("data", _compute_data_overview, db)
+
+
+def _compute_data_overview(db: Session) -> dict:
     db_type = "PostgreSQL" if DATABASE_URL.startswith("postgresql") else "SQLite"
 
     # Table counts
@@ -1943,7 +1993,7 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
         for r in top_stops_q
     ]
 
-    return _admin_cache_put("data", {
+    return {
         "database": {
             "type":           db_type,
             "arrival_records": arrival_count,
@@ -1960,7 +2010,7 @@ def get_data_overview(admin: User = Depends(require_admin), db: Session = Depend
         },
         "recent_records":  recent,
         "recent_tracking": tracking,
-    })
+    }
 
 
 # ── Checkpoint traffic ────────────────────────────────────────────────────────
@@ -2287,9 +2337,10 @@ def get_analytics(
     db: Session = Depends(get_db),
 ) -> dict:
     """Usage dashboard data. Admin only."""
-    cached = _admin_cache_get("analytics")
-    if cached is not None:
-        return cached
+    return _admin_serve("analytics", _compute_analytics, db)
+
+
+def _compute_analytics(db: Session) -> dict:
     sgt_now = datetime.utcnow() + timedelta(hours=8)
     today     = sgt_now.strftime("%Y-%m-%d")
     yesterday = (sgt_now - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -2447,7 +2498,7 @@ def get_analytics(
     )
     avg_rating = round(float(avg_rating_raw), 1) if avg_rating_raw else None
 
-    return _admin_cache_put("analytics", {
+    return {
         "queries": {
             "today":     today_queries,
             "yesterday": yesterday_queries,
@@ -2469,7 +2520,7 @@ def get_analytics(
             "avg_rating": avg_rating,
         },
         "top_stops": top_stops,
-    })
+    }
 
 
 @router.get("/analytics/heatmap")
@@ -2481,9 +2532,10 @@ def get_punctuality_heatmap(
     ground-truth records. Admin only — powers the punctuality heatmap that
     surfaces real value over the raw LTA feed (which hour/day buses run late).
     """
-    cached = _admin_cache_get("heatmap")
-    if cached is not None:
-        return cached
+    return _admin_serve("heatmap", _compute_heatmap, db)
+
+
+def _compute_heatmap(db: Session) -> dict:
     cutoff = datetime.utcnow() - timedelta(days=90)
     rows = (
         db.query(
@@ -2509,4 +2561,4 @@ def get_punctuality_heatmap(
         n = int(r.n)
         grid[d][h] = {"avg": round(r.avg_delay, 1), "n": n}
         total += n
-    return _admin_cache_put("heatmap", {"grid": grid, "total_records": total, "days": 90})
+    return {"grid": grid, "total_records": total, "days": 90}
