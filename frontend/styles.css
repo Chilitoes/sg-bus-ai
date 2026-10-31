@@ -2594,3 +2594,12 @@ body.maintenance-open { overflow: hidden; }
   border-radius: 14px; border: 1px solid var(--line); margin-bottom: .9rem;
 }
 .notif-popup-img.hidden { display: none; }
+.mim-seg-spare {
+  position: absolute; top: 0; height: 6px; border-radius: 3px;
+  background: repeating-linear-gradient(90deg, var(--good) 0 4px, transparent 4px 8px); opacity: .55;
+}
+.mim-track.now .mim-seg-spare   { background: repeating-linear-gradient(90deg, var(--warn) 0 4px, transparent 4px 8px); }
+.mim-track.hurry .mim-seg-spare,
+.mim-track.no .mim-seg-spare    { display: none; }
+.mim-node.stop { border-color: var(--good); background: var(--surface); }
+.mim-track.now .mim-node.stop { border-color: var(--warn); }

@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.23";
+const APP_VERSION = "1.2.24";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1636,7 +1636,8 @@ function _fireArrivalAlert(stop, svc, secs) {
 // upcoming bus: when to leave, whether to hurry, and which bus is the first one
 // still catchable. "Notify me" pings at leave time while the app is open.
 const MIM_DETOUR     = 1.3;
-const MIM_BUFFER_S   = 45;      // reach the kerb and flag the bus down
+const MIM_EARLY_OPTS = [60, 120, 180];   // "arrive early" choices (s)
+const MIM_EARLY_KEY  = "sgbus_mim_early";
 const MIM_AT_STOP_M  = 40;
 const MIM_PACES      = { relaxed: 65, normal: 80, brisk: 100 };  // m/min
 const MIM_PACE_KEY   = "sgbus_mim_pace";
@@ -1648,11 +1649,25 @@ const M = {
   target: null,      // api_arrival ISO of a bus the user picked (else auto)
   pos: null, posAcc: null, posTs: 0, locErr: null, usingHome: false,
   pace: localStorage.getItem(MIM_PACE_KEY) || "normal",
+  early: Number(localStorage.getItem(MIM_EARLY_KEY)) || 60,
   watchId: null, tickTmr: null, refreshTmr: null,
   notify: null,      // { stop, svc, target, fired } — follows the tracked bus
   busesKey: "",
 };
 if (!MIM_PACES[M.pace]) M.pace = "normal";
+if (!MIM_EARLY_OPTS.includes(M.early)) M.early = 60;
+
+// Time to have in hand at the stop: the user's "arrive early" choice, raised
+// to the route's typical prediction error (MAE) when that's larger, rounded
+// up to 15 s. A ±2 min route gets a 2 min cushion even if you picked 1.
+function _mimCushion() {
+  const want = Math.max(M.early, M.mae || 0);
+  return Math.ceil(want / 15) * 15;
+}
+function _mimMinsHalf(s) {
+  const m = Math.round(s / 30) / 2;
+  return `${m % 1 ? m.toFixed(1) : m} min`;
+}
 
 function _distM(lat1, lng1, lat2, lng2) {
   const R = 6371000, rad = (x) => (x * Math.PI) / 180;
@@ -1689,7 +1704,7 @@ function _mimEval(b, walkM) {
     return { b, at, busIn, walkS: 0, leaveIn: busIn, state: busIn > -30 ? "there" : "no" };
   }
   const walkS = walkM / MIM_PACES[M.pace] * 60;
-  const leaveIn = busIn - walkS - MIM_BUFFER_S;
+  const leaveIn = busIn - walkS - _mimCushion();
   const briskSlack = busIn - walkM / MIM_PACES.brisk * 60;
   const state = leaveIn >= 60 ? "yes" : leaveIn >= 0 ? "now" : briskSlack >= 0 ? "hurry" : "no";
   return { b, at, busIn, walkS, leaveIn, briskSlack, state };
@@ -1901,7 +1916,8 @@ function _mimRender() {
     let big, hint;
     if (e.state === "yes") {
       big = `Leave in <b>${_mimCountdown(e.leaveIn)}</b>`;
-      hint = `Leave by ${fmtClock(new Date(Date.now() + e.leaveIn * 1000))}`;
+      hint = `Leave by ${fmtClock(new Date(Date.now() + e.leaveIn * 1000))} · ${_mimMinsHalf(_mimCushion())} to spare at the stop`;
+      if (_mimCushion() > M.early) hint += `<br><span class="mim-skip">Includes ${_mimMinsHalf(_mimCushion() - M.early)} extra: this route's timing varies</span>`;
       const skipped = !M.target && evals[0] !== e && evals[0].state === "no";
       if (skipped) hint += `<br><span class="mim-skip">The ${fmtClock(evals[0].at)} bus comes too soon to catch</span>`;
     } else if (e.state === "now") {
@@ -1927,19 +1943,25 @@ function _mimRender() {
 
     if (e.state !== "there" && e.busIn > 0) {
       const span = Math.max(e.busIn, 1);
-      const leavePct = Math.min(100, Math.max(0, e.leaveIn / span * 100));
+      const pct = (sec) => Math.min(100, Math.max(0, sec / span * 100));
       const late = e.leaveIn < 0;
+      const leaveS = Math.max(0, e.leaveIn);
+      const atStopS = leaveS + e.walkS;              // arrival on foot
+      const leavePct = pct(leaveS), stopPct = pct(atStopS);
       tlHtml = `
         <div class="mim-track ${st.cls}">
           <div class="mim-seg-wait" style="width:${leavePct}%"></div>
-          <div class="mim-seg-walk" style="left:${leavePct}%;width:${100 - leavePct}%"></div>
+          <div class="mim-seg-walk" style="left:${leavePct}%;width:${stopPct - leavePct}%"></div>
+          <div class="mim-seg-spare" style="left:${stopPct}%;width:${100 - stopPct}%"></div>
           <span class="mim-node now" style="left:0%"></span>
           <span class="mim-node leave" style="left:${leavePct}%"></span>
+          ${atStopS < e.busIn ? `<span class="mim-node stop" style="left:${stopPct}%"></span>` : ""}
           <span class="mim-node bus" style="left:100%"></span>
         </div>
         <div class="mim-tl-labels">
           <span><b>Now</b>${fmtClock(new Date())}</span>
-          <span class="mid"><b>Leave</b>${late ? "now" : fmtClock(new Date(Date.now() + e.leaveIn * 1000))}</span>
+          <span class="mid"><b>Leave</b>${late ? "now" : fmtClock(new Date(Date.now() + leaveS * 1000))}</span>
+          <span class="mid"><b>At stop</b>${fmtClock(new Date(Date.now() + atStopS * 1000))}</span>
           <span class="end"><b>Bus ${esc(M.svc)}</b>${fmtClock(e.at)}</span>
         </div>`;
     }
@@ -2057,6 +2079,8 @@ function _mimRenderPill() {
 function _mimSyncPace() {
   document.querySelectorAll("#mim-pace [data-pace]").forEach((b) =>
     b.classList.toggle("active", b.dataset.pace === M.pace));
+  document.querySelectorAll("#mim-early [data-early]").forEach((b) =>
+    b.classList.toggle("active", Number(b.dataset.early) === M.early));
 }
 
 $("mim-close").addEventListener("click", closeMim);
@@ -2078,6 +2102,13 @@ $("mim-sheet").addEventListener("click", (ev) => {
   if (pace) {
     M.pace = pace.dataset.pace;
     try { localStorage.setItem(MIM_PACE_KEY, M.pace); } catch {}
+    _mimSyncPace(); M.busesKey = ""; _mimRender();
+    return;
+  }
+  const early = ev.target.closest("[data-early]");
+  if (early) {
+    M.early = Number(early.dataset.early);
+    try { localStorage.setItem(MIM_EARLY_KEY, String(M.early)); } catch {}
     _mimSyncPace(); M.busesKey = ""; _mimRender();
     return;
   }

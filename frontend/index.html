@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.2.23" />
+  <link rel="stylesheet" href="styles.css?v=1.2.24" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" />
@@ -756,7 +756,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">1.2.23</span>
+            <span class="stg-row-val" id="stg-version-val">1.2.24</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -1011,6 +1011,12 @@
       <button data-pace="normal">Normal</button>
       <button data-pace="brisk">Brisk</button>
     </div>
+    <div class="mim-label">Arrive early by</div>
+    <div id="mim-early" class="mim-pace">
+      <button data-early="60">1 min</button>
+      <button data-early="120">2 min</button>
+      <button data-early="180">3 min</button>
+    </div>
     <div id="mim-loc" class="mim-loc"></div>
     <button id="mim-notify" class="mim-notify"></button>
     <details id="mim-more" class="mim-more">
@@ -1038,6 +1044,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"></script>
-<script src="app.js?v=1.2.23"></script>
+<script src="app.js?v=1.2.24"></script>
 </body>
 </html>
