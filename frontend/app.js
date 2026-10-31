@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.21";
+const APP_VERSION = "1.2.22";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -591,7 +591,9 @@ document.addEventListener("click", (e) => {
 const GUEST_NOTIF_SEEN_KEY = "sgbus_notif_seen_id";
 let _lastNotifMaxId = 0;
 
+let _lastNotifFetch = 0;
 async function loadNotifications() {
+  _lastNotifFetch = Date.now();
   try {
     const data = await api("/api/notifications");
     let items = data.items || [];
@@ -650,6 +652,16 @@ function _notifParts(body) {
   const m = (body || "").match(/\n?\[img:(whats-new\/[\w.-]+\.(?:png|jpe?g|webp))\]\s*$/);
   return m ? { text: body.slice(0, m.index).trim(), img: m[1] } : { text: body || "", img: null };
 }
+
+// iOS home-screen apps are usually resumed, not relaunched, so a startup-only
+// check would never see notifications posted while the app sat in the
+// background. Re-check on return to the foreground; the id watermark still
+// keeps each popup to once.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || Date.now() - _lastNotifFetch < 60_000) return;
+  _notifPopupAttempted = false;
+  loadNotifications();
+});
 
 function maybeShowNotifPopup(items) {
   if (_notifPopupAttempted) return;                 // app-open only, not on every reload
