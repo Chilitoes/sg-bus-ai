@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.18";
+const APP_VERSION = "1.2.19";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -727,6 +727,7 @@ document.addEventListener("keydown", (e) => {
   else if (_isOpen("a2hs-guide"))    { dismissInstallGuide(); }
   else if (_isOpen("feedback-overlay")) { $("feedback-close")?.click(); }
   else if (_isOpen("stop-picker-modal")) { closeStopPicker(); }
+  else if (_isOpen("mim-sheet"))     { closeMim(); }
   else if (_isOpen("route-sheet"))   { closeRouteSheet(); }
   else if (_isOpen("account-sheet")) { closeSheet(); }
   else return;
@@ -1382,6 +1383,11 @@ function svcCard(svc) {
       <div class="svc-detail"><div class="svc-detail-inner">
         ${relLine(svc.reliability)}
         ${svc.buses.map(busLine).join("")}
+        <button class="svc-mim-btn" data-mim-svc="${esc(svc.service_no)}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/></svg>
+          <span class="svc-mim-txt">Can I make it?</span>
+          <svg class="svc-mim-go" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
         <button class="svc-alert-btn${alerted ? " on" : ""}" data-alert-svc="${esc(svc.service_no)}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           <span class="svc-alert-txt">${alerted ? "Alert on — we'll ping you before it arrives" : "Alert me before this bus arrives"}</span>
@@ -1454,6 +1460,12 @@ function renderArrivals(data) {
 }
 
 $("rows").addEventListener("click", (e) => {
+  const mimBtn = e.target.closest(".svc-mim-btn");
+  if (mimBtn) {
+    e.stopPropagation();
+    openMim(mimBtn.dataset.mimSvc);
+    return;
+  }
   // Arrival alert toggle (inside the expanded detail)
   const alertBtn = e.target.closest(".svc-alert-btn");
   if (alertBtn) {
@@ -1616,6 +1628,447 @@ function _fireArrivalAlert(stop, svc, secs) {
   }
   toast(`🔔 ${title}`);
 }
+
+// ── "Can I make it?" ──────────────────────────────────────
+// Live go / no-go for one service at the open stop. GPS gives the walk to the
+// stop (straight line × 1.3 detour at the chosen pace — same model as the
+// journey planner), which is weighed against the AI-predicted arrival of each
+// upcoming bus: when to leave, whether to hurry, and which bus is the first one
+// still catchable. "Notify me" pings at leave time while the app is open.
+const MIM_DETOUR     = 1.3;
+const MIM_BUFFER_S   = 45;      // reach the kerb and flag the bus down
+const MIM_AT_STOP_M  = 40;
+const MIM_PACES      = { relaxed: 65, normal: 80, brisk: 100 };  // m/min
+const MIM_PACE_KEY   = "sgbus_mim_pace";
+const MIM_REFRESH_MS = 20_000;
+
+const M = {
+  open: false, stop: null, svc: null, stopName: "", stopLat: null, stopLng: null,
+  buses: [], mae: null, loaded: false, loadErr: null,
+  target: null,      // api_arrival ISO of a bus the user picked (else auto)
+  pos: null, posAcc: null, posTs: 0, locErr: null, usingHome: false,
+  pace: localStorage.getItem(MIM_PACE_KEY) || "normal",
+  watchId: null, tickTmr: null, refreshTmr: null,
+  notify: null,      // { stop, svc, target, fired } — follows the tracked bus
+  busesKey: "",
+};
+if (!MIM_PACES[M.pace]) M.pace = "normal";
+
+function _distM(lat1, lng1, lat2, lng2) {
+  const R = 6371000, rad = (x) => (x * Math.PI) / 180;
+  const dp = rad(lat2 - lat1), dl = rad(lng2 - lng1);
+  const a = Math.sin(dp / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dl / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+function _mimCountdown(s) {
+  s = Math.max(0, Math.round(s));
+  if (s >= 3600) return `${Math.floor(s / 3600)}h ${String(Math.floor(s % 3600 / 60)).padStart(2, "0")}m`;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+function _mimMins(s) {
+  const m = Math.round(Math.max(0, s) / 60);
+  return m < 1 ? "<1 min" : `${m} min`;
+}
+
+// Walking distance (m) along streets, or null with no fix yet.
+function _mimWalkM() {
+  if (!M.pos || M.stopLat == null) return null;
+  return _distM(M.pos.lat, M.pos.lng, M.stopLat, M.stopLng) * MIM_DETOUR;
+}
+function _mimBusDate(b) { return parseUTC(b.ai_arrival) || parseUTC(b.api_arrival); }
+
+// Verdict for one bus: yes (time to spare) · now · hurry (only at a brisk
+// walk, no buffer) · no · there (already at the stop).
+function _mimEval(b, walkM) {
+  const at = _mimBusDate(b);
+  const busIn = secsUntil(at);
+  if (busIn === null) return null;
+  const crowM = walkM / MIM_DETOUR;
+  if (crowM < MIM_AT_STOP_M) {
+    return { b, at, busIn, walkS: 0, leaveIn: busIn, state: busIn > -30 ? "there" : "no" };
+  }
+  const walkS = walkM / MIM_PACES[M.pace] * 60;
+  const leaveIn = busIn - walkS - MIM_BUFFER_S;
+  const briskSlack = busIn - walkM / MIM_PACES.brisk * 60;
+  const state = leaveIn >= 60 ? "yes" : leaveIn >= 0 ? "now" : briskSlack >= 0 ? "hurry" : "no";
+  return { b, at, busIn, walkS, leaveIn, briskSlack, state };
+}
+
+// The bus to plan around: the user's pick if it's still in the feed (matched
+// by arrival time, since LTA has no bus IDs), else the first catchable one.
+function _mimPick(evals, target) {
+  if (target) {
+    const t = parseUTC(target)?.getTime();
+    let best = null, bestD = 3 * 60 * 1000;
+    for (const e of evals) {
+      const d = Math.abs((parseUTC(e.b.api_arrival)?.getTime() ?? Infinity) - t);
+      if (d < bestD) { best = e; bestD = d; }
+    }
+    if (best) return best;
+  }
+  return evals.find((e) => e.state !== "no") || evals[evals.length - 1] || null;
+}
+
+function _mimEvals() {
+  const walkM = _mimWalkM();
+  if (walkM === null) return null;
+  return M.buses.map((b) => _mimEval(b, walkM)).filter((e) => e && e.busIn > -60);
+}
+
+async function openMim(svc) {
+  if (!S.stop || !svc) return;
+  if (M.notify && (M.notify.stop !== S.stop || M.notify.svc !== svc)) {
+    M.notify = null;
+    toast("Previous leave reminder cancelled");
+  }
+  M.stop = S.stop; M.svc = svc; M.target = null;
+  M.stopName = S.stopInfo?.description || `Stop ${S.stop}`;
+  M.stopLat = S.stopInfo?.latitude ?? null;
+  M.stopLng = S.stopInfo?.longitude ?? null;
+  if (M.stopLat == null) {
+    const st = _loadStopsCache().find((s) => s.bus_stop_code === S.stop);
+    if (st) { M.stopLat = st.latitude; M.stopLng = st.longitude; }
+  }
+  M.buses = []; M.loaded = false; M.loadErr = null; M.busesKey = "";
+  M.open = true;
+  $("mim-badge").textContent = svc;
+  $("mim-sub").textContent = M.stopName;
+  _mimSyncPace();
+  const sheet = $("mim-sheet");
+  show($("mim-backdrop")); show(sheet);
+  requestAnimationFrame(() => sheet.classList.add("open"));
+  _mimStartLocation();
+  _mimStartLoops();
+  _mimRender();
+  _mimRefresh();
+}
+
+function closeMim() {
+  M.open = false;
+  const sheet = $("mim-sheet");
+  sheet.classList.remove("open");
+  setTimeout(() => { if (!M.open) { hide(sheet); hide($("mim-backdrop")); } }, 280);
+  // Keep tracking in the background only while a leave-time ping is armed.
+  if (!M.notify) _mimStopAll();
+  _mimRenderPill();
+}
+
+function _mimStopAll() {
+  if (M.watchId !== null) { navigator.geolocation?.clearWatch(M.watchId); M.watchId = null; }
+  clearInterval(M.tickTmr); clearInterval(M.refreshTmr);
+  M.tickTmr = M.refreshTmr = null;
+}
+
+function _mimStartLoops() {
+  if (!M.tickTmr) M.tickTmr = setInterval(_mimTick, 1000);
+  if (!M.refreshTmr) M.refreshTmr = setInterval(_mimRefresh, MIM_REFRESH_MS);
+}
+
+function _mimStartLocation(forceGps = false) {
+  M.locErr = null;
+  if (!forceGps && M.usingHome) return;
+  M.usingHome = false;
+  if (!navigator.geolocation) { M.locErr = "Location isn't available on this device."; return; }
+  if (M.watchId !== null) return;
+  M.watchId = navigator.geolocation.watchPosition(
+    ({ coords }) => {
+      M.pos = { lat: coords.latitude, lng: coords.longitude };
+      M.posAcc = coords.accuracy; M.posTs = Date.now(); M.locErr = null;
+      _mimRender();
+    },
+    (err) => {
+      M.locErr = err.code === 1
+        ? "Location is off for this app. Allow it in Settings, or use your Home location."
+        : "Couldn't get your location yet.";
+      _mimRender();
+    },
+    { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
+  );
+}
+
+function _mimUseHome() {
+  const h = getHome();
+  if (!h) { toast("Set a Home location in Settings first"); return; }
+  if (M.watchId !== null) { navigator.geolocation.clearWatch(M.watchId); M.watchId = null; }
+  M.usingHome = true; M.locErr = null;
+  M.pos = { lat: h.lat, lng: h.lng }; M.posAcc = null; M.posTs = Date.now();
+  _mimRender();
+}
+
+async function _mimRefresh() {
+  const stop = M.stop, svc = M.svc;
+  if (!stop) return;
+  try {
+    const d = await api(`/api/arrivals/${stop}`);
+    if (M.stop !== stop || M.svc !== svc) return;
+    const s = (d.services || []).find((x) => x.service_no === svc);
+    M.buses = s?.buses || [];
+    M.mae = s?.reliability?.mae_sec ?? null;
+    M.loaded = true; M.loadErr = null;
+  } catch (e) {
+    M.loadErr = e.message;
+  }
+  _mimRender();
+}
+
+function _mimTick() {
+  if (M.open && !document.hidden) _mimRender();
+  _mimCheckNotify();
+  _mimRenderPill();
+}
+
+// ── Render ────────────────────────────────────────────────
+const MIM_STATE = {
+  yes:   { tag: "Yes, you'll make it",   cls: "yes" },
+  now:   { tag: "Leave now",             cls: "now" },
+  hurry: { tag: "Only if you hurry",     cls: "hurry" },
+  no:    { tag: "You'll miss this one",  cls: "no" },
+  there: { tag: "You're at the stop",    cls: "yes" },
+};
+
+function _mimRender() {
+  if (!M.stop) return;
+  const hero = $("mim-hero"), tl = $("mim-timeline"), facts = $("mim-facts");
+  const evals = _mimEvals();
+
+  // Location line
+  const loc = $("mim-loc");
+  const walkM = _mimWalkM();
+  let locHtml;
+  if (M.locErr && !M.pos) {
+    locHtml = `<span class="mim-loc-txt warn">${esc(M.locErr)}</span>
+      <span class="mim-loc-btns"><button data-mim-act="retry">Try again</button>${getHome() ? `<button data-mim-act="home">Use Home</button>` : ""}</span>`;
+  } else if (!M.pos) {
+    locHtml = `<span class="mim-loc-txt"><span class="mim-pulse"></span>Finding your location…</span>
+      ${getHome() ? `<span class="mim-loc-btns"><button data-mim-act="home">Use Home</button></span>` : ""}`;
+  } else if (M.usingHome) {
+    locHtml = `<span class="mim-loc-txt">From your Home location</span>
+      <span class="mim-loc-btns"><button data-mim-act="gps">Use GPS</button></span>`;
+  } else {
+    const age = Math.round((Date.now() - M.posTs) / 1000);
+    const acc = M.posAcc ? ` · ±${Math.round(M.posAcc)} m` : "";
+    locHtml = `<span class="mim-loc-txt"><span class="mim-live"></span>Live location${acc} · ${age < 5 ? "just now" : `${age}s ago`}</span>
+      ${getHome() ? `<span class="mim-loc-btns"><button data-mim-act="home">Use Home</button></span>` : ""}`;
+  }
+  if (loc._html !== locHtml) { loc._html = locHtml; loc.innerHTML = locHtml; }
+
+  // Hero + timeline
+  let heroHtml, tlHtml = "", factsHtml = "";
+  if (M.stopLat == null) {
+    heroHtml = `<div class="mim-verdict wait"><div class="mim-big">No stop location</div>
+      <div class="mim-hint">This stop has no coordinates, so walk time can't be worked out.</div></div>`;
+  } else if (!M.loaded) {
+    heroHtml = M.loadErr
+      ? `<div class="mim-verdict wait"><div class="mim-big">Couldn't load buses</div><div class="mim-hint">${esc(M.loadErr)}</div></div>`
+      : `<div class="mim-verdict wait"><div class="mim-big mim-skel">Checking…</div></div>`;
+  } else if (!M.buses.length) {
+    heroHtml = `<div class="mim-verdict no"><span class="mim-tag">No buses</span>
+      <div class="mim-big">No ${esc(M.svc)} coming</div><div class="mim-hint">No upcoming arrivals at this stop right now.</div></div>`;
+  } else if (!evals) {
+    heroHtml = `<div class="mim-verdict wait"><div class="mim-big mim-skel">Locating you…</div>
+      <div class="mim-hint">We need your location to work out the walk.</div></div>`;
+  } else if (!evals.length) {
+    heroHtml = `<div class="mim-verdict no"><span class="mim-tag">No buses</span>
+      <div class="mim-big">Nothing catchable</div></div>`;
+  } else {
+    const e = _mimPick(evals, M.target);
+    const st = MIM_STATE[e.state];
+    const firstOk = evals.find((x) => x.state !== "no");
+    let big, hint;
+    if (e.state === "yes") {
+      big = `Leave in <b>${_mimCountdown(e.leaveIn)}</b>`;
+      hint = `Leave by ${fmtClock(new Date(Date.now() + e.leaveIn * 1000))} · bus at ${fmtClock(e.at)}`;
+      const skipped = !M.target && evals[0] !== e && evals[0].state === "no";
+      if (skipped) hint += `<br><span class="mim-skip">The ${fmtClock(evals[0].at)} bus comes too soon to catch</span>`;
+    } else if (e.state === "now") {
+      big = `<b>Go now</b>`;
+      hint = `A normal walk gets you there ${_mimMins(e.busIn - e.walkS)} early`;
+    } else if (e.state === "hurry") {
+      big = `<b>Walk fast</b>`;
+      const slack = Math.round(e.briskSlack);
+      hint = `A brisk walk gets you there ${slack >= 60 ? _mimMins(slack) : `${slack}s`} before it`;
+    } else if (e.state === "there") {
+      big = e.busIn < DUE_SECS ? `<b>Arriving</b>` : `Bus in <b>${_mimCountdown(e.busIn)}</b>`;
+      hint = `Bus at ${fmtClock(e.at)}`;
+    } else {
+      big = `<b>Too late</b>`;
+      hint = firstOk && firstOk !== e
+        ? `Next one you can catch: ${fmtClock(firstOk.at)}`
+        : `You're about ${_mimMins(e.walkS)} away; it arrives in ${_mimMins(e.busIn)}`;
+    }
+    heroHtml = `<div class="mim-verdict ${st.cls}">
+      <span class="mim-tag">${st.tag}</span>
+      <div class="mim-big">${big}</div>
+      <div class="mim-hint">${hint}</div></div>`;
+
+    if (e.state !== "there" && e.busIn > 0) {
+      const span = Math.max(e.busIn, 1);
+      const leavePct = Math.min(100, Math.max(0, e.leaveIn / span * 100));
+      const late = e.leaveIn < 0;
+      tlHtml = `
+        <div class="mim-track ${st.cls}">
+          <div class="mim-seg-wait" style="width:${leavePct}%"></div>
+          <div class="mim-seg-walk" style="left:${leavePct}%;width:${100 - leavePct}%"></div>
+          <span class="mim-node now" style="left:0%"></span>
+          <span class="mim-node leave" style="left:${leavePct}%"></span>
+          <span class="mim-node bus" style="left:100%"></span>
+        </div>
+        <div class="mim-tl-labels">
+          <span><b>Now</b>${fmtClock(new Date())}</span>
+          <span class="mid"><b>Leave</b>${late ? "now" : fmtClock(new Date(Date.now() + e.leaveIn * 1000))}</span>
+          <span class="end"><b>Bus ${esc(M.svc)}</b>${fmtClock(e.at)}</span>
+        </div>`;
+    }
+
+    const dist = walkM;
+    const distTxt = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist / 10) * 10} m`;
+    factsHtml = `
+      <div class="mim-fact"><span class="mim-fact-v">${e.state === "there" ? "0 min" : _mimMins(e.walkS)}</span><span class="mim-fact-l">walk · ${distTxt}</span></div>
+      <div class="mim-fact"><span class="mim-fact-v">${fmtClock(e.at)}</span><span class="mim-fact-l">AI arrival</span></div>
+      <div class="mim-fact"><span class="mim-fact-v">${M.mae != null ? esc(accBand(M.mae)) : "–"}</span><span class="mim-fact-l">AI accuracy</span></div>`;
+
+    // Bus chips: rebuilt only when the list, states or selection change, so a
+    // tap never lands on a node that was swapped out mid-press.
+    const picked = e;
+    const key = evals.map((x) => `${x.b.api_arrival}:${x.state}:${x === picked}:${Math.round(x.busIn / 60)}`).join("|");
+    if (key !== M.busesKey) {
+      M.busesKey = key;
+      $("mim-buses").innerHTML = evals.map((x) => `
+        <button class="mim-bus ${MIM_STATE[x.state].cls}${x === picked ? " sel" : ""}" data-mim-bus="${esc(x.b.api_arrival || "")}">
+          <span class="mim-bus-t">${fmtClock(x.at)}</span>
+          <span class="mim-bus-s"><i></i>${x.busIn < DUE_SECS ? "now" : `in ${_mimMins(x.busIn)}`}</span>
+        </button>`).join("");
+    }
+  }
+  if (!evals?.length) { M.busesKey = ""; $("mim-buses").innerHTML = ""; }
+  hero.innerHTML = heroHtml;
+  tl.innerHTML = tlHtml;
+  if (facts._html !== factsHtml) { facts._html = factsHtml; facts.innerHTML = factsHtml; }
+  _mimRenderNotifyBtn(evals);
+}
+
+function _mimTracked() {
+  const n = M.notify;
+  if (!n || n.stop !== M.stop || n.svc !== M.svc) return null;
+  const evals = _mimEvals();
+  if (!evals?.length) return null;
+  return _mimPick(evals, n.target);
+}
+
+function _mimRenderNotifyBtn(evals) {
+  const btn = $("mim-notify");
+  const e = evals?.length ? _mimPick(evals, M.target) : null;
+  const armed = M.notify && M.notify.stop === M.stop && M.notify.svc === M.svc;
+  let html, dis = false;
+  if (armed) {
+    const t = _mimTracked();
+    html = t && t.leaveIn > 0
+      ? `We'll ping you at ${fmtClock(new Date(Date.now() + t.leaveIn * 1000))} · <u>Cancel</u>`
+      : `Ping set · <u>Cancel</u>`;
+  } else if (e && e.state === "yes") {
+    html = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg> Remind me when to leave`;
+  } else {
+    html = `Remind me when to leave`; dis = true;
+  }
+  btn.classList.toggle("armed", !!armed);
+  btn.disabled = dis && !armed;
+  if (btn._html !== html) { btn._html = html; btn.innerHTML = html; }
+}
+
+function _mimToggleNotify() {
+  if (M.notify && M.notify.stop === M.stop && M.notify.svc === M.svc) {
+    M.notify = null; toast("Reminder cancelled"); _mimRender(); return;
+  }
+  const evals = _mimEvals();
+  const e = evals?.length ? _mimPick(evals, M.target) : null;
+  if (!e || e.state !== "yes") return;
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {});
+  }
+  M.notify = { stop: M.stop, svc: M.svc, target: e.b.api_arrival, fired: false };
+  toast("We'll ping you when it's time to leave (keep the app open)");
+  _mimRender();
+}
+
+function _mimCheckNotify() {
+  const n = M.notify;
+  if (!n || n.fired) return;
+  const t = _mimTracked();
+  if (!t) return;
+  n.target = t.b.api_arrival;   // follow the bus across refreshes
+  if (t.leaveIn <= 0) {
+    n.fired = true;
+    const title = `Leave now for bus ${n.svc}`;
+    const body = `Arrives ${fmtClock(t.at)} at ${M.stopName}`;
+    try { navigator.vibrate?.([300, 120, 300]); } catch {}
+    let shown = false;
+    if ("Notification" in window && Notification.permission === "granted") {
+      try {
+        const nn = new Notification(title, { body, tag: `sgbus-leave-${n.stop}-${n.svc}`, icon: "icons/icon-192.png" });
+        nn.onclick = () => { window.focus(); nn.close(); if (!M.open) openMim(n.svc); };
+        shown = true;
+      } catch {}
+    }
+    if (!shown || !document.hidden) toast(`🚶 ${title}`);
+    setTimeout(() => {
+      if (M.notify === n) { M.notify = null; if (!M.open) _mimStopAll(); _mimRenderPill(); if (M.open) _mimRender(); }
+    }, 5000);
+  }
+}
+
+// Floating "Leave in 3:20" pill while a reminder runs with the sheet closed.
+function _mimRenderPill() {
+  const pill = $("mim-pill");
+  if (!pill) return;
+  if (M.open || !M.notify) { hide(pill); return; }
+  const t = _mimTracked();
+  let txt, cls = "yes";
+  if (!t) txt = `Bus ${M.notify.svc} · tracking…`;
+  else if (t.leaveIn > 0) txt = `Bus ${M.notify.svc} · leave in ${_mimCountdown(t.leaveIn)}`;
+  else { txt = `Bus ${M.notify.svc} · leave now`; cls = "now"; }
+  const html = `<span class="mim-pill-dot"></span>${esc(txt)}`;
+  pill.className = `mim-pill ${cls}`;
+  if (pill._html !== html) { pill._html = html; pill.innerHTML = html; }
+}
+
+function _mimSyncPace() {
+  document.querySelectorAll("#mim-pace [data-pace]").forEach((b) =>
+    b.classList.toggle("active", b.dataset.pace === M.pace));
+}
+
+$("mim-close").addEventListener("click", closeMim);
+$("mim-backdrop").addEventListener("click", closeMim);
+$("mim-pill").addEventListener("click", () => {
+  const n = M.notify;
+  if (!n) return;
+  if (S.stop !== n.stop) loadStop(n.stop);
+  // Reopen without resetting the tracked bus.
+  M.open = true;
+  const sheet = $("mim-sheet");
+  show($("mim-backdrop")); show(sheet);
+  requestAnimationFrame(() => sheet.classList.add("open"));
+  M.target = n.target;
+  _mimStartLoops(); _mimRender(); _mimRenderPill();
+});
+$("mim-sheet").addEventListener("click", (ev) => {
+  const pace = ev.target.closest("[data-pace]");
+  if (pace) {
+    M.pace = pace.dataset.pace;
+    try { localStorage.setItem(MIM_PACE_KEY, M.pace); } catch {}
+    _mimSyncPace(); M.busesKey = ""; _mimRender();
+    return;
+  }
+  const bus = ev.target.closest("[data-mim-bus]");
+  if (bus) { M.target = bus.dataset.mimBus || null; M.busesKey = ""; _mimRender(); return; }
+  const act = ev.target.closest("[data-mim-act]")?.dataset.mimAct;
+  if (act === "home") _mimUseHome();
+  else if (act === "gps" || act === "retry") {
+    if (M.watchId !== null) { navigator.geolocation.clearWatch(M.watchId); M.watchId = null; }
+    _mimStartLocation(true); _mimRender();
+  }
+  if (ev.target.closest("#mim-notify")) _mimToggleNotify();
+});
 
 async function loadStop(code) {
   code = String(code).trim();

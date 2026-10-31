@@ -2425,3 +2425,156 @@ body.maintenance-open { overflow: hidden; }
   .plan-form { padding: 1.1rem .8rem .9rem; }
   .plan-row { gap: .4rem; }
 }
+
+/* ── "Can I make it?" ─────────────────────────────────── */
+.svc-mim-btn {
+  display: flex; align-items: center; gap: .55rem; width: calc(100% - 1.6rem);
+  margin: .55rem .8rem .35rem; padding: .7rem .9rem;
+  border: none; border-radius: 12px;
+  background: var(--ink); color: var(--bg);
+  font: inherit; font-size: .86rem; font-weight: 650; text-align: left; cursor: pointer;
+  transition: transform .12s, opacity .12s;
+}
+.svc-mim-btn:active { transform: scale(.98); opacity: .9; }
+.svc-mim-txt { flex: 1; }
+.svc-mim-go { opacity: .6; }
+
+.mim-sheet { max-height: 90dvh; }
+.mim-body { padding: .9rem 1rem calc(1.4rem + env(safe-area-inset-bottom)); }
+
+.mim-verdict {
+  --c: var(--ink-2); --c-soft: var(--surface-2);
+  border-radius: 18px; padding: 1.05rem 1.1rem 1.1rem;
+  background: var(--c-soft); text-align: center;
+}
+.mim-verdict.yes   { --c: var(--good); --c-soft: var(--good-soft); }
+.mim-verdict.now   { --c: var(--warn); --c-soft: var(--warn-soft); }
+.mim-verdict.hurry { --c: var(--bad);  --c-soft: var(--bad-soft); }
+.mim-verdict.no    { --c: var(--ink-3); --c-soft: var(--surface-2); }
+.mim-tag {
+  display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .02em;
+  text-transform: uppercase; color: var(--c);
+  padding: .22rem .6rem; border-radius: 999px;
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.mim-big {
+  margin-top: .45rem; font-size: 1.35rem; font-weight: 600; color: var(--ink);
+  letter-spacing: -.01em; font-variant-numeric: tabular-nums; line-height: 1.15;
+}
+.mim-big b { display: block; font-size: 3.1rem; font-weight: 800; color: var(--c); letter-spacing: -.03em; line-height: 1.05; }
+.mim-verdict.wait .mim-big { font-size: 1.05rem; color: var(--ink-2); padding: .9rem 0 .2rem; }
+.mim-hint { margin-top: .35rem; font-size: .83rem; color: var(--ink-2); }
+.mim-skel { animation: mimFade 1.2s ease-in-out infinite alternate; }
+@keyframes mimFade { from { opacity: .45; } to { opacity: 1; } }
+
+.mim-timeline { margin: 1.15rem .35rem .2rem; }
+.mim-timeline:empty { display: none; }
+.mim-track { position: relative; height: 6px; margin: 0 6px; }
+.mim-seg-wait, .mim-seg-walk { position: absolute; top: 0; height: 6px; border-radius: 3px; }
+.mim-seg-wait { left: 0; background: var(--line); }
+.mim-seg-walk { background: var(--good); }
+.mim-track.now .mim-seg-walk   { background: var(--warn); }
+.mim-track.hurry .mim-seg-walk { background: var(--bad); }
+.mim-track.no .mim-seg-walk    { background: var(--ink-3); }
+.mim-node {
+  position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--surface); border: 3px solid var(--ink-3);
+}
+.mim-node.now   { border-color: var(--ink); }
+.mim-node.leave { border-color: var(--ink); background: var(--ink); }
+.mim-node.bus   { border-color: var(--accent); background: var(--accent); }
+.mim-tl-labels {
+  display: flex; justify-content: space-between; margin-top: .6rem;
+  font-size: .74rem; color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.mim-tl-labels span { display: flex; flex-direction: column; gap: .05rem; }
+.mim-tl-labels b { color: var(--ink); font-weight: 650; font-size: .78rem; }
+.mim-tl-labels .mid { text-align: center; align-items: center; }
+.mim-tl-labels .end { text-align: right; align-items: flex-end; }
+
+.mim-facts {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-top: 1.05rem;
+}
+.mim-facts:empty { display: none; }
+.mim-fact {
+  display: flex; flex-direction: column; align-items: center; gap: .1rem;
+  padding: .6rem .3rem; border-radius: 12px; background: var(--surface-2);
+}
+.mim-fact-v { font-size: 1rem; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.mim-fact-l { font-size: .68rem; color: var(--ink-3); text-align: center; }
+
+.mim-label {
+  margin: 1.1rem 0 .45rem; font-size: .7rem; font-weight: 700;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3);
+}
+.mim-buses { display: flex; gap: .5rem; }
+.mim-buses:empty { display: none; }
+.mim-buses:empty + .mim-label { margin-top: 1.1rem; }
+.mim-bus {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: .15rem;
+  padding: .55rem .3rem; border-radius: 12px; cursor: pointer;
+  border: 2px solid var(--line); background: var(--surface); color: var(--ink);
+  font: inherit; transition: border-color .15s, background .15s;
+}
+.mim-bus.sel { border-color: var(--ink); background: var(--surface-2); }
+.mim-bus-t { font-size: .95rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mim-bus-s { display: flex; align-items: center; gap: .3rem; font-size: .7rem; color: var(--ink-3); }
+.mim-bus-s i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); }
+.mim-bus.yes .mim-bus-s i   { background: var(--good); }
+.mim-bus.now .mim-bus-s i   { background: var(--warn); }
+.mim-bus.hurry .mim-bus-s i { background: var(--bad); }
+.mim-bus.no { opacity: .55; }
+
+.mim-pace {
+  display: flex; padding: 3px; border-radius: 11px; background: var(--surface-2); gap: 3px;
+}
+.mim-pace button {
+  flex: 1; border: none; background: transparent; color: var(--ink-2);
+  font: inherit; font-size: .8rem; font-weight: 600;
+  padding: .45rem 0; border-radius: 9px; cursor: pointer;
+}
+.mim-pace button.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
+
+.mim-loc {
+  display: flex; align-items: center; justify-content: space-between; gap: .6rem;
+  margin-top: 1.05rem; font-size: .76rem; color: var(--ink-3);
+}
+.mim-loc-txt { display: flex; align-items: center; gap: .4rem; }
+.mim-loc-txt.warn { color: var(--warn); }
+.mim-loc-btns { display: flex; gap: .35rem; flex-shrink: 0; }
+.mim-loc-btns button {
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+  font: inherit; font-size: .72rem; font-weight: 600;
+  padding: .28rem .6rem; border-radius: 999px; cursor: pointer;
+}
+.mim-live, .mim-pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex-shrink: 0; }
+.mim-live { box-shadow: 0 0 0 0 var(--good); animation: mimPing 2s infinite; }
+.mim-pulse { background: var(--ink-3); animation: mimFade 1s ease-in-out infinite alternate; }
+@keyframes mimPing {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 55%, transparent); }
+  100% { box-shadow: 0 0 0 7px transparent; }
+}
+
+.mim-notify {
+  display: flex; align-items: center; justify-content: center; gap: .45rem;
+  width: 100%; margin-top: 1rem; padding: .8rem;
+  border: none; border-radius: 13px; cursor: pointer;
+  background: var(--accent); color: #fff; font: inherit; font-size: .88rem; font-weight: 650;
+}
+.mim-notify:disabled { background: var(--surface-2); color: var(--ink-3); cursor: default; }
+.mim-notify.armed { background: var(--good-soft); color: var(--good); }
+.mim-notify u { text-underline-offset: 2px; }
+
+.mim-pill {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 240;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);
+  display: flex; align-items: center; gap: .5rem;
+  padding: .55rem 1rem; border-radius: 999px; border: none; cursor: pointer;
+  background: var(--ink); color: var(--bg); box-shadow: var(--shadow);
+  font: inherit; font-size: .82rem; font-weight: 650; font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mim-pill-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.mim-pill.now .mim-pill-dot { background: var(--warn); animation: mimFade .6s infinite alternate; }
+.mim-skip { display: inline-block; margin-top: .2rem; font-size: .76rem; color: var(--ink-3); }
