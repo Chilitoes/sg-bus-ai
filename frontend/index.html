@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.2.20" />
+  <link rel="stylesheet" href="styles.css?v=1.2.21" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" />
@@ -89,6 +89,7 @@
   <div class="notif-popup-backdrop"></div>
   <div class="notif-popup-card">
     <div class="notif-popup-icon" id="notif-popup-icon">🆕</div>
+    <img id="notif-popup-img" class="notif-popup-img hidden" alt="Screenshot of the new feature" />
     <div class="notif-popup-title" id="notif-popup-title"></div>
     <div class="notif-popup-body hidden" id="notif-popup-body"></div>
     <div class="notif-popup-time" id="notif-popup-time"></div>
@@ -755,7 +756,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">1.2.20</span>
+            <span class="stg-row-val" id="stg-version-val">1.2.21</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -1012,6 +1013,12 @@
     </div>
     <div id="mim-loc" class="mim-loc"></div>
     <button id="mim-notify" class="mim-notify"></button>
+    <details id="mim-more" class="mim-more">
+      <summary>Arrival details
+        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </summary>
+      <div id="mim-more-body" class="mim-more-body"></div>
+    </details>
   </div>
 </div>
 <button id="mim-pill" class="mim-pill hidden" aria-label="Open Can I make it"></button>
@@ -1031,6 +1038,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"></script>
-<script src="app.js?v=1.2.20"></script>
+<script src="app.js?v=1.2.21"></script>
 </body>
 </html>

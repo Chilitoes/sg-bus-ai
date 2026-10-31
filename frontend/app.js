@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.20";
+const APP_VERSION = "1.2.21";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -627,7 +627,7 @@ async function loadNotifications() {
               <span class="notif-title">${esc(n.title)}</span>
               ${!n.read ? `<span class="notif-dot-new"></span>` : ""}
             </div>
-            ${n.body ? `<div class="notif-body">${esc(n.body)}</div>` : ""}
+            ${n.body ? `<div class="notif-body">${esc(_notifParts(n.body).text)}</div>` : ""}
             <div class="notif-time">${esc(fmtDate(n.created_at))}</div>
           </div>`).join("")
       : `<p class="notif-empty">No notifications yet.</p>`;
@@ -643,6 +643,13 @@ async function loadNotifications() {
 const NOTIF_POPUP_KEY   = "sgbus_notif_popup_id";   // highest id auto-popped
 const NOTIF_PROMOTE_KEY = "sgbus_notif_promote_ts"; // last admin-promoted popup_at shown
 let _notifPopupAttempted = false;                   // only attempt once per session
+
+// A notification body may end with "[img:whats-new/<file>]" to attach a
+// screenshot shipped with the app. Only files under whats-new/ are allowed.
+function _notifParts(body) {
+  const m = (body || "").match(/\n?\[img:(whats-new\/[\w.-]+\.(?:png|jpe?g|webp))\]\s*$/);
+  return m ? { text: body.slice(0, m.index).trim(), img: m[1] } : { text: body || "", img: null };
+}
 
 function maybeShowNotifPopup(items) {
   if (_notifPopupAttempted) return;                 // app-open only, not on every reload
@@ -679,9 +686,13 @@ function _renderNotifPopup(fresh, maxId, promoteTs) {
   const levelIcon = { info: "ℹ️", update: "🆕", warning: "⚠️" };
   $("notif-popup-icon").textContent  = levelIcon[n.level] || "ℹ️";
   $("notif-popup-title").textContent = n.title;
+  const parts = _notifParts(n.body);
   const bodyEl = $("notif-popup-body");
-  bodyEl.textContent = n.body || "";
-  bodyEl.classList.toggle("hidden", !n.body);
+  bodyEl.textContent = parts.text;
+  bodyEl.classList.toggle("hidden", !parts.text);
+  const imgEl = $("notif-popup-img");
+  if (parts.img) { imgEl.src = parts.img; show(imgEl); } else { imgEl.removeAttribute("src"); hide(imgEl); }
+  $("notif-popup-icon").classList.toggle("hidden", !!parts.img);
   $("notif-popup-time").textContent = new Date(n.created_at + "Z").toLocaleString("en-SG", {
     day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
     hour12: false, timeZone: "Asia/Singapore",
@@ -1360,7 +1371,6 @@ function svcCard(svc) {
     next.type && next.type !== "SD" ? `<span class="tag" title="${TYPE_LABEL[next.type] || next.type}">${esc(next.type)}</span>` : "",
     next.feature === "WAB" ? `<span class="tag wab" title="Wheelchair accessible">♿</span>` : "",
   ].join("");
-  const alerted = _alertActive(S.stop, svc.service_no);
   // Live per-route accuracy badge from 30 days of measured delay (MAE).
   const rel = svc.reliability;
   const accChip = (rel && rel.mae_sec != null)
@@ -1378,21 +1388,8 @@ function svcCard(svc) {
           <span class="eta-ai" data-ai-iso="${esc(next.ai_arrival || "")}" data-adj="${Math.round(adj)}">${aiText(aiSecs, adj)}</span>
           ${laterTxt ? `<span class="eta-next" data-next-isos="${esc(laterIsos)}">then ${laterTxt} min</span>` : `<span class="eta-next">last bus</span>`}
         </span>
-        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
-      <div class="svc-detail"><div class="svc-detail-inner">
-        ${relLine(svc.reliability)}
-        ${svc.buses.map(busLine).join("")}
-        <button class="svc-mim-btn" data-mim-svc="${esc(svc.service_no)}">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/></svg>
-          <span class="svc-mim-txt">Can I make it?</span>
-          <svg class="svc-mim-go" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
-        <button class="svc-alert-btn${alerted ? " on" : ""}" data-alert-svc="${esc(svc.service_no)}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          <span class="svc-alert-txt">${alerted ? "Alert on — we'll ping you before it arrives" : "Alert me before this bus arrives"}</span>
-        </button>
-      </div></div>
     </div>`;
 }
 
@@ -1441,6 +1438,7 @@ function renderArrivals(data) {
     return;
   }
   hide($("no-services"));
+  S.lastArrivals = { stop: S.stop, data };
   $("rows").innerHTML = data.services.map(svcCard).join("");
   // Keep the alert watcher's ETA store fresh from every render, so armed
   // alerts keep tracking even after the user navigates away from this stop.
@@ -1460,19 +1458,6 @@ function renderArrivals(data) {
 }
 
 $("rows").addEventListener("click", (e) => {
-  const mimBtn = e.target.closest(".svc-mim-btn");
-  if (mimBtn) {
-    e.stopPropagation();
-    openMim(mimBtn.dataset.mimSvc);
-    return;
-  }
-  // Arrival alert toggle (inside the expanded detail)
-  const alertBtn = e.target.closest(".svc-alert-btn");
-  if (alertBtn) {
-    e.stopPropagation();
-    toggleAlert(S.stop, alertBtn.dataset.alertSvc);
-    return;
-  }
   // Clicking the route badge opens the route viewer instead of toggling expand
   const badge = e.target.closest(".route-badge");
   if (badge) {
@@ -1481,7 +1466,7 @@ $("rows").addEventListener("click", (e) => {
     return;
   }
   const head = e.target.closest(".svc-head");
-  if (head) head.closest(".svc").classList.toggle("open");
+  if (head) openMim(head.closest(".svc").dataset.svc);
 });
 
 function startTicker() {
@@ -1730,7 +1715,11 @@ async function openMim(svc) {
     const st = _loadStopsCache().find((s) => s.bus_stop_code === S.stop);
     if (st) { M.stopLat = st.latitude; M.stopLng = st.longitude; }
   }
-  M.buses = []; M.loaded = false; M.loadErr = null; M.busesKey = "";
+  M.buses = []; M.svcData = null; M.loaded = false; M.loadErr = null; M.busesKey = "";
+  const cached = S.lastArrivals?.stop === S.stop
+    && S.lastArrivals.data.services?.find((x) => x.service_no === svc);
+  if (cached) _mimSetSvc(cached);
+  $("mim-more").open = false;
   M.open = true;
   $("mim-badge").textContent = svc;
   $("mim-sub").textContent = M.stopName;
@@ -1802,14 +1791,33 @@ async function _mimRefresh() {
   try {
     const d = await api(`/api/arrivals/${stop}`);
     if (M.stop !== stop || M.svc !== svc) return;
-    const s = (d.services || []).find((x) => x.service_no === svc);
-    M.buses = s?.buses || [];
-    M.mae = s?.reliability?.mae_sec ?? null;
-    M.loaded = true; M.loadErr = null;
+    _mimSetSvc((d.services || []).find((x) => x.service_no === svc));
   } catch (e) {
     M.loadErr = e.message;
   }
   _mimRender();
+}
+
+function _mimSetSvc(s) {
+  M.svcData = s || null;
+  M.buses = s?.buses || [];
+  M.mae = s?.reliability?.mae_sec ?? null;
+  M.loaded = true; M.loadErr = null;
+  _mimRenderMore();
+}
+
+// "Arrival details": what the expanded card used to show — LTA vs AI per bus,
+// crowding, route reliability, and the arrival alert toggle.
+function _mimRenderMore() {
+  const s = M.svcData;
+  const on = _alertActive(M.stop, M.svc);
+  $("mim-more-body").innerHTML = s ? `
+    ${relLine(s.reliability)}
+    ${s.buses.map(busLine).join("")}
+    <button class="svc-alert-btn${on ? " on" : ""}" data-mim-alert>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span class="svc-alert-txt">${on ? "Alert on — we'll ping you before it arrives" : "Alert me before this bus arrives"}</span>
+    </button>` : "";
 }
 
 function _mimTick() {
@@ -2067,6 +2075,7 @@ $("mim-sheet").addEventListener("click", (ev) => {
     _mimStartLocation(true); _mimRender();
   }
   if (ev.target.closest("#mim-notify")) _mimToggleNotify();
+  if (ev.target.closest("[data-mim-alert]")) { toggleAlert(M.stop, M.svc); _mimRenderMore(); }
 });
 
 async function loadStop(code) {
@@ -2969,7 +2978,7 @@ async function _loadAdminNotifications() {
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/></svg>
             </button>
           </div>
-          ${n.body ? `<div class="notif-admin-body">${esc(n.body)}</div>` : ""}
+          ${n.body ? `<div class="notif-admin-body">${esc(_notifParts(n.body).text)}</div>` : ""}
         </div>`).join("")
     : `<p class="fb-admin-empty">No notifications sent yet.</p>`;
 

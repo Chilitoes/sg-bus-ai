@@ -2578,3 +2578,19 @@ body.maintenance-open { overflow: hidden; }
 .mim-pill-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
 .mim-pill.now .mim-pill-dot { background: var(--warn); animation: mimFade .6s infinite alternate; }
 .mim-skip { display: inline-block; margin-top: .2rem; font-size: .76rem; color: var(--ink-3); }
+.mim-more { margin-top: 1rem; border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
+.mim-more summary {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .7rem .9rem; list-style: none; cursor: pointer;
+  font-size: .82rem; font-weight: 600; color: var(--ink-2);
+}
+.mim-more summary::-webkit-details-marker { display: none; }
+.mim-more summary .chev { color: var(--ink-3); transition: transform .2s; }
+.mim-more[open] summary .chev { transform: rotate(180deg); }
+.mim-more .svc-alert-btn { margin-top: 0; }
+.notif-popup-card { max-height: 90dvh; overflow-y: auto; }
+.notif-popup-img {
+  display: block; width: 100%; max-height: 44dvh; object-fit: cover; object-position: top;
+  border-radius: 14px; border: 1px solid var(--line); margin-bottom: .9rem;
+}
+.notif-popup-img.hidden { display: none; }
