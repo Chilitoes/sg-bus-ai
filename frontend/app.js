@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.19";
+const APP_VERSION = "1.2.20";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1820,11 +1820,11 @@ function _mimTick() {
 
 // ── Render ────────────────────────────────────────────────
 const MIM_STATE = {
-  yes:   { tag: "Yes, you'll make it",   cls: "yes" },
+  yes:   { tag: "✓ You'll make it",     cls: "yes" },
   now:   { tag: "Leave now",             cls: "now" },
   hurry: { tag: "Only if you hurry",     cls: "hurry" },
-  no:    { tag: "You'll miss this one",  cls: "no" },
-  there: { tag: "You're at the stop",    cls: "yes" },
+  no:    { tag: "✕ You'll miss this one", cls: "no" },
+  there: { tag: "✓ You're at the stop",  cls: "yes" },
 };
 
 function _mimRender() {
@@ -1878,7 +1878,7 @@ function _mimRender() {
     let big, hint;
     if (e.state === "yes") {
       big = `Leave in <b>${_mimCountdown(e.leaveIn)}</b>`;
-      hint = `Leave by ${fmtClock(new Date(Date.now() + e.leaveIn * 1000))} · bus at ${fmtClock(e.at)}`;
+      hint = `Leave by ${fmtClock(new Date(Date.now() + e.leaveIn * 1000))}`;
       const skipped = !M.target && evals[0] !== e && evals[0].state === "no";
       if (skipped) hint += `<br><span class="mim-skip">The ${fmtClock(evals[0].at)} bus comes too soon to catch</span>`;
     } else if (e.state === "now") {
@@ -1924,9 +1924,8 @@ function _mimRender() {
     const dist = walkM;
     const distTxt = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist / 10) * 10} m`;
     factsHtml = `
-      <div class="mim-fact"><span class="mim-fact-v">${e.state === "there" ? "0 min" : _mimMins(e.walkS)}</span><span class="mim-fact-l">walk · ${distTxt}</span></div>
-      <div class="mim-fact"><span class="mim-fact-v">${fmtClock(e.at)}</span><span class="mim-fact-l">AI arrival</span></div>
-      <div class="mim-fact"><span class="mim-fact-v">${M.mae != null ? esc(accBand(M.mae)) : "–"}</span><span class="mim-fact-l">AI accuracy</span></div>`;
+      <span class="mim-fact"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="m7 21 3-6 3 2v5"/><path d="M8 11.5 10.5 8l4 2 2.5 3"/></svg>${e.state === "there" ? "At the stop" : `${_mimMins(e.walkS)} walk · ${distTxt}`}</span>
+      ${M.mae != null ? `<span class="mim-fact"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>AI accurate to ${esc(accBand(M.mae))}</span>` : ""}`;
 
     // Bus chips: rebuilt only when the list, states or selection change, so a
     // tap never lands on a node that was swapped out mid-press.
@@ -1969,10 +1968,10 @@ function _mimRenderNotifyBtn(evals) {
   } else if (e && e.state === "yes") {
     html = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg> Remind me when to leave`;
   } else {
-    html = `Remind me when to leave`; dis = true;
+    html = btn._html || ""; dis = true;
   }
   btn.classList.toggle("armed", !!armed);
-  btn.disabled = dis && !armed;
+  btn.classList.toggle("hidden", dis && !armed);
   if (btn._html !== html) { btn._html = html; btn.innerHTML = html; }
 }
 

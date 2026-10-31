@@ -2430,14 +2430,15 @@ body.maintenance-open { overflow: hidden; }
 .svc-mim-btn {
   display: flex; align-items: center; gap: .55rem; width: calc(100% - 1.6rem);
   margin: .55rem .8rem .35rem; padding: .7rem .9rem;
-  border: none; border-radius: 12px;
-  background: var(--ink); color: var(--bg);
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface-2); color: var(--ink);
   font: inherit; font-size: .86rem; font-weight: 650; text-align: left; cursor: pointer;
   transition: transform .12s, opacity .12s;
 }
 .svc-mim-btn:active { transform: scale(.98); opacity: .9; }
 .svc-mim-txt { flex: 1; }
-.svc-mim-go { opacity: .6; }
+.svc-mim-btn > svg:first-child { color: var(--accent); }
+.svc-mim-go { color: var(--ink-3); }
 
 .mim-sheet { max-height: 90dvh; }
 .mim-body { padding: .9rem 1rem calc(1.4rem + env(safe-area-inset-bottom)); }
@@ -2452,8 +2453,7 @@ body.maintenance-open { overflow: hidden; }
 .mim-verdict.hurry { --c: var(--bad);  --c-soft: var(--bad-soft); }
 .mim-verdict.no    { --c: var(--ink-3); --c-soft: var(--surface-2); }
 .mim-tag {
-  display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .02em;
-  text-transform: uppercase; color: var(--c);
+  display: inline-block; font-size: .76rem; font-weight: 650; color: var(--c);
   padding: .22rem .6rem; border-radius: 999px;
   background: color-mix(in srgb, var(--c) 14%, transparent);
 }
@@ -2461,7 +2461,8 @@ body.maintenance-open { overflow: hidden; }
   margin-top: .45rem; font-size: 1.35rem; font-weight: 600; color: var(--ink);
   letter-spacing: -.01em; font-variant-numeric: tabular-nums; line-height: 1.15;
 }
-.mim-big b { display: block; font-size: 3.1rem; font-weight: 800; color: var(--c); letter-spacing: -.03em; line-height: 1.05; }
+.mim-big { font-size: 1.1rem; color: var(--ink-2); }
+.mim-big b { display: block; font-size: 3.3rem; font-weight: 800; color: var(--c); letter-spacing: -.03em; line-height: 1.05; }
 .mim-verdict.wait .mim-big { font-size: 1.05rem; color: var(--ink-2); padding: .9rem 0 .2rem; }
 .mim-hint { margin-top: .35rem; font-size: .83rem; color: var(--ink-2); }
 .mim-skel { animation: mimFade 1.2s ease-in-out infinite alternate; }
@@ -2494,19 +2495,17 @@ body.maintenance-open { overflow: hidden; }
 .mim-tl-labels .end { text-align: right; align-items: flex-end; }
 
 .mim-facts {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-top: 1.05rem;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: .35rem 1.1rem; margin-top: 1rem;
 }
 .mim-facts:empty { display: none; }
 .mim-fact {
-  display: flex; flex-direction: column; align-items: center; gap: .1rem;
-  padding: .6rem .3rem; border-radius: 12px; background: var(--surface-2);
+  display: inline-flex; align-items: center; gap: .35rem;
+  font-size: .8rem; color: var(--ink-2); font-variant-numeric: tabular-nums;
 }
-.mim-fact-v { font-size: 1rem; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
-.mim-fact-l { font-size: .68rem; color: var(--ink-3); text-align: center; }
+.mim-fact svg { color: var(--ink-3); }
 
 .mim-label {
-  margin: 1.1rem 0 .45rem; font-size: .7rem; font-weight: 700;
-  letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3);
+  margin: 1.25rem 0 .45rem; font-size: .78rem; font-weight: 600; color: var(--ink-3);
 }
 .mim-buses { display: flex; gap: .5rem; }
 .mim-buses:empty { display: none; }
@@ -2538,7 +2537,8 @@ body.maintenance-open { overflow: hidden; }
 
 .mim-loc {
   display: flex; align-items: center; justify-content: space-between; gap: .6rem;
-  margin-top: 1.05rem; font-size: .76rem; color: var(--ink-3);
+  margin-top: 1.1rem; padding-top: .9rem; border-top: 1px solid var(--line);
+  font-size: .76rem; color: var(--ink-3);
 }
 .mim-loc-txt { display: flex; align-items: center; gap: .4rem; }
 .mim-loc-txt.warn { color: var(--warn); }
