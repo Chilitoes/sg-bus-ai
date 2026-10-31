@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.22";
+const APP_VERSION = "1.2.23";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -709,19 +709,13 @@ function _renderNotifPopup(fresh, maxId, promoteTs) {
     day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
     hour12: false, timeZone: "Asia/Singapore",
   });
-  const more = $("notif-popup-more");
-  if (fresh.length > 1) {
-    more.textContent = `+${fresh.length - 1} more in your notifications`;
-    more.classList.remove("hidden");
-  } else {
-    more.classList.add("hidden");
-  }
-  // Persist the watermark the moment it's shown — so closing the app/tab without
-  // tapping "Got it" still counts as seen and it won't nag again next open.
-  // Auto-popups advance the id watermark; promoted popups advance the promo
-  // timestamp (leaving the id watermark so genuinely-new notices still pop).
-  if (maxId) localStorage.setItem(NOTIF_POPUP_KEY, String(maxId));
-  if (promoteTs) localStorage.setItem(NOTIF_PROMOTE_KEY, String(promoteTs));
+  // Only the newest notice pops; older ones stay in the bell list.
+  $("notif-popup-more").classList.add("hidden");
+  // The watermark is saved on dismiss, not on show: a popup that rendered while
+  // the app was still waking in the background (never actually seen) must come
+  // back next time. Auto-popups advance the id watermark; promoted popups the
+  // promo timestamp (leaving the id watermark so genuinely-new notices pop).
+  _pendingPopupSeen = { maxId, promoteTs };
   show(el);
   requestAnimationFrame(() => {
     el.classList.add("show");
@@ -731,9 +725,18 @@ function _renderNotifPopup(fresh, maxId, promoteTs) {
   });
 }
 
+let _pendingPopupSeen = null;
 function dismissNotifPopup() {
   const el = $("notif-popup");
   if (!el) return;
+  if (_pendingPopupSeen) {
+    const { maxId, promoteTs } = _pendingPopupSeen;
+    try {
+      if (maxId) localStorage.setItem(NOTIF_POPUP_KEY, String(maxId));
+      if (promoteTs) localStorage.setItem(NOTIF_PROMOTE_KEY, String(promoteTs));
+    } catch {}
+    _pendingPopupSeen = null;
+  }
   el.classList.remove("show");
   setTimeout(() => hide(el), 280);
 }
