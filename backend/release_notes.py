@@ -15,25 +15,14 @@ from database import SessionLocal, SystemNotification
 logger = logging.getLogger(__name__)
 
 RELEASE_NOTE = {
-    "title": "What's new: one Map for Bus, MRT and Parking",
+    "title": "New: one Map for Bus, MRT and Parking",
     "level": "update",
     "body": (
-        "Bus, MRT and Parking now share one Map tab, so the bottom bar is "
-        "tidier. Switch between them with the buttons under the search bar.\n"
-        "\n"
-        "• Parking: live free lots at carparks near you, or search by name. "
-        "Log in to save carparks.\n"
-        "• MRT: first and last trains for each station, with a warning when the "
-        "last one is close. Scheduled times, not live.\n"
-        "• Can I make it?: tap any bus to see when to leave. It counts in your "
-        "walk and tells you to go, hurry, or catch the next one. \"Remind me "
-        "when to leave\" pings you at the right time.\n"
-        "• Bus alerts: tap the bell on a bus to get a ping about 2½ minutes "
-        "before it arrives.\n"
-        "• Crowding now reads Seats, Standing or Crowded.\n"
-        "• Nicer maps, and better layouts in landscape and split screen.\n"
-        "\n"
-        "Plan a Journey is paused while it gets reworked.\n"
+        "Switch between them under the search bar.\n"
+        "• MRT: next trains, plus first and last train times\n"
+        "• Parking: live free lots nearby\n"
+        "• Saved: bus stops, stations and carparks in one place\n"
+        "• Tap a bus to see when to leave, or the bell for an alert\n"
         "[img:whats-new/map-modes.webp]"
     ),
 }
@@ -42,6 +31,7 @@ RELEASE_NOTE = {
 REPLACES = (
     "New: Can I make it?",
     "You can now get alerts before your bus comes",
+    "What's new: one Map for Bus, MRT and Parking",  # earlier, longer draft
 )
 
 

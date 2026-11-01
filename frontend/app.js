@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.30";
+const APP_VERSION = "1.2.31";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -266,6 +266,8 @@ function clearAuth() {
   S.savedJourneys = [];
   CP.saved = [];
   _cpRenderSaved();
+  MRT.saved = [];
+  _mrtRenderSaved();
   syncAccountUI();
   afterFavsChanged();
   afterJourneysChanged();
@@ -473,7 +475,7 @@ $("seg-register").addEventListener("click", () => setAuthMode("register"));
 // journeys (server is source of truth), refresh the UI and close the sheet.
 async function completeLogin(res, welcomeMsg) {
   setAuth(res.token, res.username, res.display_name);
-  _cpLoadSaved();
+  _cpLoadSaved(); _mrtLoadSaved();
   try {
     const [mine, journeys] = await Promise.all([
       api("/api/favourites"),
@@ -797,7 +799,7 @@ async function hydrateServerFavs() {
     afterFavsChanged();
     afterJourneysChanged();
   } catch { /* keep local cache; api() drops dead sessions automatically */ }
-  _cpLoadSaved();
+  _cpLoadSaved(); _mrtLoadSaved();
 }
 
 // ── Favourites ────────────────────────────────────────────
@@ -923,13 +925,13 @@ function switchView(name) {
   });
   document.querySelectorAll(".view").forEach((v) =>
     v.classList.toggle("active", v.id === `view-${name}`));
-  if (name === "saved") { renderSaved(); _cpLoadSaved(); }
+  if (name === "saved") { renderSaved(); _cpLoadSaved(); _mrtLoadSaved(); }
   if (name === "data") loadData();
   if (name === "arrivals") setTimeout(() => _arrMap?.invalidateSize(), 60);
   if (name === "settings") _updateSettingsUI();
   if (name === "checkpoint") loadCheckpoint();
   if (name === "carpark") { _cpInit(); _cpLoadSaved(); }
-  if (name === "mrt") _mrtInit();
+  if (name === "mrt") { _mrtInit(); _mrtLoadSaved(); }
 }
 document.querySelectorAll(".nav-item").forEach((b) =>
   b.addEventListener("click", () => switchView(b.dataset.view)));
@@ -4049,6 +4051,9 @@ function _syncTopbarH() { /* topbar removed */ }
 // ── Draggable bottom sheet ────────────────────────────────
 function _setSheetH(px) {
   document.documentElement.style.setProperty("--sheet-h", Math.round(px) + "px");
+  // The locate button rides on top of the sheet; when the sheet is pulled up
+  // high it would sit over the search bar, so it's hidden there.
+  document.documentElement.classList.toggle("sheet-high", px > innerHeight * 0.62);
 }
 // Compute the three snap heights in px. The max is capped so the sheet's top
 // always stays just below the floating search bar — otherwise it swallows the
@@ -5490,6 +5495,7 @@ const MRT = {
   tick: null,
   refresh: null,
   busy: false,
+  saved: [],            // the user's saved stations (account-synced)
 };
 
 function _mrtChips(lines) {
@@ -5566,16 +5572,19 @@ async function _mrtLoadNearby(lat, lng) {
   }
 }
 
-function _mrtRow(st) {
+function _mrtRow(st, { removable = false } = {}) {
   return `
     <button class="arr-stop-item mrt-item" data-mrt="${esc(st.name)}">
       <span class="mrt-codes">${_mrtChips(st.lines)}</span>
       <span class="arr-stop-info">
         <span class="arr-stop-name">${esc(st.name)}</span>
-        <span class="arr-stop-road">${esc(st.lines.map((l) => l.name).join(" · "))}</span>
+        <span class="arr-stop-road" ${removable ? `data-mrt-preview="${esc(st.name)}"` : ""}>${esc(st.lines.map((l) => l.name).join(" · "))}</span>
       </span>
       ${st.distance_m != null ? `<span class="arr-stop-dist">${_cpDist(st.distance_m)}</span>` : ""}
-      <svg class="arr-stop-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>
+      ${removable
+        ? `<span class="saved-remove" data-mrt-unsave="${esc(st.name)}" role="button" aria-label="Remove from saved">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>`
+        : `<svg class="arr-stop-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`}
     </button>`;
 }
 
@@ -5613,6 +5622,42 @@ function _mrtStatus(dir) {
   return null;
 }
 
+// Estimated departures for one direction: there's no public per-train
+// timetable, so trains are spaced from today's first train at the line's
+// typical headway (peak or off-peak at that hour) up to the last train.
+// Returns the train just missed and the next three, or null outside service.
+function _mrtHeadway(l, m) {
+  const t = m % 1440;
+  const peak = _mrtDayType() === "weekday" && ((t >= 420 && t < 570) || (t >= 1020 && t < 1200));
+  const r = l.headways ? (peak ? l.headways.peak : l.headways.offpeak) : [l.frequency.min, l.frequency.max];
+  return Math.max(1.5, (r[0] + r[1]) / 2);
+}
+function _mrtFmt(m) {
+  const t = ((Math.round(m) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+}
+function _mrtTrains(l, d) {
+  const today = _mrtToday(d);
+  const first = _mrtMins(today?.first), last = _mrtMins(today?.last);
+  if (first == null || last == null) return null;
+  const now = _mrtNowMins();
+  if (now > last) return null;
+  const times = [];
+  for (let t = first; t < last - 0.5; t += _mrtHeadway(l, t)) times.push(Math.round(t));
+  times.push(last);
+  const i = times.findIndex((x) => x >= now);
+  if (i < 0) return null;
+  return { prev: i > 0 ? times[i - 1] : null, next: times.slice(i, i + 3), now };
+}
+function _mrtTrainsHtml(tr) {
+  if (!tr) return "";
+  const chip = (t, cls, sub) => `<span class="mrt-train ${cls}"><b>${_mrtFmt(t)}</b><small>${sub}</small></span>`;
+  return `<div class="mrt-trains">
+    ${tr.prev != null ? chip(tr.prev, "missed", "Missed") : ""}
+    ${tr.next.map((t, k) => chip(t, k === 0 ? "next" : "", t - tr.now <= 0 ? "Now" : `${t - tr.now} min`)).join("")}
+  </div>`;
+}
+
 function _mrtLineHtml(l) {
   const f = l.frequency;
   const main = l.directions.filter((d) => d.kind === "main");
@@ -5629,6 +5674,7 @@ function _mrtLineHtml(l) {
     return `
       <div class="mrt-dir">
         <div class="mrt-dir-to"><span class="mrt-arrow">→</span>${esc(d.to)}</div>
+        ${_mrtTrainsHtml(_mrtTrains(l, d))}
         ${today ? `<div class="mrt-dir-times">
           <span><small>First</small> ${esc(today.first || "–")}</span>
           <span><small>Last</small> ${esc(today.last || "–")}</span>
@@ -5664,12 +5710,21 @@ function _mrtRender() {
   if (!d) return;
   $("mrt-card").innerHTML = `
     <div class="stop-card mrt-head">
-      <div class="stop-name">${esc(d.name)}</div>
-      <div class="mrt-head-codes">${_mrtChips(d.lines)}</div>
+      <div class="mrt-head-top">
+        <div>
+          <div class="stop-name">${esc(d.name)}</div>
+          <div class="mrt-head-codes">${_mrtChips(d.lines)}</div>
+        </div>
+        <button id="mrt-save-btn" class="pillbtn cp-save mrt-save" type="button" aria-pressed="false">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <span>Save</span>
+        </button>
+      </div>
       ${d.alert_messages?.length ? `<div class="mrt-alert">${d.alert_messages.map((m) => `<p>${esc(m)}</p>`).join("")}</div>` : ""}
     </div>
     ${d.lines.map(_mrtLineHtml).join("")}
-    <p class="mrt-foot">Scheduled times, not live — Singapore doesn't publish live train arrivals. Frequencies are typical; first/last trains from SMRT's published timetable. Disruptions are live from LTA.</p>`;
+    <p class="mrt-foot">Not live: Singapore doesn't publish live train arrivals. Next trains are estimated from the first train and the line's typical frequency, so they can be a few minutes off. First and last trains are from SMRT's timetable; disruptions are live from LTA.</p>`;
+  _mrtSyncSaveBtn();
 }
 
 async function _mrtOpen(name) {
@@ -5711,6 +5766,100 @@ function _mrtBack() {
   hide($("mrt-detail")); show($("mrt-nearby"));
   _snapSheet("mid");
 }
+
+// ── Saved stations (account-synced; see /api/saved-stations) ──
+function _mrtIsSaved(name) { return MRT.saved.some((st) => st.name === name); }
+
+async function _mrtLoadSaved() {
+  if (!S.token) { MRT.saved = []; _mrtRenderSaved(); return; }
+  try { MRT.saved = (await api("/api/saved-stations")).results || []; }
+  catch { /* keep what we had */ }
+  _mrtRenderSaved();
+}
+
+// Saved stations show at the top of the MRT map list and in the Saved tab;
+// the Saved tab rows also preview each direction's next train.
+function _mrtRenderSaved() {
+  const tabSec = $("mrt-saved");
+  if (tabSec) {
+    tabSec.classList.toggle("hidden", !MRT.saved.length);
+    $("mrt-saved-list").innerHTML = MRT.saved.map((st) => _mrtRow(st)).join("");
+  }
+  const list = $("saved-mrt-list");
+  if (list) {
+    $("saved-mrt-empty").classList.toggle("hidden", !!MRT.saved.length);
+    list.innerHTML = MRT.saved.map((st) => _mrtRow(st, { removable: true })).join("");
+    if (S.view === "saved") _mrtLoadPreviews();
+  }
+  _mrtSyncSaveBtn();
+}
+
+async function _mrtLoadPreviews() {
+  await Promise.all(MRT.saved.map(async (st) => {
+    try {
+      const d = await api(`/api/mrt/station/${encodeURIComponent(st.name)}`);
+      const parts = [];
+      d.lines.forEach((l) => {
+        if (!l.timetable) { parts.push(`${l.code} every ${l.frequency.min}–${l.frequency.max} min`); return; }
+        l.directions.filter((x) => x.kind === "main").forEach((x) => {
+          const tr = _mrtTrains(l, x);
+          parts.push(`→ ${x.to} ${tr ? (tr.next[0] - tr.now <= 0 ? "now" : `${tr.next[0] - tr.now} min`) : "ended"}`);
+        });
+      });
+      document.querySelectorAll(`[data-mrt-preview="${CSS.escape(st.name)}"]`).forEach((el) => {
+        el.textContent = parts.join(" · ");
+      });
+    } catch { /* keep the line names */ }
+  }));
+}
+
+function _mrtSyncSaveBtn() {
+  const btn = $("mrt-save-btn");
+  if (!btn || !MRT.sel) return;
+  const on = _mrtIsSaved(MRT.sel);
+  btn.classList.toggle("on", on);
+  btn.setAttribute("aria-pressed", on);
+  btn.querySelector("span").textContent = on ? "Saved" : "Save";
+}
+
+async function _mrtToggleSave(name) {
+  if (!S.token) { toast("Log in to save stations"); openSheet(); return; }
+  const path = `/api/saved-stations/${encodeURIComponent(name)}`;
+  if (_mrtIsSaved(name)) {
+    showConfirm("Remove this station from saved?", "Remove", async () => {
+      MRT.saved = MRT.saved.filter((st) => st.name !== name);
+      _mrtRenderSaved();
+      try { await api(path, { method: "DELETE" }); toast("Removed from saved stations"); }
+      catch (e) { toast(`Couldn't remove: ${e.message}`); _mrtLoadSaved(); }
+    });
+    return;
+  }
+  const st = (MRT.stations || []).find((x) => x.name === name)
+    || (MRT.data?.name === name ? { name, lat: MRT.data.lat, lng: MRT.data.lng, lines: MRT.data.lines } : { name, lines: [] });
+  MRT.saved = [st, ...MRT.saved];
+  _mrtRenderSaved();
+  try { await api(path, { method: "POST" }); toast("Station saved"); }
+  catch (e) { toast(`Couldn't save: ${e.message}`); _mrtLoadSaved(); }
+}
+
+$("mrt-card").addEventListener("click", (e) => {
+  if (e.target.closest("#mrt-save-btn") && MRT.sel) _mrtToggleSave(MRT.sel);
+});
+$("mrt-saved-list").addEventListener("click", (e) => { const it = e.target.closest("[data-mrt]"); if (it) _mrtOpen(it.dataset.mrt); });
+// Saved tab: tap opens the station in MRT mode; × unsaves.
+$("saved-mrt-list").addEventListener("click", (e) => {
+  const rm = e.target.closest("[data-mrt-unsave]");
+  if (rm) { e.stopPropagation(); _mrtToggleSave(rm.dataset.mrtUnsave); return; }
+  const it = e.target.closest("[data-mrt]");
+  if (!it) return;
+  switchView("mrt");
+  const open = () => {
+    const st = MRT.saved.find((x) => x.name === it.dataset.mrt);
+    if (st?.lat != null) _mrtMap.setView([st.lat, st.lng], 16);
+    _mrtOpen(it.dataset.mrt);
+  };
+  if (_mrtMap) open(); else _whenLeaflet(() => setTimeout(open, 100));
+});
 
 // Search — the station list is small and static, so it's filtered locally.
 $("mrt-input").addEventListener("input", async (e) => {

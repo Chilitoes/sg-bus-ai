@@ -25,9 +25,12 @@ from html import unescape
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from sqlalchemy.orm import Session
 
+from auth_routes import get_current_user
 from config import LTA_API_KEY, LTA_BASE_URL
+from database import SavedStation, User, get_db
 from mrt_data import LINE_DISPLAY, LINE_SEQUENCES, STATIONS
 
 logger = logging.getLogger(__name__)
@@ -258,6 +261,7 @@ async def mrt_station(name: str = Path(..., max_length=60)) -> dict:
             **l,
             "operator": _OPERATOR.get(lid, ""),
             "frequency": {"min": lo, "max": hi, "period": period},
+            "headways": {"peak": list(peak), "offpeak": list(off)},
             "timetable": bool(dirs),
             "general_hours": None if dirs else GENERAL_HOURS,
             "directions": directions,
@@ -271,3 +275,48 @@ async def mrt_station(name: str = Path(..., max_length=60)) -> dict:
         "lines": lines,
         "alert_messages": (alerts or {}).get("messages", []) if disrupted else [],
     }
+
+
+# ── Saved stations (per account) ─────────────────────────────────────────────
+
+MAX_SAVED_STATIONS = 30
+
+
+def _station_or_404(name: str) -> dict:
+    st = next((s for n, s in _STATIONS_BY_NAME.items() if n.lower() == name.lower()), None)
+    if st is None:
+        raise HTTPException(status_code=404, detail="Station not found")
+    return st
+
+
+@router.get("/saved-stations")
+def saved_stations(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    rows = db.query(SavedStation).filter_by(user_id=user.id).order_by(SavedStation.added_at.desc()).all()
+    return {"results": [_STATIONS_BY_NAME[r.station] for r in rows if r.station in _STATIONS_BY_NAME]}
+
+
+@router.post("/saved-stations/{name}")
+def save_station(
+    name: str = Path(..., max_length=60),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    st = _station_or_404(name)
+    if not db.query(SavedStation).filter_by(user_id=user.id, station=st["name"]).first():
+        if db.query(SavedStation).filter_by(user_id=user.id).count() >= MAX_SAVED_STATIONS:
+            raise HTTPException(status_code=400, detail=f"Limit of {MAX_SAVED_STATIONS} saved stations reached.")
+        db.add(SavedStation(user_id=user.id, station=st["name"]))
+        db.commit()
+    return {"status": "saved", "name": st["name"]}
+
+
+@router.delete("/saved-stations/{name}")
+def unsave_station(
+    name: str = Path(..., max_length=60),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    st = next((s for n, s in _STATIONS_BY_NAME.items() if n.lower() == name.lower()), None)
+    db.query(SavedStation).filter_by(user_id=user.id, station=st["name"] if st else name).delete()
+    db.commit()
+    return {"status": "removed", "name": name}

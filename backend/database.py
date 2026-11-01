@@ -232,6 +232,20 @@ class SavedCarpark(Base):
     added_at   = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class SavedStation(Base):
+    """MRT/LRT stations a user saved (MRT map mode), synced across devices.
+    Keyed by station name, as used by /api/mrt/station/{name}."""
+    __tablename__ = "saved_stations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "station", name="uq_user_station"),
+    )
+
+    id       = Column(Integer, primary_key=True)
+    user_id  = Column(Integer, index=True, nullable=False)
+    station  = Column(String(60), nullable=False)
+    added_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class SavedJourney(Base):
     """Saved origin→destination pairs stored per user account."""
     __tablename__ = "saved_journeys"

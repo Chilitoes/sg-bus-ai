@@ -1310,6 +1310,9 @@ th.num, td.num { text-align: right; }
   transition: opacity .12s, bottom .05s linear;
 }
 .arr-locate-btn:active { opacity: .8; }
+@media (max-width: 719px), (orientation: portrait) {
+  .sheet-high .arr-locate-btn { opacity: 0; pointer-events: none; }
+}
 
 /* Floating search bar — sits just below the iOS status bar */
 .arr-search-wrap {
@@ -2493,11 +2496,31 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
 .mrt-line-name { font-weight: 700; font-size: .95rem; flex: 1; min-width: 0; }
 .mrt-op { font-size: .7rem; color: var(--ink-3); font-weight: 600; flex-shrink: 0; }
 .mrt-disrupt { margin-top: .6rem; font-size: .78rem; font-weight: 700; color: var(--bad); }
-.mrt-freq { display: flex; align-items: baseline; gap: .5rem; margin: .7rem 0 .45rem; }
-.mrt-freq b { font-size: 1.3rem; font-weight: 800; letter-spacing: -.01em; }
+.mrt-freq { display: flex; align-items: baseline; gap: .5rem; margin: .5rem 0 .3rem; }
+.mrt-freq b { font-size: 1rem; font-weight: 750; }
 .mrt-freq span { font-size: .74rem; color: var(--ink-3); }
 .mrt-freq.off b { font-size: 1.05rem; color: var(--ink-3); }
-.mrt-dir { padding: .6rem 0; border-top: 1px solid var(--line); }
+.mrt-dir { padding: .75rem 0; border-top: 1px solid var(--line); }
+.mrt-head { margin-bottom: 0; background: none; border: none; box-shadow: none; padding: 0 .2rem; }
+.mrt-head .mrt-head-codes { margin-top: .3rem; }
+.mrt-head .mrt-alert { margin-top: .6rem; }
+.mrt-head-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
+.mrt-save { flex-shrink: 0; }
+#mrt-back, #cp-back { margin: .1rem 0 .6rem; }
+/* Next trains: the one just missed, then the next three. */
+.mrt-trains { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0 .55rem; }
+.mrt-train {
+  display: inline-flex; flex-direction: column; align-items: flex-start;
+  min-width: 4.1rem; padding: .35rem .6rem; border-radius: 10px;
+  background: var(--surface-2); font-variant-numeric: tabular-nums; line-height: 1.2;
+}
+.mrt-train b { font-size: .95rem; font-weight: 700; }
+.mrt-train small { font-size: .68rem; color: var(--ink-3); font-weight: 600; }
+.mrt-train.next { background: var(--accent-soft); color: var(--accent); }
+.mrt-train.next small { color: var(--accent); }
+.mrt-train.missed { background: transparent; border: 1px dashed var(--line); color: var(--ink-3); }
+[data-mrt-preview] { white-space: normal; }
+.mrt-train.missed b { text-decoration: line-through; font-weight: 600; }
 .mrt-dir-to { font-weight: 650; font-size: .92rem; }
 .mrt-arrow { color: var(--ink-3); margin-right: .35rem; }
 .mrt-dir-times { display: flex; gap: 1.1rem; margin-top: .25rem; font-size: .86rem; font-variant-numeric: tabular-nums; }
