@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.24";
+const APP_VERSION = "1.2.25";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1405,7 +1405,16 @@ function svcCard(svc) {
         </span>
         <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
+      ${_bellBtn(svc.service_no)}
     </div>`;
+}
+
+// One-tap "alert me before it arrives" on each bus card — a sibling of the
+// card's head button (buttons can't nest). Filled + accent while armed.
+function _bellBtn(svcNo) {
+  const on = _alertActive(S.stop, svcNo);
+  return `<button class="svc-bell${on ? " on" : ""}" data-alert-svc="${esc(svcNo)}" aria-pressed="${on}"
+    aria-label="${on ? `Alert on for bus ${esc(svcNo)} — tap to cancel` : `Alert me before bus ${esc(svcNo)} arrives`}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>`;
 }
 
 function relLine(rel) {
@@ -1473,6 +1482,8 @@ function renderArrivals(data) {
 }
 
 $("rows").addEventListener("click", (e) => {
+  const bell = e.target.closest(".svc-bell");
+  if (bell) { toggleAlert(S.stop, bell.dataset.alertSvc); return; }
   // Clicking the route badge opens the route viewer instead of toggling expand
   const badge = e.target.closest(".route-badge");
   if (badge) {
@@ -1557,14 +1568,14 @@ function toggleAlert(stop, svc) {
 
 // Reflect alert state on the rendered buttons without a full re-render.
 function _syncAlertBtns() {
-  document.querySelectorAll(".svc-alert-btn[data-alert-svc]").forEach((btn) => {
-    const on = _alertActive(S.stop, btn.dataset.alertSvc);
+  document.querySelectorAll(".svc-bell[data-alert-svc]").forEach((btn) => {
+    const svc = btn.dataset.alertSvc;
+    const on = _alertActive(S.stop, svc);
     btn.classList.toggle("on", on);
-    const txt = btn.querySelector(".svc-alert-txt");
-    if (txt) txt.textContent = on
-      ? "Alert on — we'll ping you before it arrives"
-      : "Alert me before this bus arrives";
+    btn.setAttribute("aria-pressed", on);
+    btn.setAttribute("aria-label", on ? `Alert on for bus ${svc} — tap to cancel` : `Alert me before bus ${svc} arrives`);
   });
+  _mimRenderAlert();
 }
 
 function _checkAlerts() {
@@ -1837,17 +1848,26 @@ function _mimSetSvc(s) {
 }
 
 // "Arrival details": what the expanded card used to show — LTA vs AI per bus,
-// crowding, route reliability, and the arrival alert toggle.
+// crowding and route reliability.
 function _mimRenderMore() {
   const s = M.svcData;
-  const on = _alertActive(M.stop, M.svc);
   $("mim-more-body").innerHTML = s ? `
     ${relLine(s.reliability)}
-    ${s.buses.map(busLine).join("")}
-    <button class="svc-alert-btn${on ? " on" : ""}" data-mim-alert>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-      <span class="svc-alert-txt">${on ? "Alert on — we'll ping you before it arrives" : "Alert me before this bus arrives"}</span>
-    </button>` : "";
+    ${s.buses.map(busLine).join("")}` : "";
+  _mimRenderAlert();
+}
+
+// Arrival alert, right under "Notify me" (it used to be buried at the bottom
+// of the collapsed Arrival details).
+function _mimRenderAlert() {
+  const btn = $("mim-alert");
+  if (!btn || !M.svc) return;
+  const on = _alertActive(M.stop, M.svc);
+  btn.classList.toggle("on", on);
+  btn.setAttribute("aria-pressed", on);
+  btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span>${on
+    ? `Alert on · ${+(ALERT_THRESHOLD_SEC / 60).toFixed(1)} min before bus ${esc(M.svc)} · tap to cancel`
+    : `Alert me before bus ${esc(M.svc)} arrives`}</span>`;
 }
 
 function _mimTick() {

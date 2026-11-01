@@ -2128,16 +2128,30 @@ th.num, td.num { text-align: right; }
 }
 
 /* ── Arrival alert toggle (service detail) ───────────────── */
-.svc-alert-btn {
-  display: flex; align-items: center; gap: .5rem; width: 100%;
-  padding: .55rem .9rem; margin-top: .15rem;
-  border: none; border-top: 1px solid var(--line);
-  background: transparent; color: var(--ink-2);
-  font-size: .78rem; font-weight: 500; text-align: left; cursor: pointer;
+/* One-tap arrival alert on each bus card (sits beside .svc-head). */
+.svc { display: flex; align-items: stretch; }
+.svc > .svc-head { flex: 1; min-width: 0; }
+.svc-bell {
+  flex-shrink: 0; width: 46px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-left: 1px solid var(--line);
+  background: none; color: var(--ink-3); cursor: pointer;
+  transition: color .15s, background .15s;
 }
-.svc-alert-btn svg { color: var(--ink-3); flex-shrink: 0; }
-.svc-alert-btn.on { color: var(--accent); }
-.svc-alert-btn.on svg { color: var(--accent); fill: var(--accent); }
+.svc-bell:active { background: var(--surface-2); }
+.svc-bell.on { color: var(--accent); background: var(--accent-soft); }
+.svc-bell.on svg { fill: currentColor; }
+
+/* "Can I make it?" sheet: arrival alert directly under the Notify me button. */
+.mim-alert {
+  display: flex; align-items: center; justify-content: center; gap: .45rem;
+  width: 100%; margin-top: .55rem; padding: .75rem;
+  border: 1.5px solid var(--line); border-radius: 13px; cursor: pointer;
+  background: var(--surface); color: var(--ink); font: inherit; font-size: .86rem; font-weight: 600;
+}
+.mim-alert svg { flex-shrink: 0; color: var(--accent); }
+.mim-alert.on { background: var(--accent-soft); border-color: rgba(240,89,106,.35); color: var(--accent); }
+.mim-alert.on svg { fill: currentColor; }
 
 /* ── Punctuality heatmap (admin) ─────────────────────────── */
 .heatmap-sub { font-size: .76rem; color: var(--ink-3); line-height: 1.4; margin-bottom: .6rem; }
@@ -2587,7 +2601,6 @@ body.maintenance-open { overflow: hidden; }
 .mim-more summary::-webkit-details-marker { display: none; }
 .mim-more summary .chev { color: var(--ink-3); transition: transform .2s; }
 .mim-more[open] summary .chev { transform: rotate(180deg); }
-.mim-more .svc-alert-btn { margin-top: 0; }
 .notif-popup-card { max-height: 90dvh; overflow-y: auto; }
 .notif-popup-img {
   display: block; width: 100%; max-height: 44dvh; object-fit: cover; object-position: top;
