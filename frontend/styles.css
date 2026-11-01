@@ -594,6 +594,8 @@ th.num, td.num { text-align: right; }
   padding: .5rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom));
   animation: sheetUp .25s cubic-bezier(.2,.8,.3,1);
   box-shadow: 0 -4px 24px rgba(0,0,0,.12);
+  max-height: calc(100dvh - env(safe-area-inset-top) - .75rem);
+  overflow-y: auto; overscroll-behavior: contain;
 }
 @keyframes sheetUp { from { transform: translateY(100%); } }
 .sheet-handle {
@@ -2786,3 +2788,17 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
 .mim-track.no .mim-seg-spare    { display: none; }
 .mim-node.stop { border-color: var(--good); background: var(--surface); }
 .mim-track.now .mim-node.stop { border-color: var(--warn); }
+
+/* Privacy note under the login / sign-up form */
+.auth-privacy {
+  margin-top: 1rem; padding: .8rem .95rem;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: .76rem; line-height: 1.5; color: var(--ink-2);
+}
+.auth-privacy-hd {
+  display: flex; align-items: center; gap: .4rem;
+  font-size: .8rem; font-weight: 700; color: var(--good); margin-bottom: .3rem;
+}
+.auth-privacy ul { margin: .45rem 0 0; padding-left: 1.05rem; }
+.auth-privacy li + li { margin-top: .2rem; }
