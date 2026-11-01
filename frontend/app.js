@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.26";
+const APP_VERSION = "1.2.27";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -37,6 +37,11 @@ const POPULAR = [
   { code: "03222", description: "Raffles Place" },
   { code: "09022", description: "Orchard Stn" },
 ];
+
+// Journey planner (Plan tab) is archived: hidden from the nav, the Saved
+// "Routes" section and shared plan links, but all its code is kept. Set to
+// true to bring it back.
+const PLAN_ENABLED = false;
 
 const LOAD_LABEL = { SEA: "Seats", SDA: "Standing", LSD: "Crowded" };
 const LOAD_FULL  = { SEA: "Seats available", SDA: "Standing only", LSD: "Limited standing — packed" };
@@ -883,6 +888,7 @@ $("chips-area").addEventListener("click", (e) => {
 // ── Views / bottom nav ────────────────────────────────────
 function switchView(name) {
   if (name === "data" && !isAdmin()) name = "arrivals";
+  if (name === "plan" && !PLAN_ENABLED) name = "arrivals";
   if (name === "map") name = "arrivals"; // map is now embedded in arrivals
   S.view = name;
   document.querySelectorAll(".nav-item").forEach((b) =>
@@ -894,9 +900,15 @@ function switchView(name) {
   if (name === "arrivals") setTimeout(() => _arrMap?.invalidateSize(), 60);
   if (name === "settings") _updateSettingsUI();
   if (name === "checkpoint") loadCheckpoint();
+  if (name === "carpark") _cpInit();
 }
 document.querySelectorAll(".nav-item").forEach((b) =>
   b.addEventListener("click", () => switchView(b.dataset.view)));
+if (!PLAN_ENABLED) {
+  // Hidden, not removed — the planner code still wires listeners to these.
+  document.querySelector('.nav-item[data-view="plan"]')?.classList.add("hidden");
+  document.querySelectorAll(".saved-routes").forEach((el) => el.classList.add("hidden"));
+}
 
 // ── Checkpoint view ───────────────────────────────────────
 const CP_CAM_LABELS = {
@@ -3981,6 +3993,7 @@ $("name-save-btn")?.addEventListener("click", async () => {
 
 // ── Arrivals map ──────────────────────────────────────────
 let _arrMap       = null;
+let _cpMap        = null;   // Carpark tab map (see the Carpark section)
 let _arrLocMarker = null;
 let _arrPinStore  = new Map(); // code → { marker, label }
 
@@ -3993,9 +4006,11 @@ function _setSheetH(px) {
 // Compute the three snap heights in px. The max is capped so the sheet's top
 // always stays just below the floating search bar — otherwise it swallows the
 // search bar and the drag handle becomes unreachable.
+// The Arrivals and Carpark tabs each have a map + sheet; the snap height
+// (--sheet-h) is shared, measured against whichever tab is on screen.
 function _sheetSnaps() {
-  const sheet  = document.querySelector(".arr-sheet");
-  const search = document.querySelector(".arr-search-wrap");
+  const sheet  = document.querySelector(".view.active .arr-sheet") || document.querySelector(".arr-sheet");
+  const search = document.querySelector(".view.active .arr-search-wrap") || document.querySelector(".arr-search-wrap");
   const bottomY = sheet ? sheet.getBoundingClientRect().bottom : innerHeight;
   const searchBottom = search ? search.getBoundingClientRect().bottom : 80;
   const min = Math.round(innerHeight * 0.22);
@@ -4008,7 +4023,7 @@ function _snapSheet(name) {
   const s = _sheetSnaps();
   _sheetSnapName = name in s ? name : "mid";
   _setSheetH(s[_sheetSnapName]);
-  setTimeout(() => _arrMap?.invalidateSize(), 280);
+  setTimeout(() => { _arrMap?.invalidateSize(); _cpMap?.invalidateSize(); }, 280);
 }
 // Folding/unfolding an iPhone Duo, rotating, or resizing a Split View pane
 // changes the window size in one jump. The sheet's height is in px computed
@@ -4020,10 +4035,12 @@ addEventListener("resize", () => {
   _sheetResizeTimer = setTimeout(() => _snapSheet(_sheetSnapName), 120);
 });
 function _initSheetDrag() {
-  const sheet  = document.querySelector(".arr-sheet");
-  const handle = document.querySelector(".arr-sheet-handle");
-  if (!sheet || !handle) return;
+  document.querySelectorAll(".arr-sheet").forEach(_initOneSheetDrag);
   _snapSheet("mid");
+}
+function _initOneSheetDrag(sheet) {
+  const handle = sheet.querySelector(".arr-sheet-handle");
+  if (!handle) return;
 
   let startY = 0, startH = 0, dragging = false;
 
@@ -4874,6 +4891,7 @@ function showShareToast() {
 
 // Read URL params on load and auto-populate the plan form
 function bootFromUrl() {
+  if (!PLAN_ENABLED) return;
   const p = new URLSearchParams(location.search);
   const fLat = p.get("fLat"), fLng = p.get("fLng"), fName = p.get("fName"), fCode = p.get("fCode");
   const tLat = p.get("tLat"), tLng = p.get("tLng"), tName = p.get("tName"), tCode = p.get("tCode");
@@ -5039,6 +5057,280 @@ $("plan-to-pick").addEventListener("click",   () => openStopPicker("to"));
 $("stop-picker-close").addEventListener("click", closeStopPicker);
 $("stop-picker-backdrop").addEventListener("click", closeStopPicker);
 $("stop-picker-confirm").addEventListener("click", _confirmPickerStop);
+
+// ── Carpark tab ───────────────────────────────────────────
+// Live available lots for HDB, URA and LTA carparks (LTA DataMall, refreshed
+// every minute server-side — see carpark_routes.py). Same shape as Arrivals:
+// map + floating search + sheet listing what's nearby; tap a pin, a list row
+// or a search result for the detail card. Only *available* lots are
+// published (no capacity), so colours are by absolute count.
+const CP = {
+  items: new Map(),     // id → carpark (last seen data)
+  pins: new Map(),      // id → Leaflet marker
+  sel: null,            // selected carpark id
+  locMarker: null,
+  detailTmr: null,
+  acTimer: null,
+  acSeq: 0,
+  busy: false,
+};
+const CP_AGENCY = { HDB: "HDB", URA: "URA", LTA: "LTA" };
+
+// LTA sends HDB carparks in capitals ("BLK 270/271 ALBERT CENTRE"); title-
+// case those, leaving mixed-case names (malls) alone.
+function _cpName(n) {
+  n = String(n || "").trim();
+  if (!n || n !== n.toUpperCase()) return n;
+  return n.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase())
+    .replace(/\b(Hdb|Ura|Lta|Mscp|Scp|Ntu|Nus|Sgh|Cbd)\b/g, (w) => w.toUpperCase());
+}
+function _cpLevel(n) { return n == null ? "na" : n === 0 ? "full" : n < 10 ? "low" : "ok"; }
+function _cpDist(m) { return m == null ? "" : m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`; }
+function _cpCar(cp) { return cp?.lots?.car ?? null; }
+
+function _cpPinIcon(cp, selected = false) {
+  const n = _cpCar(cp);
+  return L.divIcon({
+    className: "cp-pin-wrap",
+    html: `<div class="cp-pin ${_cpLevel(n)}${selected ? " sel" : ""}">${n == null ? "P" : n}</div>`,
+    iconSize: [36, 24], iconAnchor: [18, 12],
+  });
+}
+
+function _cpInit() {
+  if (_cpMap) { setTimeout(() => _cpMap.invalidateSize(), 60); return; }
+  if (!_leafletReady()) { _whenLeaflet(_cpInit); return; }
+  _cpMap = L.map($("cp-map"), { zoomControl: false, attributionControl: false }).setView(SG_CENTER, 16);
+  _sgAddBase(_cpMap, true);
+  setTimeout(() => _cpMap.invalidateSize(), 60);
+  _cpLocate(false);
+}
+
+// fresh=false on first open (a recent cached fix is fine and fast); the
+// Refresh / locate buttons ask for a fresh one. Without location access the
+// list falls back to the carparks around the map's centre.
+function _cpLocate(fresh) {
+  if (!_cpMap || CP.busy) return;
+  CP.busy = true;
+  $("cp-refresh")?.classList.add("spinning");
+  const done = () => { CP.busy = false; $("cp-refresh")?.classList.remove("spinning"); };
+  const fromCentre = (msg) => {
+    const c = _cpMap.getCenter();
+    _cpLoadNearby(c.lat, c.lng).finally(done);
+    if (msg) toast(msg);
+  };
+  if (!navigator.geolocation) { fromCentre("Location unavailable — showing carparks near the map centre"); return; }
+  navigator.geolocation.getCurrentPosition(
+    ({ coords: { latitude: lat, longitude: lng } }) => {
+      _cpMap.setView([lat, lng], Math.max(_cpMap.getZoom(), 16));
+      if (CP.locMarker) CP.locMarker.remove();
+      CP.locMarker = L.circleMarker([lat, lng], {
+        radius: 8, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
+      }).addTo(_cpMap);
+      _cpLoadNearby(lat, lng).finally(done);
+    },
+    () => fromCentre(fresh ? "Couldn't get your location — showing carparks near the map centre" : ""),
+    fresh ? { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+          : { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+  );
+}
+
+async function _cpLoadNearby(lat, lng) {
+  const status = $("cp-status");
+  try {
+    const d = await api(`/api/carparks/nearby?lat=${lat}&lng=${lng}&limit=30`);
+    const list = d.results || [];
+    list.forEach((cp) => CP.items.set(cp.id, cp));
+    _cpSyncPins(list);
+    _cpRenderList(list, d);
+  } catch (e) {
+    status.textContent = `Couldn't load carparks: ${e.message}`;
+    show(status);
+  }
+}
+
+// Keep pins for the latest nearby set plus the selected carpark; drop the rest.
+function _cpSyncPins(list) {
+  const keep = new Set(list.map((c) => c.id));
+  if (CP.sel) keep.add(CP.sel);
+  for (const [id, m] of CP.pins) if (!keep.has(id)) { m.remove(); CP.pins.delete(id); }
+  list.forEach(_cpPutPin);
+}
+function _cpPutPin(cp) {
+  if (cp.lat == null) return;
+  const icon = _cpPinIcon(cp, cp.id === CP.sel);
+  const m = CP.pins.get(cp.id);
+  if (m) { m.setIcon(icon); return; }
+  const marker = L.marker([cp.lat, cp.lng], { icon, title: _cpName(cp.name), zIndexOffset: cp.id === CP.sel ? 1000 : 0 }).addTo(_cpMap);
+  marker.on("click", () => _cpOpen(cp.id));
+  CP.pins.set(cp.id, marker);
+}
+
+function _cpRow(cp) {
+  const n = _cpCar(cp);
+  const meta = [CP_AGENCY[cp.agency] || cp.agency, cp.area].filter(Boolean).join(" · ");
+  return `
+    <button class="arr-stop-item cp-item" data-cp="${esc(cp.id)}">
+      <span class="cp-lots ${_cpLevel(n)}"><b>${n == null ? "–" : n}</b><small>${n === 0 ? "full" : "lots"}</small></span>
+      <span class="arr-stop-info">
+        <span class="arr-stop-name">${esc(_cpName(cp.name))}</span>
+        <span class="arr-stop-road">${esc(meta)}</span>
+      </span>
+      ${cp.distance_m != null ? `<span class="arr-stop-dist">${_cpDist(cp.distance_m)}</span>` : ""}
+      <svg class="arr-stop-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>
+    </button>`;
+}
+function _cpRenderList(list, d) {
+  const status = $("cp-status");
+  $("cp-count").textContent = list.length;
+  $("cp-count").classList.toggle("hidden", !list.length);
+  if (!list.length) {
+    status.textContent = "No carparks with live data around here. Try moving the map and tapping Refresh.";
+    show(status);
+  } else if (d.stale) {
+    status.textContent = `Live feed is delayed — showing lots as of ${fmtClock(parseUTC(d.updated_at))}.`;
+    show(status);
+  } else hide(status);
+  $("cp-list").innerHTML = list.map(_cpRow).join("");
+}
+
+async function _cpOpen(id) {
+  const prev = CP.sel;
+  CP.sel = id;
+  if (prev && CP.items.has(prev)) _cpPutPin(CP.items.get(prev));
+  const cp = CP.items.get(id);
+  if (cp) _cpShowDetail(cp, null);
+  hide($("cp-nearby")); show($("cp-detail"));
+  $("view-carpark").querySelector(".arr-sheet-scroll").scrollTop = 0;
+  _snapSheet("mid");
+  clearInterval(CP.detailTmr);
+  CP.detailTmr = setInterval(() => { if (S.view === "carpark" && !document.hidden) _cpRefreshDetail(); }, 60_000);
+  await _cpRefreshDetail();
+}
+async function _cpRefreshDetail() {
+  const id = CP.sel;
+  if (!id) return;
+  try {
+    const d = await api(`/api/carparks/${encodeURIComponent(id)}`);
+    if (CP.sel !== id) return;
+    const prev = CP.items.get(id);
+    const cp = { ...d.carpark, distance_m: prev?.distance_m ?? null };
+    CP.items.set(id, cp);
+    _cpShowDetail(cp, d);
+  } catch (e) {
+    if (CP.sel === id && !CP.items.has(id)) $("cp-card").innerHTML = `<p class="cp-status">Couldn't load this carpark: ${esc(e.message)}</p>`;
+  }
+}
+
+function _cpShowDetail(cp, d) {
+  _cpPutPin(cp);
+  const m = CP.pins.get(cp.id);
+  if (m) { m.setZIndexOffset(1000); _cpFocus(m.getLatLng()); }
+  const lots = [
+    ["car", "Car lots"], ["motorcycle", "Motorcycle lots"], ["heavy", "Heavy vehicle lots"],
+  ].filter(([k]) => cp.lots?.[k] != null);
+  const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const dir = cp.lat == null ? null : ios
+    ? `https://maps.apple.com/?daddr=${cp.lat},${cp.lng}&dirflg=d`
+    : `https://www.google.com/maps/dir/?api=1&destination=${cp.lat},${cp.lng}&travelmode=driving`;
+  const meta = [CP_AGENCY[cp.agency] ? `${CP_AGENCY[cp.agency]} carpark` : cp.agency, cp.area, _cpDist(cp.distance_m)].filter(Boolean).join(" · ");
+  const when = d?.updated_at ? fmtClock(parseUTC(d.updated_at)) : null;
+  $("cp-card").innerHTML = `
+    <div class="stop-card-top">
+      <div class="stop-id">
+        <div class="stop-name">${esc(_cpName(cp.name))}</div>
+        <div class="stop-meta">${esc(meta)}</div>
+      </div>
+      ${dir ? `<a class="pillbtn cp-dir" href="${dir}" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+        Directions</a>` : ""}
+    </div>
+    <div class="cp-lot-grid">
+      ${lots.length ? lots.map(([k, label]) => {
+        const n = cp.lots[k];
+        return `<div class="cp-lot ${_cpLevel(n)}"><div class="cp-lot-n">${n}</div><div class="cp-lot-l">${label}${n === 0 ? " · full" : ""}</div></div>`;
+      }).join("") : `<p class="cp-status">No lot counts published for this carpark.</p>`}
+    </div>
+    <div class="stop-card-foot">
+      <span>${when ? `Updated ${when}` : "Loading latest…"}</span>
+      <span class="foot-sep">·</span>
+      <span>auto-refresh 60s</span>
+      ${d?.stale ? `<span class="foot-sep">·</span><span class="cp-stale">feed delayed</span>` : ""}
+    </div>`;
+}
+
+// Centre a point in the part of the map you can actually see: between the
+// search bar and the bottom sheet on phones. (In the landscape side-panel
+// layout the map already starts right of the panel, so plain centre works.)
+function _cpFocus(latlng) {
+  const m = _cpMap;
+  const c = m.getContainer().getBoundingClientRect();
+  const view = $("view-carpark");
+  const sh = view.querySelector(".arr-sheet").getBoundingClientRect();
+  const sb = view.querySelector(".arr-search-wrap").getBoundingClientRect();
+  let y = c.height / 2;
+  const overlapX = Math.min(sh.right, c.right) - Math.max(sh.left, c.left);
+  if (overlapX > c.width / 2 && sh.top > c.top) y = ((sb.bottom - c.top) + (sh.top - c.top)) / 2;
+  const target = m.project(latlng).add([0, c.height / 2 - y]);
+  m.panTo(m.unproject(target), { animate: true, duration: 0.4 });
+}
+
+function _cpBack() {
+  clearInterval(CP.detailTmr);
+  const prev = CP.sel;
+  CP.sel = null;
+  if (prev && CP.items.has(prev)) { _cpPutPin(CP.items.get(prev)); CP.pins.get(prev)?.setZIndexOffset(0); }
+  hide($("cp-detail")); show($("cp-nearby"));
+  _snapSheet("mid");
+}
+
+// Search (debounced; stale responses from earlier keystrokes are dropped).
+function _cpSearch(q) {
+  const ac = $("cp-ac");
+  clearTimeout(CP.acTimer);
+  if (q.trim().length < 2) { hide(ac); ac.innerHTML = ""; return; }
+  CP.acTimer = setTimeout(async () => {
+    const seq = ++CP.acSeq;
+    try {
+      const d = await api(`/api/carparks/search?q=${encodeURIComponent(q.trim())}&limit=8`);
+      if (seq !== CP.acSeq) return;
+      const list = d.results || [];
+      list.forEach((cp) => { if (!CP.items.has(cp.id)) CP.items.set(cp.id, cp); });
+      ac.innerHTML = list.length ? list.map((cp) => {
+        const n = _cpCar(cp);
+        return `<button class="ac-item cp-ac-item" data-cp="${esc(cp.id)}">
+          <span class="cp-lots sm ${_cpLevel(n)}"><b>${n == null ? "–" : n}</b></span>
+          <span class="ac-txt"><span class="ac-name">${esc(_cpName(cp.name))}</span>
+          <span class="ac-road">${esc([CP_AGENCY[cp.agency] || cp.agency, cp.area].filter(Boolean).join(" · "))}</span></span>
+        </button>`;
+      }).join("") : `<div class="ac-empty">No carparks match “${esc(q.trim())}”</div>`;
+      show(ac);
+    } catch { /* keep the previous suggestions */ }
+  }, 250);
+}
+
+$("cp-input").addEventListener("input", (e) => {
+  $("cp-search-clear").classList.toggle("hidden", !e.target.value);
+  _cpSearch(e.target.value);
+});
+$("cp-search-clear").addEventListener("click", () => {
+  $("cp-input").value = ""; hide($("cp-search-clear")); hide($("cp-ac"));
+});
+$("cp-ac").addEventListener("click", (e) => {
+  const it = e.target.closest("[data-cp]");
+  if (!it) return;
+  hide($("cp-ac")); $("cp-input").blur();
+  const cp = CP.items.get(it.dataset.cp);
+  if (cp?.lat != null) _cpMap?.setView([cp.lat, cp.lng], 17);
+  _cpOpen(it.dataset.cp);
+});
+$("cp-list").addEventListener("click", (e) => {
+  const it = e.target.closest("[data-cp]");
+  if (it) _cpOpen(it.dataset.cp);
+});
+$("cp-back").addEventListener("click", _cpBack);
+$("cp-refresh").addEventListener("click", () => _cpLocate(true));
+$("cp-locate-btn").addEventListener("click", () => _cpLocate(true));
 
 initTheme();
 syncAccountUI();
