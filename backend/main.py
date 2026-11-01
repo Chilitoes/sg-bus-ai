@@ -32,6 +32,7 @@ from config import DEFAULT_MONITORED_STOPS
 from data_collector import start_data_collection
 from database import init_db, SessionLocal, User
 from ml_model import model
+from release_notes import seed_release_notes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,6 +68,8 @@ async def lifespan(app: FastAPI):
             db.close()
     else:
         logger.warning("ADMIN_PASSWORD not set — admin account not provisioned.")
+
+    seed_release_notes()
 
     logger.info("Loading / training ML model …")
     model.load_or_train()

@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.29";
+const APP_VERSION = "1.2.30";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -711,6 +711,7 @@ function _renderNotifPopup(fresh, maxId, promoteTs) {
   const bodyEl = $("notif-popup-body");
   bodyEl.textContent = parts.text;
   bodyEl.classList.toggle("hidden", !parts.text);
+  bodyEl.classList.toggle("long", parts.text.includes("\n"));
   const imgEl = $("notif-popup-img");
   if (parts.img) { imgEl.src = parts.img; show(imgEl); } else { imgEl.removeAttribute("src"); hide(imgEl); }
   $("notif-popup-icon").classList.toggle("hidden", !!parts.img);
@@ -730,7 +731,8 @@ function _renderNotifPopup(fresh, maxId, promoteTs) {
     el.classList.add("show");
     // Move focus into the dialog so keyboard/screen-reader users land on it
     // (aria-modal alone doesn't move focus).
-    $("notif-popup-ok")?.focus();
+    $("notif-popup-ok")?.focus({ preventScroll: true });
+    el.querySelector(".notif-popup-card").scrollTop = 0;  // long notes: start at the top
   });
 }
 
@@ -890,13 +892,35 @@ $("chips-area").addEventListener("click", (e) => {
 });
 
 // ── Views / bottom nav ────────────────────────────────────
+const MAP_MODE_KEY = "sgbus_map_mode";
+const _MM_SVG = (d) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const MAP_MODES = [
+  ["arrivals", "Bus", _MM_SVG('<path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 11h16M6 19v2M18 19v2"/>')],
+  ["mrt", "MRT", _MM_SVG('<rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14m-11 10 2-4m6 4-2-4"/>')],
+  ["carpark", "Parking", _MM_SVG('<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M9.5 17V7h3.25a3 3 0 0 1 0 6H9.5"/>')],
+];
+function _isMapView(n) { return n === "arrivals" || n === "mrt" || n === "carpark"; }
+
 function switchView(name) {
   if (name === "data" && !isAdmin()) name = "arrivals";
   if (name === "plan" && !PLAN_ENABLED) name = "arrivals";
-  if (name === "map") name = "arrivals"; // map is now embedded in arrivals
+  // The Map tab holds three modes (Bus / MRT / Parking), each its own view;
+  // the tab reopens whichever mode was used last.
+  if (name === "map") {
+    let last = null;
+    try { last = localStorage.getItem(MAP_MODE_KEY); } catch {}
+    name = _isMapView(last) ? last : "arrivals";
+  }
   S.view = name;
+  const mapMode = _isMapView(name);
+  if (mapMode) { try { localStorage.setItem(MAP_MODE_KEY, name); } catch {} }
   document.querySelectorAll(".nav-item").forEach((b) =>
-    b.classList.toggle("active", b.dataset.view === name));
+    b.classList.toggle("active", b.dataset.view === name || (mapMode && b.dataset.view === "map")));
+  document.querySelectorAll(".map-mode").forEach((b) => {
+    const on = b.dataset.mode === name;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  });
   document.querySelectorAll(".view").forEach((v) =>
     v.classList.toggle("active", v.id === `view-${name}`));
   if (name === "saved") { renderSaved(); _cpLoadSaved(); }
@@ -909,6 +933,23 @@ function switchView(name) {
 }
 document.querySelectorAll(".nav-item").forEach((b) =>
   b.addEventListener("click", () => switchView(b.dataset.view)));
+// Mode switch under each map view's search bar.
+document.querySelectorAll("#view-arrivals, #view-mrt, #view-carpark").forEach((view) => {
+  const wrap = view.querySelector(".arr-search-wrap");
+  if (!wrap) return;
+  const bar = document.createElement("div");
+  bar.className = "map-modes";
+  bar.setAttribute("role", "tablist");
+  bar.setAttribute("aria-label", "Map mode");
+  bar.innerHTML = MAP_MODES.map(([mode, label, icon]) =>
+    `<button type="button" role="tab" class="map-mode${view.id === "view-" + mode ? " active" : ""}" data-mode="${mode}"
+       aria-selected="${view.id === "view-" + mode}">${icon}<span>${label}</span></button>`).join("");
+  bar.addEventListener("click", (e) => {
+    const b = e.target.closest(".map-mode");
+    if (b && b.dataset.mode !== S.view) switchView(b.dataset.mode);
+  });
+  wrap.appendChild(bar);
+});
 if (!PLAN_ENABLED) {
   // Hidden, not removed — the planner code still wires listeners to these.
   document.querySelector('.nav-item[data-view="plan"]')?.classList.add("hidden");
