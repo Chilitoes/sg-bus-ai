@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.34";
+const APP_VERSION = "1.2.35";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1049,10 +1049,12 @@ function loadCheckpoint(force = false) {
       _renderCheckpoint(data);
       loadCpBus();
       clearTimeout(_cpRefreshTmr);
+      // No manual refresh: the cameras only change when LTA publishes a new
+      // photo (every few minutes), so the page just re-checks every minute.
       _cpRefreshTmr = setTimeout(() => {
         _cpData = null;
         if (S.view === "checkpoint") loadCheckpoint();
-      }, 120_000);
+      }, 60_000);
     })
     .catch((e) => {
       hide($("cp-loading"));
@@ -1065,7 +1067,7 @@ function loadCheckpoint(force = false) {
 function _renderCheckpoint(data) {
   if (data.fetched_at) {
     const t = new Date(data.fetched_at + "Z");
-    $("cp-updated").textContent = `Updated ${fmtClock(t)} · data.gov.sg`;
+    $("cp-updated").textContent = `Checked ${fmtClock(t)} · updates automatically`;
   }
   _renderCarpark(data.carpark);
   _renderCpPanel("woodlands", data.woodlands);
@@ -1091,35 +1093,43 @@ function _renderCarpark(cp) {
           <span class="cp-cp-avail ${status}">${cp.available}</span>
           <span class="cp-cp-sep">/ ${cp.total}</span>
         </div>
-        <button class="cp-cp-refresh iconbtn" aria-label="Refresh carpark">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-        </button>
       </div>
     </div>
     <div class="cp-cp-bar-track">
       <div class="cp-cp-bar-fill ${status}" style="width:${pct}%"></div>
     </div>`;
-  el.querySelector(".cp-cp-refresh").addEventListener("click", () => {
-    _cpData = null; loadCheckpoint(true);
-  });
   show(el);
 }
 
-function _renderCamGrid(camEl, cameras, bust) {
+// "Photo taken 23:25 · 3 min ago" from LTA's per-camera timestamp.
+function _camTaken(iso) {
+  if (!iso) return "";
+  const t = new Date(iso);
+  if (isNaN(t)) return "";
+  const ago = Math.max(0, Math.round((Date.now() - t) / 60000));
+  return `Photo taken ${fmtClock(t)} · ${ago < 1 ? "just now" : `${ago} min ago`}`;
+}
+
+function _renderCamGrid(camEl, cameras) {
   if (!cameras.length) {
     camEl.innerHTML = `<p class="empty" style="font-size:.82rem;padding:.5rem 0">No camera feeds found.</p>`;
     return;
   }
+  // Each LTA photo has its own URL, so no cache-buster is needed: a new
+  // photo arrives as a new URL, and an unchanged one comes from cache.
   camEl.innerHTML = cameras.map((c) => `
     <div class="cp-camera-card">
-      <img class="cp-camera-img" src="${esc(c.url + bust)}" alt="Traffic camera" loading="lazy" />
+      <img class="cp-camera-img" src="${esc(c.url)}" alt="Traffic camera" loading="lazy" />
       <div class="cp-camera-label">${esc(CP_CAM_LABELS[c.id] || `Camera ${c.id}`)}</div>
     </div>`).join("");
+  const newest = cameras.map((c) => c.taken_at).filter(Boolean).sort().pop();
+  const fallback = _cpData?.fetched_at ? `Checked ${fmtClock(new Date(_cpData.fetched_at + "Z"))}` : "";
+  const line = _camTaken(newest) || fallback;
+  if (line) camEl.insertAdjacentHTML("beforeend", `<p class="cp-cam-taken">${esc(line)}</p>`);
 }
 
 function _renderCpPanel(key, cp) {
   if (!cp) return;
-  const bust  = `?t=${Date.now()}`;
   const camEl = $(`cp-cameras-${key}`);
   if (!camEl) return;
 
@@ -1143,7 +1153,7 @@ function _renderCpPanel(key, cp) {
         b.classList.toggle("active", i === idx));
       const body = camEl.querySelector(".cp-cam-dir-body");
       const cams = dirs[idx].ids.map((id) => camMap[id]).filter(Boolean);
-      _renderCamGrid(body, cams, bust);
+      _renderCamGrid(body, cams);
     }
     // Property assignment (not addEventListener): this panel re-renders every
     // 120 s, and stacked listeners would each rebuild the grid per tap with
@@ -1154,7 +1164,7 @@ function _renderCpPanel(key, cp) {
     };
     showDir(0);
   } else if (cp.cameras && cp.cameras.length) {
-    _renderCamGrid(camEl, cp.cameras, bust);
+    _renderCamGrid(camEl, cp.cameras);
   } else {
     camEl.innerHTML = `<p class="empty" style="font-size:.82rem;padding:.5rem 0">No camera feeds found for this checkpoint.</p>`;
   }
@@ -1169,7 +1179,6 @@ document.querySelectorAll(".cp-tab").forEach((btn) => {
   });
 });
 
-$("cp-refresh-btn").addEventListener("click", () => { _cpData = null; loadCheckpoint(true); loadCpBus(); });
 
 // ── Bus route viewer ──────────────────────────────────────
 function closeRouteSheet() {
@@ -2317,8 +2326,28 @@ function destroyCharts() {
   Object.keys(charts).forEach((k) => { charts[k]?.destroy(); charts[k] = null; });
 }
 
+// Chart.js (~200 KB) is only needed once someone opens a stats section, so
+// it's fetched then instead of on every app start.
+let _chartJsP = null;
+function _loadChartJs() {
+  if (typeof Chart !== "undefined") return Promise.resolve();
+  _chartJsP ||= new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js";
+    s.integrity = "sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF";
+    s.crossOrigin = "anonymous";
+    s.onload = resolve;
+    s.onerror = () => { _chartJsP = null; reject(new Error("Chart.js failed to load")); };
+    document.head.appendChild(s);
+  });
+  return _chartJsP;
+}
+
 function renderCharts(stats) {
-  if (typeof Chart === "undefined") return;
+  if (typeof Chart === "undefined") {
+    _loadChartJs().then(() => renderCharts(stats)).catch(() => {});
+    return;
+  }
   S.chartsDirty = false;
   destroyCharts();
   if (!stats || stats.total_records === 0) {
@@ -2910,7 +2939,7 @@ async function loadData() {
 let _analyticsChart = null;
 
 async function loadAdminAnalytics() {
-  const d = await api("/api/analytics");
+  const [d] = await Promise.all([api("/api/analytics"), _loadChartJs().catch(() => {})]);
   const q = d.queries;
   const u = d.users;
   const fb = d.feedback;

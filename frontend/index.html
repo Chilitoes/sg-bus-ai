@@ -19,11 +19,10 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.2.34" />
+  <link rel="stylesheet" href="styles.css?v=1.2.35" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer crossorigin="anonymous" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -569,9 +568,6 @@
         <h2 class="view-title" style="margin-bottom:.15rem">Checkpoint Traffic</h2>
         <p id="cp-updated" class="view-sub"></p>
       </div>
-      <button id="cp-refresh-btn" class="iconbtn" aria-label="Refresh checkpoint data">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
-      </button>
     </div>
 
     <div class="cp-tabs">
@@ -618,16 +614,16 @@
         </summary>
         <div class="cp-bus-body" id="cp-bus-body-wdlint"></div>
       </details>
-      <div class="cp-section-hd cp-cam-hd" style="margin-top:1.1rem">Live cameras <span class="cp-cam-note">~90 s refresh by LTA</span></div>
+      <div class="cp-section-hd cp-cam-hd" style="margin-top:1.1rem">Traffic cameras</div>
       <div id="cp-cameras-woodlands" class="cp-cameras"></div>
     </div>
 
     <div id="cp-panel-tuas" class="cp-panel hidden">
-      <div class="cp-section-hd cp-cam-hd">Live cameras <span class="cp-cam-note">~90 s refresh by LTA</span></div>
+      <div class="cp-section-hd cp-cam-hd">Traffic cameras</div>
       <div id="cp-cameras-tuas" class="cp-cameras"></div>
     </div>
 
-    <p class="cp-note">Live camera feeds from data.gov.sg · Images refresh every ~90 s</p>
+    <p class="cp-note">Camera photos from LTA via data.gov.sg. LTA publishes a new photo every few minutes; this page picks it up automatically.</p>
   </section>
 
   <!-- ════ DATA VIEW ════ -->
@@ -879,7 +875,7 @@
         <div class="stg-card">
           <div class="stg-row">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">1.2.34</span>
+            <span class="stg-row-val" id="stg-version-val">1.2.35</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -1181,6 +1177,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"></script>
-<script src="app.js?v=1.2.34"></script>
+<script src="app.js?v=1.2.35"></script>
 </body>
 </html>

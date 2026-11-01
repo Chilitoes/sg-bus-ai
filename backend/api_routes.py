@@ -2033,7 +2033,7 @@ _CHECKPOINTS = {
 }
 _cp_cache: dict | None = None
 _cp_cache_ts: float = 0.0
-_CP_CACHE_SEC = 120
+_CP_CACHE_SEC = 60
 
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -2074,6 +2074,7 @@ async def checkpoint_traffic() -> dict:
                     cameras_raw.append({
                         "CameraID":  cam.get("camera_id", ""),
                         "ImageLink": cam.get("image", ""),
+                        "Timestamp": cam.get("timestamp", ""),  # when LTA took the photo (SGT, ISO)
                         "Latitude":  loc.get("latitude", 0),
                         "Longitude": loc.get("longitude", 0),
                     })
@@ -2113,7 +2114,8 @@ async def checkpoint_traffic() -> dict:
                     d = _haversine_km(cp["lat"], cp["lng"], float(c["Latitude"]), float(c["Longitude"]))
                 except (TypeError, ValueError):
                     d = 0.0
-                cameras.append({"id": cid, "url": c["ImageLink"], "dist_km": round(d, 1)})
+                cameras.append({"id": cid, "url": c["ImageLink"], "dist_km": round(d, 1),
+                                "taken_at": c.get("Timestamp") or None})
 
         out[key] = {
             "name":    cp["name"],

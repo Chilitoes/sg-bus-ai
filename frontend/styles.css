@@ -2802,3 +2802,6 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
 }
 .auth-privacy ul { margin: .45rem 0 0; padding-left: 1.05rem; }
 .auth-privacy li + li { margin-top: .2rem; }
+
+/* When the checkpoint camera photos were taken (under the photos) */
+.cp-cam-taken { font-size: .74rem; color: var(--ink-3); margin: .5rem .15rem 0; font-variant-numeric: tabular-nums; }
