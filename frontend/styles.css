@@ -225,17 +225,20 @@ html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 .ac-empty { padding: .85rem .9rem; font-size: .82rem; color: var(--ink-3); }
 
 /* ── Chips ───────────────────────────────────────────── */
-.chips-area { margin-bottom: 1rem; }
+.chips-area { margin-bottom: 1.1rem; }
+.chips-group + .chips-group { margin-top: .7rem; }
 .chips-label {
   font-size: .68rem; font-weight: 700; letter-spacing: .09em;
   text-transform: uppercase; color: var(--accent);
-  margin: 0 0 .45rem .05rem;
+  margin: 0 0 .1rem .05rem;
 }
+/* The row scrolls sideways, which also clips vertically, so it carries its
+   own top/right padding for the recent-chip × badge that pokes out. */
 .chips-row {
-  display: flex; gap: .4rem; overflow-x: auto;
-  padding-bottom: .2rem; scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(to right, black 88%, transparent 100%);
-  mask-image: linear-gradient(to right, black 88%, transparent 100%);
+  display: flex; gap: .5rem; overflow-x: auto;
+  padding: .45rem .5rem .25rem 0; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, black 93%, transparent 100%);
+  mask-image: linear-gradient(to right, black 93%, transparent 100%);
 }
 .chips-row::-webkit-scrollbar { display: none; }
 .chip {
@@ -904,8 +907,8 @@ th.num, td.num { text-align: right; }
   position: relative; display: inline-flex; align-items: center;
 }
 .chip-del {
-  position: absolute; top: -.35rem; right: -.35rem;
-  width: 1.1rem; height: 1.1rem;
+  position: absolute; top: -.4rem; right: -.3rem;
+  width: 1.2rem; height: 1.2rem; box-shadow: 0 0 0 2px var(--bg);
   border-radius: 50%; border: none;
   background: var(--ink-3); color: var(--bg);
   font-size: .65rem; line-height: 1; cursor: pointer;
@@ -1079,8 +1082,14 @@ th.num, td.num { text-align: right; }
 .saved-section-hd {
   font-size: .7rem; font-weight: 700; letter-spacing: .09em;
   text-transform: uppercase; color: var(--accent);
-  margin-bottom: .45rem;
+  margin-bottom: .5rem;
 }
+#view-saved .empty {
+  text-align: left; padding: .75rem .95rem; font-size: .8rem; line-height: 1.5;
+  border: 1px dashed var(--line); border-radius: var(--radius);
+}
+#view-saved .cp-list { gap: .5rem; }
+#view-saved .arr-stop-item { border-radius: var(--radius); padding: .75rem .95rem; }
 
 /* ── Saved journey cards ─────────────────────────────── */
 .saved-journeys-list { display: flex; flex-direction: column; gap: .5rem; }
@@ -1388,11 +1397,10 @@ th.num, td.num { text-align: right; }
 
 .arr-sheet-handle {
   flex-shrink: 0;
-  height: 48px; cursor: grab;
+  height: 30px; cursor: grab;
   touch-action: none;
   display: flex; align-items: center; justify-content: center;
-  padding: 8px 0 10px;
-  border-bottom: 1px solid var(--glass-line);
+  padding: 2px 0 0;
 }
 .arr-sheet-handle::before {
   content: "";
@@ -1410,7 +1418,7 @@ th.num, td.num { text-align: right; }
   padding: 0 1rem calc(var(--nav-h) + env(safe-area-inset-bottom) + 1rem);
   overscroll-behavior: contain;
 }
-.arr-below { padding-top: .25rem; }
+.arr-below { padding-top: .35rem; }
 
 /* Nearby stops section */
 .arr-section-hd {
@@ -1438,10 +1446,10 @@ th.num, td.num { text-align: right; }
 #arr-stops-list { display: flex; flex-direction: column; gap: .6rem; }
 
 .arr-stop-item {
-  display: flex; align-items: center; gap: 1rem;
+  display: flex; align-items: center; gap: .85rem;
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: 16px; padding: .95rem 1.15rem;
-  cursor: pointer; box-shadow: var(--shadow);
+  border-radius: 16px; padding: .85rem 1rem;
+  cursor: pointer; box-shadow: var(--shadow-sm);
   text-align: left; width: 100%;
   transition: background .1s;
 }
@@ -1452,8 +1460,8 @@ th.num, td.num { text-align: right; }
   font-weight: 700; color: var(--accent);
   background: var(--accent-soft); border: 1.5px solid rgba(240,89,106,.22);
   padding: .55rem .75rem; border-radius: 11px; flex-shrink: 0;
-  min-width: 54px; text-align: center; line-height: 1.2;
-  letter-spacing: -.01em;
+  min-width: 4.3rem; text-align: center; line-height: 1.2;
+  letter-spacing: -.01em; font-variant-numeric: tabular-nums;
 }
 .arr-stop-info { flex: 1; min-width: 0; }
 .arr-stop-name { display: block; font-size: 1.05rem; font-weight: 600; color: var(--ink); line-height: 1.25; }
@@ -2455,7 +2463,7 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
 .cp-ac-item .ac-txt { display: flex; flex-direction: column; min-width: 0; }
 
 .cp-list { display: flex; flex-direction: column; gap: .6rem; }
-#cp-saved { margin-bottom: 1.1rem; }
+#cp-saved, #mrt-saved { margin-bottom: 1.1rem; }
 .cp-item { padding: .85rem 1rem; gap: .85rem; }
 .cp-unsave { flex-shrink: 0; }
 .cp-actions { display: flex; flex-direction: column; align-items: stretch; gap: .45rem; flex-shrink: 0; }

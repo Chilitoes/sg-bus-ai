@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.31";
+const APP_VERSION = "1.2.32";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -875,6 +875,7 @@ function renderChips() {
   area.innerHTML = groups
     .filter(([, items]) => items.length)
     .map(([label, items, deletable]) => `
+      <div class="chips-group">
       <div class="chips-label">${label}</div>
       <div class="chips-row">${items.map((f) => `
         <div class="chip-wrap">
@@ -884,6 +885,7 @@ function renderChips() {
           </button>
           ${deletable ? `<button class="chip-del" data-del="${esc(f.code)}" aria-label="Remove">×</button>` : ""}
         </div>`).join("")}
+      </div>
       </div>`).join("");
 }
 $("chips-area").addEventListener("click", (e) => {
@@ -4240,7 +4242,7 @@ function _renderArrNearbyList(stops) {
         <span class="arr-stop-name">${esc(s.description || "Bus stop")}</span>
         <span class="arr-stop-road">${esc(s.road_name || "")}</span>
       </span>
-      <span class="arr-stop-dist">${Math.round(s.distance_m)} m</span>
+      <span class="arr-stop-dist">${_cpDist(Math.round(s.distance_m))}</span>
       <svg class="arr-stop-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>
     </button>`).join("");
   show(section);
