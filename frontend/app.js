@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.35";
+const APP_VERSION = "1.2.36";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -5941,11 +5941,14 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
-// ── First-visit "Add to Home Screen" guide (iOS Safari) ───
-// iOS Safari has no native install prompt, so first-time visitors get a
-// one-off guide showing the Share → Add to Home Screen flow. Only shown in
-// Safari on iOS, never when already installed, and only once ever.
+// ── First-visit "Add to Home Screen" guide (iPhone + Android) ─
+// A one-off guide for first-time phone visitors, with an iPhone / Android
+// switch. Each shows a looping, illustrated walkthrough (drawn, not real
+// screenshots) with the matching step highlighted. On Android Chrome the
+// browser's own install prompt is offered as a one-tap button when available.
+// Never shown once installed; reopenable from Settings › Add to Home Screen.
 const A2HS_KEY = "sgbus_a2hs_seen";
+let _installPrompt = null;   // Android Chrome's deferred beforeinstallprompt
 
 function _isStandalone() {
   return window.navigator.standalone === true ||
@@ -5956,39 +5959,171 @@ function _isIos() {
   return /iphone|ipad|ipod/i.test(ua) ||
     (navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua)); // iPadOS reports as Mac
 }
-function _isIosSafari() {
-  // Non-Safari iOS browsers (Chrome, Firefox, in-app webviews) can't add to the
-  // Home Screen, so the guide only applies to genuine Safari.
-  if (!_isIos()) return false;
-  return !/CriOS|FxiOS|EdgiOS|OPiOS|mercury|GSA|FBAN|FBAV|Instagram|Line\//i.test(navigator.userAgent);
+function _isAndroid() { return /android/i.test(navigator.userAgent); }
+// In-app browsers (Instagram, Facebook, LINE, Android WebViews…) can't add to
+// the Home Screen at all, so the guide would only frustrate there.
+function _isInAppBrowser() {
+  return /FBAN|FBAV|Instagram|Line\/|GSA\/|; wv\)/i.test(navigator.userAgent);
 }
+
+addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();          // keep Chrome's mini-infobar quiet; we offer it in the guide
+  _installPrompt = e;
+  $("a2hs-install-now")?.classList.remove("hidden");
+});
+addEventListener("appinstalled", () => {
+  _installPrompt = null;
+  try { localStorage.setItem(A2HS_KEY, "1"); } catch {}
+  dismissInstallGuide();
+});
+
+// Illustrated phone mock-ups. Four frames each cycle every 10 s (CSS
+// animation): tap 1 → tap 2 → tap 3 → the icon on the Home Screen.
+function _a2hsPhone(frames) {
+  return `<svg class="a2hs-art" viewBox="0 0 120 220" role="img" aria-label="Animated walkthrough">
+    <rect x="1" y="1" width="118" height="218" rx="18" class="m-body"/>
+    <rect x="6" y="6" width="108" height="208" rx="14" class="m-screen"/>
+    <clipPath id="a2hs-clip-${frames.id}"><rect x="6" y="6" width="108" height="208" rx="14"/></clipPath>
+    <g clip-path="url(#a2hs-clip-${frames.id})">
+      ${frames.list.map((f, i) => `<g class="f f${i + 1}">${f}</g>`).join("")}
+    </g>
+  </svg>`;
+}
+const _tap = (x, y) => `<circle cx="${x}" cy="${y}" r="7" class="m-tap"/><circle cx="${x}" cy="${y}" r="7" class="m-tap-ring"/>`;
+const _page = `
+  <rect x="6" y="6" width="108" height="208" class="m-page"/>
+  <rect x="14" y="40" width="92" height="56" rx="6" class="m-blk"/>
+  <rect x="14" y="104" width="70" height="7" rx="3.5" class="m-blk"/>
+  <rect x="14" y="117" width="88" height="7" rx="3.5" class="m-blk"/>
+  <rect x="14" y="130" width="58" height="7" rx="3.5" class="m-blk"/>`;
+const _home = `
+  <rect x="6" y="6" width="108" height="208" class="m-wall"/>
+  ${[0, 1, 2, 3].flatMap((r) => [0, 1, 2, 3].map((c) => (r === 2 && c === 1) ? "" :
+    `<rect x="${17 + c * 24}" y="${30 + r * 34}" width="16" height="16" rx="4.5" class="m-app"/>`)).join("")}
+  <circle cx="49" cy="106" r="15" class="m-glow"/>
+  <image href="icons/icon-192.png" x="41" y="98" width="16" height="16" style="clip-path: inset(0 round 4.5px)"/>
+  <text x="49" y="124" class="m-lbl" text-anchor="middle">SG Bus</text>`;
+// A menu row; `wide` rows span the share sheet, others sit in a small popover.
+const _row = (y, label, hl = false, wide = false) => `
+  <rect x="${wide ? 12 : 48}" y="${y}" width="${wide ? 96 : 62}" height="16" rx="4" class="${hl ? "m-hl" : "m-row"}"/>
+  <text x="${wide ? 17 : 52}" y="${y + 10.5}" class="m-txt${hl ? " on" : ""}">${label}</text>`;
+
+const A2HS_ART = {
+  ios: { id: "ios", list: [
+    // 1. Safari's bottom bar → ••• (or Share on older iOS)
+    `${_page}<rect x="6" y="186" width="108" height="28" class="m-bar"/>
+     <text x="15" y="203" class="m-ico">‹</text>
+     <rect x="27" y="191" width="60" height="15" rx="7.5" class="m-pill"/>
+     <text x="57" y="201.5" class="m-txt" text-anchor="middle">alstonshi.com</text>
+     <text x="99" y="202" class="m-ico" text-anchor="middle">•••</text>${_tap(99, 199)}`,
+    // 2. Menu → Share
+    `${_page}<rect x="6" y="186" width="108" height="28" class="m-bar"/>
+     <rect x="44" y="118" width="70" height="64" rx="8" class="m-sheet"/>
+     ${_row(122, "Share", true)}${_row(141, "Add Bookmark")}${_row(160, "Find on Page")}${_tap(98, 130)}`,
+    // 3. Share sheet → Add to Home Screen
+    `${_page}<rect x="6" y="104" width="108" height="110" rx="10" class="m-sheet"/>
+     <rect x="50" y="109" width="20" height="3" rx="1.5" class="m-blk"/>
+     ${_row(120, "Copy", false, true)}
+     ${_row(140, "Add to Favourites", false, true)}
+     ${_row(160, "Add to Home Screen ⊞", true, true)}${_tap(90, 168)}`,
+    _home,
+  ] },
+  android: { id: "android", list: [
+    // 1. Chrome's top bar → ⋮
+    `${_page}<rect x="6" y="6" width="108" height="26" class="m-bar"/>
+     <rect x="12" y="11" width="78" height="15" rx="7.5" class="m-pill"/>
+     <text x="51" y="21.5" class="m-txt" text-anchor="middle">alstonshi.com/bus</text>
+     <text x="103" y="23" class="m-ico" text-anchor="middle">⋮</text>${_tap(103, 19)}`,
+    // 2. Menu → Add to home screen
+    `${_page}<rect x="6" y="6" width="108" height="26" class="m-bar"/>
+     <rect x="44" y="20" width="70" height="88" rx="6" class="m-sheet"/>
+     ${_row(24, "New tab")}${_row(44, "Bookmarks")}${_row(64, "Add to home…", true)}${_row(84, "Share…")}${_tap(98, 72)}`,
+    // 3. Confirm → Install
+    `${_page}<rect x="6" y="6" width="108" height="208" class="m-dim"/>
+     <rect x="14" y="78" width="92" height="62" rx="8" class="m-sheet"/>
+     <text x="21" y="92" class="m-txt on">Add to home screen</text>
+     <image href="icons/icon-192.png" x="21" y="99" width="13" height="13"/>
+     <text x="39" y="108.5" class="m-txt">SG Bus</text>
+     <text x="56" y="131" class="m-txt">Cancel</text>
+     <rect x="78" y="122" width="24" height="13" rx="6.5" class="m-btn"/>
+     <text x="90" y="131" class="m-txt m-btn-t" text-anchor="middle">Install</text>${_tap(90, 128)}`,
+    _home,
+  ] },
+};
+
+const A2HS_STEPS = {
+  ios: [
+    `Tap <b>•••</b> in Safari's bottom bar <span class="a2hs-dim">(older iPhones: the <b>Share</b> button)</span>`,
+    `Tap <b>Share</b>`,
+    `Tap <b>Add to Home Screen</b>, then <b>Add</b>`,
+  ],
+  android: [
+    `Tap <b>⋮</b> at the top right of Chrome`,
+    `Tap <b>Add to home screen</b> <span class="a2hs-dim">(or <b>Install app</b>)</span>`,
+    `Tap <b>Install</b> or <b>Add</b>`,
+  ],
+};
+const A2HS_HINT = {
+  ios: `Don't see it? Scroll down the share sheet, or tap <b>Edit Actions…</b>. In Chrome on iPhone, use the Share button in the address bar.`,
+  android: `Samsung Internet: tap <b>≡</b> › <b>Add page to</b> › <b>Home screen</b>.`,
+};
+
+function _renderInstallGuide(platform) {
+  $("a2hs-body").innerHTML = `
+    <div class="a2hs-plat" role="tablist" aria-label="Phone type">
+      ${[["ios", "iPhone"], ["android", "Android"]].map(([k, l]) =>
+        `<button type="button" role="tab" class="a2hs-plat-btn${k === platform ? " active" : ""}" data-plat="${k}" aria-selected="${k === platform}">${l}</button>`).join("")}
+    </div>
+    ${platform === "android" ? `<button id="a2hs-install-now" class="a2hs-install-now${_installPrompt ? "" : " hidden"}" type="button">Install now</button>` : ""}
+    <div class="a2hs-demo">
+      ${_a2hsPhone(A2HS_ART[platform])}
+      <ol class="a2hs-steps">
+        ${A2HS_STEPS[platform].map((t, i) => `<li class="s${i + 1}"><span class="a2hs-step-n">${i + 1}</span><span>${t}</span></li>`).join("")}
+        <li class="s4 a2hs-done"><span class="a2hs-step-n">✓</span><span>SG Bus is on your Home Screen</span></li>
+      </ol>
+    </div>
+    <p class="a2hs-hint">${A2HS_HINT[platform]}</p>`;
+}
+$("a2hs-body")?.addEventListener("click", async (e) => {
+  const tab = e.target.closest(".a2hs-plat-btn");
+  if (tab) { _renderInstallGuide(tab.dataset.plat); return; }
+  if (e.target.closest("#a2hs-install-now") && _installPrompt) {
+    const p = _installPrompt; _installPrompt = null;
+    p.prompt();
+    try { const { outcome } = await p.userChoice; if (outcome === "accepted") dismissInstallGuide(); } catch {}
+    $("a2hs-install-now")?.classList.add("hidden");
+  }
+});
 
 function dismissInstallGuide() {
   const el = $("a2hs-guide");
-  if (!el) return;
+  if (!el || el.classList.contains("hidden")) return;
   el.classList.remove("show");
   setTimeout(() => el.classList.add("hidden"), 320);
 }
 
-function maybeShowInstallGuide() {
-  const force = new URLSearchParams(location.search).get("a2hs") === "1";  // preview hook
+function openInstallGuide(platform) {
   const el = $("a2hs-guide");
   if (!el) return;
+  _renderInstallGuide(platform || (_isAndroid() ? "android" : "ios"));
+  el.classList.remove("hidden");
+  requestAnimationFrame(() => el.classList.add("show"));
+}
+
+function maybeShowInstallGuide() {
+  const force = new URLSearchParams(location.search).get("a2hs");   // preview: ?a2hs=ios|android
+  if (!$("a2hs-guide")) return;
   if (!force) {
     if (localStorage.getItem(A2HS_KEY)) return;
     if (_isStandalone()) { localStorage.setItem(A2HS_KEY, "1"); return; }
-    if (!_isIosSafari()) return;
+    if (!(_isIos() || _isAndroid()) || _isInAppBrowser()) return;   // phones only
   }
-  // iPhone's Share button sits in the bottom toolbar — point the arrow there.
-  // iPad's is top-right, so skip the directional arrow on iPad.
-  if (/iphone|ipod/i.test(navigator.userAgent)) el.classList.add("a2hs-iphone");
   setTimeout(() => {
     // One thing at a time: if a notification popup is up, don't stack the guide.
     // Leave the flag unset so it gets its turn on a future visit.
     const np = $("notif-popup");
     if (np && !np.classList.contains("hidden")) return;
-    el.classList.remove("hidden");
-    requestAnimationFrame(() => el.classList.add("show"));
+    openInstallGuide(force === "android" || force === "ios" ? force : null);
     localStorage.setItem(A2HS_KEY, "1");
   }, 1600);
 }
@@ -5996,6 +6131,10 @@ function maybeShowInstallGuide() {
 $("a2hs-close")?.addEventListener("click", dismissInstallGuide);
 $("a2hs-got")?.addEventListener("click", dismissInstallGuide);
 $("a2hs-guide")?.querySelector(".a2hs-backdrop")?.addEventListener("click", dismissInstallGuide);
+$("stg-install-btn")?.addEventListener("click", () => {
+  if (_isStandalone()) { toast("SG Bus is already on your Home Screen"); return; }
+  openInstallGuide();
+});
 maybeShowInstallGuide();
 
 // Warm the offline stop directory once the app is idle, so search/nearby keep

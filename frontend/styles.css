@@ -2368,20 +2368,78 @@ body.maintenance-open { overflow: hidden; }
   font-size: .92rem; font-weight: 600; cursor: pointer;
 }
 .a2hs-got:active { transform: scale(.99); }
-/* Down-arrow toward Safari's bottom toolbar — iPhone only. */
-.a2hs-arrow {
-  display: none; color: #fff; margin: .55rem auto 0;
-  filter: drop-shadow(0 2px 5px rgba(0,0,0,.5));
-  animation: a2hs-bounce 1.4s ease-in-out infinite;
+/* Platform switch, optional one-tap install, animated walkthrough. */
+.a2hs-card { max-height: calc(100dvh - env(safe-area-inset-top) - 1rem); overflow-y: auto; overscroll-behavior: contain; }
+.a2hs-plat { display: flex; gap: 3px; padding: 3px; margin-bottom: .85rem; background: var(--surface-2); border-radius: 12px; }
+.a2hs-plat-btn {
+  flex: 1; border: none; background: none; border-radius: 9px; padding: .45rem 0;
+  font: inherit; font-size: .84rem; font-weight: 600; color: var(--ink-2); cursor: pointer;
 }
-.a2hs-guide.a2hs-iphone .a2hs-arrow { display: block; }
-@keyframes a2hs-bounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(7px); }
+.a2hs-plat-btn.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
+.a2hs-install-now {
+  width: 100%; margin-bottom: .85rem; padding: .7rem 1rem; border-radius: 13px;
+  border: 1.5px solid var(--accent); background: var(--accent-soft); color: var(--accent);
+  font: inherit; font-size: .9rem; font-weight: 700; cursor: pointer;
 }
+.a2hs-demo { display: flex; align-items: center; gap: .9rem; margin-bottom: .9rem; }
+.a2hs-art { width: 122px; flex-shrink: 0; display: block; }
+.a2hs-demo .a2hs-steps { margin: 0; gap: .35rem; flex: 1; min-width: 0; }
+.a2hs-demo .a2hs-steps li {
+  align-items: flex-start; font-size: .82rem; padding: .35rem .45rem; border-radius: 10px;
+}
+.a2hs-demo .a2hs-steps .a2hs-step-n { margin-top: .05rem; }
+.a2hs-dim { color: var(--ink-3); }
+.a2hs-done { color: var(--ink-2); }
+.a2hs-done .a2hs-step-n { background: var(--good); }
+
+/* Mock-up colours follow the theme. */
+.a2hs-art .m-body   { fill: #111; }
+.a2hs-art .m-screen, .a2hs-art .m-page { fill: var(--bg); }
+.a2hs-art .m-blk    { fill: var(--line); }
+.a2hs-art .m-bar, .a2hs-art .m-sheet { fill: var(--surface); stroke: var(--line); stroke-width: .6; }
+.a2hs-art .m-pill, .a2hs-art .m-row { fill: var(--surface-2); }
+.a2hs-art .m-hl     { fill: var(--accent-soft); stroke: var(--accent); stroke-width: .8; }
+.a2hs-art .m-txt    { font: 600 6.2px/1 system-ui, sans-serif; fill: var(--ink-2); }
+.a2hs-art .m-txt.on { fill: var(--accent); font-weight: 700; }
+.a2hs-art .m-ico    { font: 700 11px/1 system-ui, sans-serif; fill: var(--ink-2); }
+.a2hs-art .m-btn    { fill: var(--accent); }
+.a2hs-art .m-btn-t  { fill: #fff; }
+.a2hs-art .m-dim    { fill: rgba(0,0,0,.35); }
+.a2hs-art .m-wall   { fill: #3b4a6b; }
+.a2hs-art .m-app    { fill: rgba(255,255,255,.28); }
+.a2hs-art .m-lbl    { font: 600 5.5px/1 system-ui, sans-serif; fill: #fff; }
+.a2hs-art .m-glow   { fill: rgba(255,255,255,.22); animation: a2hs-glow 1.2s ease-in-out infinite alternate; }
+.a2hs-art .m-tap    { fill: var(--accent); opacity: .55; }
+.a2hs-art .m-tap-ring { fill: none; stroke: var(--accent); stroke-width: 1.6; transform-box: fill-box; transform-origin: center; animation: a2hs-ring 1.25s ease-out infinite; }
+
+/* Four 2.5 s frames in a 10 s loop; each step lights up with its frame.
+   Explicit per-frame keyframes (no animation-delay) so nothing shows out of
+   turn before the loop gets going. */
+.a2hs-art .f { opacity: 0; animation: 10s infinite step-end; }
+.a2hs-art .f1 { animation-name: a2hs-on1; }
+.a2hs-art .f2 { animation-name: a2hs-on2; }
+.a2hs-art .f3 { animation-name: a2hs-on3; }
+.a2hs-art .f4 { animation-name: a2hs-on4; }
+.a2hs-demo .a2hs-steps li { animation: 10s infinite step-end; }
+.a2hs-demo .a2hs-steps li.s1 { animation-name: a2hs-hl1; }
+.a2hs-demo .a2hs-steps li.s2 { animation-name: a2hs-hl2; }
+.a2hs-demo .a2hs-steps li.s3 { animation-name: a2hs-hl3; }
+.a2hs-demo .a2hs-steps li.s4 { animation-name: a2hs-hl4; }
+@keyframes a2hs-on1 { 0% { opacity: 1; } 25%, 100% { opacity: 0; } }
+@keyframes a2hs-on2 { 0% { opacity: 0; } 25% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes a2hs-on3 { 0% { opacity: 0; } 50% { opacity: 1; } 75%, 100% { opacity: 0; } }
+@keyframes a2hs-on4 { 0% { opacity: 0; } 75%, 100% { opacity: 1; } }
+@keyframes a2hs-hl1 { 0% { background: var(--accent-soft); } 25%, 100% { background: transparent; } }
+@keyframes a2hs-hl2 { 0% { background: transparent; } 25% { background: var(--accent-soft); } 50%, 100% { background: transparent; } }
+@keyframes a2hs-hl3 { 0% { background: transparent; } 50% { background: var(--accent-soft); } 75%, 100% { background: transparent; } }
+@keyframes a2hs-hl4 { 0% { background: transparent; } 75%, 100% { background: var(--accent-soft); } }
+@keyframes a2hs-ring { 0% { transform: scale(1); opacity: .9; } 100% { transform: scale(2.3); opacity: 0; } }
+@keyframes a2hs-glow { from { opacity: .4; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .a2hs-card { transition: none; }
-  .a2hs-arrow { animation: none; }
+  /* No looping: show the final result and leave the steps plain. */
+  .a2hs-art .f, .a2hs-demo .a2hs-steps li, .a2hs-art .m-tap-ring, .a2hs-art .m-glow { animation: none; }
+  .a2hs-art .f4 { opacity: 1; }
 }
 
 /* ── New-notification popup ───────────────────────────────── */
