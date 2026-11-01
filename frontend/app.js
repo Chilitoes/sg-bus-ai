@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.25";
+const APP_VERSION = "1.2.26";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -39,6 +39,7 @@ const POPULAR = [
 ];
 
 const LOAD_LABEL = { SEA: "Seats", SDA: "Standing", LSD: "Crowded" };
+const LOAD_FULL  = { SEA: "Seats available", SDA: "Standing only", LSD: "Limited standing — packed" };
 
 // ── State ─────────────────────────────────────────────────
 const S = {
@@ -1377,11 +1378,10 @@ function svcCard(svc) {
   const laterIsos = later.map((b) => b.api_arrival).join(",");
   const laterTxt = later.map((b) => fmtMin(secsUntil(parseUTC(b.api_arrival)))).join(" · ");
   const TYPE_LABEL = { SD: "Single deck", DD: "Double deck", BD: "Bendy" };
-  // Crowd indicator: a scannable coloured dot on the collapsed card so you can
-  // read how full the next bus is without expanding it. Green=seats,
-  // amber=standing, red=crowded. (Full label still shown per-bus when expanded.)
-  const crowdDot = next.load
-    ? `<span class="load-dot ${esc(next.load)}" title="${LOAD_LABEL[next.load] || esc(next.load)}"></span>` : "";
+  // Crowding, as the same labelled pill the legend explains ("Seats" /
+  // "Standing" / "Crowded") — a bare coloured dot didn't say what it meant.
+  const crowdPill = next.load
+    ? `<span class="load-pill card ${esc(next.load)}" title="${esc(LOAD_FULL[next.load] || "")}">${LOAD_LABEL[next.load] || esc(next.load)}</span>` : "";
   const tags = [
     next.type && next.type !== "SD" ? `<span class="tag" title="${TYPE_LABEL[next.type] || next.type}">${esc(next.type)}</span>` : "",
     next.feature === "WAB" ? `<span class="tag wab" title="Wheelchair accessible">♿</span>` : "",
@@ -1396,7 +1396,8 @@ function svcCard(svc) {
       <button class="svc-head">
         <span class="route-badge">${esc(svc.service_no)}</span>
         <span class="svc-mid">
-          <span class="svc-tags">${crowdDot}${tags}${accChip}</span>
+          ${crowdPill}
+          <span class="svc-tags">${tags}${accChip}</span>
         </span>
         <span class="svc-eta">
           <span class="eta-now ${due ? "due" : ""}" data-eta-iso="${esc(next.api_arrival || "")}">${fmtMin(secs)}${due ? "" : `<span class="eta-unit">min</span>`}</span>
