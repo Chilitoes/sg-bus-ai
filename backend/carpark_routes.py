@@ -4,6 +4,9 @@ Carpark availability — HDB, URA and LTA (malls / major developments) carparks.
 GET /api/carparks/nearby?lat=&lng=&limit=   closest carparks with live lots
 GET /api/carparks/search?q=&limit=          by development / area name
 GET /api/carparks/{carpark_id}              one carpark
+GET    /api/saved-carparks                   the user's saved carparks + live lots
+POST   /api/saved-carparks/{carpark_id}      save   (body: {"name": ...}, optional)
+DELETE /api/saved-carparks/{carpark_id}      unsave
 
 Source: LTA DataMall CarParkAvailabilityv2 (same AccountKey as the bus
 endpoints). LTA refreshes it every minute and returns one row per carpark per
@@ -16,13 +19,18 @@ a refresh fails, the last good snapshot keeps being served (marked stale).
 import asyncio
 import logging
 import math
+import re
 import time
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, HTTPException, Path, Query
+import pydantic
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from sqlalchemy.orm import Session
 
+from auth_routes import get_current_user
 from config import LTA_API_KEY, LTA_BASE_URL
+from database import SavedCarpark, User, get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -159,3 +167,66 @@ async def carpark_one(carpark_id: str = Path(..., max_length=20)) -> dict:
     if cp is None:
         raise HTTPException(status_code=404, detail="Carpark not found")
     return {"updated_at": fetched_at, "stale": stale, "carpark": cp}
+
+
+# ── Saved carparks (per account) ─────────────────────────────────────────────
+
+MAX_SAVED_CARPARKS = 30
+_CP_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,20}$")
+
+
+class SavedCarparkIn(pydantic.BaseModel):
+    name: str | None = pydantic.Field(None, max_length=200)
+
+
+def _valid_cp_id(cid: str) -> str:
+    if not _CP_ID_RE.match(cid):
+        raise HTTPException(status_code=400, detail="Invalid carpark id.")
+    return cid
+
+
+@router.get("/saved-carparks")
+async def saved_carparks(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    rows = db.query(SavedCarpark).filter_by(user_id=user.id).order_by(SavedCarpark.added_at.desc()).all()
+    try:
+        cps, fetched_at, stale = await _carparks()
+    except HTTPException:  # LTA unreachable and nothing cached: still list them
+        cps, fetched_at, stale = {}, None, True
+    out = []
+    for r in rows:
+        live = cps.get(r.carpark_id)
+        out.append({**(live or {"id": r.carpark_id, "name": r.name or r.carpark_id,
+                                 "area": "", "agency": "", "lat": None, "lng": None, "lots": {}}),
+                    "saved_name": r.name, "live": live is not None})
+    return {"updated_at": fetched_at, "stale": stale, "results": out}
+
+
+@router.post("/saved-carparks/{carpark_id}")
+def save_carpark(
+    carpark_id: str = Path(..., max_length=20),
+    body: SavedCarparkIn | None = Body(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    cid = _valid_cp_id(carpark_id)
+    row = db.query(SavedCarpark).filter_by(user_id=user.id, carpark_id=cid).first()
+    if row is None:
+        if db.query(SavedCarpark).filter_by(user_id=user.id).count() >= MAX_SAVED_CARPARKS:
+            raise HTTPException(status_code=400, detail=f"Limit of {MAX_SAVED_CARPARKS} saved carparks reached.")
+        db.add(SavedCarpark(user_id=user.id, carpark_id=cid, name=body.name if body else None))
+    elif body and body.name:
+        row.name = body.name
+    db.commit()
+    return {"status": "saved", "id": cid}
+
+
+@router.delete("/saved-carparks/{carpark_id}")
+def unsave_carpark(
+    carpark_id: str = Path(..., max_length=20),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    cid = _valid_cp_id(carpark_id)
+    db.query(SavedCarpark).filter_by(user_id=user.id, carpark_id=cid).delete()
+    db.commit()
+    return {"status": "removed", "id": cid}

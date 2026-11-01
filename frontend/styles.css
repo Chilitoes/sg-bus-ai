@@ -1425,8 +1425,8 @@ th.num, td.num { text-align: right; }
   letter-spacing: -.01em;
 }
 .arr-stop-info { flex: 1; min-width: 0; }
-.arr-stop-name { font-size: 1.05rem; font-weight: 600; color: var(--ink); }
-.arr-stop-road { font-size: .78rem; color: var(--ink-3); margin-top: .18rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arr-stop-name { display: block; font-size: 1.05rem; font-weight: 600; color: var(--ink); line-height: 1.25; }
+.arr-stop-road { display: block; font-size: .78rem; color: var(--ink-3); margin-top: .18rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .arr-stop-dist {
   font-size: .8rem; font-weight: 700; color: var(--ink-2);
   flex-shrink: 0; white-space: nowrap;
@@ -2417,6 +2417,14 @@ body.maintenance-open { overflow: hidden; }
 button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; text-align: left; }
 .cp-ac-item .ac-txt { display: flex; flex-direction: column; min-width: 0; }
 
+.cp-list { display: flex; flex-direction: column; gap: .6rem; }
+#cp-saved { margin-bottom: 1.1rem; }
+.cp-item { padding: .85rem 1rem; gap: .85rem; }
+.cp-unsave { flex-shrink: 0; }
+.cp-actions { display: flex; flex-direction: column; align-items: stretch; gap: .45rem; flex-shrink: 0; }
+.cp-actions .pillbtn { justify-content: center; }
+.cp-save.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.cp-save.on svg { fill: currentColor; }
 .cp-status { font-size: .82rem; color: var(--ink-3); line-height: 1.5; margin: .2rem 0 .7rem; }
 .cp-card .stop-card-top { align-items: flex-start; }
 .cp-dir { text-decoration: none; display: inline-flex; align-items: center; gap: .35rem; flex-shrink: 0; }

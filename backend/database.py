@@ -217,6 +217,21 @@ class UserFavourite(Base):
     added_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class SavedCarpark(Base):
+    """Carparks a user saved (Carpark tab), synced across their devices.
+    Live lot counts aren't stored — they're merged in from the LTA snapshot."""
+    __tablename__ = "saved_carparks"
+    __table_args__ = (
+        UniqueConstraint("user_id", "carpark_id", name="uq_user_carpark"),
+    )
+
+    id         = Column(Integer, primary_key=True)
+    user_id    = Column(Integer, index=True, nullable=False)
+    carpark_id = Column(String(20), nullable=False)
+    name       = Column(String(200), nullable=True)
+    added_at   = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class SavedJourney(Base):
     """Saved origin→destination pairs stored per user account."""
     __tablename__ = "saved_journeys"

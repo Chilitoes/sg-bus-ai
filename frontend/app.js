@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.27";
+const APP_VERSION = "1.2.28";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -264,6 +264,8 @@ function clearAuth() {
   localStorage.removeItem(DISPLAY_KEY);
   S.favs = [];
   S.savedJourneys = [];
+  CP.saved = [];
+  _cpRenderSaved();
   syncAccountUI();
   afterFavsChanged();
   afterJourneysChanged();
@@ -471,6 +473,7 @@ $("seg-register").addEventListener("click", () => setAuthMode("register"));
 // journeys (server is source of truth), refresh the UI and close the sheet.
 async function completeLogin(res, welcomeMsg) {
   setAuth(res.token, res.username, res.display_name);
+  _cpLoadSaved();
   try {
     const [mine, journeys] = await Promise.all([
       api("/api/favourites"),
@@ -792,6 +795,7 @@ async function hydrateServerFavs() {
     afterFavsChanged();
     afterJourneysChanged();
   } catch { /* keep local cache; api() drops dead sessions automatically */ }
+  _cpLoadSaved();
 }
 
 // ── Favourites ────────────────────────────────────────────
@@ -895,12 +899,12 @@ function switchView(name) {
     b.classList.toggle("active", b.dataset.view === name));
   document.querySelectorAll(".view").forEach((v) =>
     v.classList.toggle("active", v.id === `view-${name}`));
-  if (name === "saved") renderSaved();
+  if (name === "saved") { renderSaved(); _cpLoadSaved(); }
   if (name === "data") loadData();
   if (name === "arrivals") setTimeout(() => _arrMap?.invalidateSize(), 60);
   if (name === "settings") _updateSettingsUI();
   if (name === "checkpoint") loadCheckpoint();
-  if (name === "carpark") _cpInit();
+  if (name === "carpark") { _cpInit(); _cpLoadSaved(); }
 }
 document.querySelectorAll(".nav-item").forEach((b) =>
   b.addEventListener("click", () => switchView(b.dataset.view)));
@@ -5073,6 +5077,7 @@ const CP = {
   acTimer: null,
   acSeq: 0,
   busy: false,
+  saved: [],            // the user's saved carparks (server-synced, live lots merged in)
 };
 const CP_AGENCY = { HDB: "HDB", URA: "URA", LTA: "LTA" };
 
@@ -5166,7 +5171,7 @@ function _cpPutPin(cp) {
   CP.pins.set(cp.id, marker);
 }
 
-function _cpRow(cp) {
+function _cpRow(cp, { removable = false } = {}) {
   const n = _cpCar(cp);
   const meta = [CP_AGENCY[cp.agency] || cp.agency, cp.area].filter(Boolean).join(" · ");
   return `
@@ -5177,7 +5182,10 @@ function _cpRow(cp) {
         <span class="arr-stop-road">${esc(meta)}</span>
       </span>
       ${cp.distance_m != null ? `<span class="arr-stop-dist">${_cpDist(cp.distance_m)}</span>` : ""}
-      <svg class="arr-stop-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>
+      ${removable
+        ? `<span class="saved-remove cp-unsave" data-cp-unsave="${esc(cp.id)}" role="button" aria-label="Remove from saved">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>`
+        : `<svg class="arr-stop-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>`}
     </button>`;
 }
 function _cpRenderList(list, d) {
@@ -5241,9 +5249,15 @@ function _cpShowDetail(cp, d) {
         <div class="stop-name">${esc(_cpName(cp.name))}</div>
         <div class="stop-meta">${esc(meta)}</div>
       </div>
-      ${dir ? `<a class="pillbtn cp-dir" href="${dir}" target="_blank" rel="noopener">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-        Directions</a>` : ""}
+      <div class="cp-actions">
+        <button id="cp-save-btn" class="pillbtn cp-save${_cpIsSaved(cp.id) ? " on" : ""}" aria-pressed="${_cpIsSaved(cp.id)}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+          <span>${_cpIsSaved(cp.id) ? "Saved" : "Save"}</span>
+        </button>
+        ${dir ? `<a class="pillbtn cp-dir" href="${dir}" target="_blank" rel="noopener">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+          Directions</a>` : ""}
+      </div>
     </div>
     <div class="cp-lot-grid">
       ${lots.length ? lots.map(([k, label]) => {
@@ -5273,6 +5287,72 @@ function _cpFocus(latlng) {
   if (overlapX > c.width / 2 && sh.top > c.top) y = ((sb.bottom - c.top) + (sh.top - c.top)) / 2;
   const target = m.project(latlng).add([0, c.height / 2 - y]);
   m.panTo(m.unproject(target), { animate: true, duration: 0.4 });
+}
+
+// ── Saved carparks (account-synced; see /api/saved-carparks) ──
+function _cpIsSaved(id) { return CP.saved.some((c) => c.id === id); }
+
+async function _cpLoadSaved() {
+  if (!S.token) { CP.saved = []; _cpRenderSaved(); return; }
+  try {
+    const d = await api("/api/saved-carparks");
+    CP.saved = d.results || [];
+    CP.saved.forEach((c) => { if (c.live) CP.items.set(c.id, { ...CP.items.get(c.id), ...c }); });
+  } catch { /* keep what we had */ }
+  _cpRenderSaved();
+}
+
+// Saved list appears at the top of the Carpark tab and in the Saved tab.
+function _cpRenderSaved() {
+  const rows = CP.saved.map((c) => {
+    const known = CP.items.get(c.id);
+    return { ...c, name: c.saved_name && !c.live ? c.saved_name : c.name, distance_m: known?.distance_m ?? null };
+  });
+  const tabSec = $("cp-saved");
+  if (tabSec) {
+    tabSec.classList.toggle("hidden", !rows.length);
+    $("cp-saved-list").innerHTML = rows.map((c) => _cpRow(c)).join("");
+  }
+  const savedTab = $("saved-cp-list");
+  if (savedTab) {
+    $("saved-cp-empty").classList.toggle("hidden", !!rows.length);
+    savedTab.innerHTML = rows.map((c) => _cpRow(c, { removable: true })).join("");
+  }
+  if (CP.sel) _cpSyncSaveBtn();
+}
+
+function _cpSyncSaveBtn() {
+  const btn = $("cp-save-btn");
+  if (!btn) return;
+  const on = _cpIsSaved(CP.sel);
+  btn.classList.toggle("on", on);
+  btn.setAttribute("aria-pressed", on);
+  btn.querySelector("span").textContent = on ? "Saved" : "Save";
+}
+
+async function _cpToggleSave(id) {
+  if (!S.token) { toast("Log in to save carparks"); openSheet(); return; }
+  const cp = CP.items.get(id) || CP.saved.find((c) => c.id === id);
+  if (_cpIsSaved(id)) {
+    showConfirm("Remove this carpark from saved?", "Remove", async () => {
+      CP.saved = CP.saved.filter((c) => c.id !== id);
+      _cpRenderSaved();
+      try { await api(`/api/saved-carparks/${encodeURIComponent(id)}`, { method: "DELETE" }); toast("Removed from saved carparks"); }
+      catch (e) { toast(`Couldn't remove: ${e.message}`); _cpLoadSaved(); }
+    });
+    return;
+  }
+  CP.saved = [{ ...(cp || { id, lots: {} }), saved_name: cp ? _cpName(cp.name) : null, live: true }, ...CP.saved];
+  _cpRenderSaved();
+  try {
+    await api(`/api/saved-carparks/${encodeURIComponent(id)}`, {
+      method: "POST", body: JSON.stringify({ name: cp ? _cpName(cp.name) : null }),
+    });
+    toast("Carpark saved");
+  } catch (e) {
+    toast(`Couldn't save: ${e.message}`);
+    _cpLoadSaved();
+  }
 }
 
 function _cpBack() {
@@ -5329,6 +5409,27 @@ $("cp-list").addEventListener("click", (e) => {
   if (it) _cpOpen(it.dataset.cp);
 });
 $("cp-back").addEventListener("click", _cpBack);
+$("cp-saved-list").addEventListener("click", (e) => {
+  const it = e.target.closest("[data-cp]");
+  if (it) _cpOpen(it.dataset.cp);
+});
+$("cp-card").addEventListener("click", (e) => {
+  if (e.target.closest("#cp-save-btn") && CP.sel) _cpToggleSave(CP.sel);
+});
+// Saved tab: tap opens it in the Carpark tab; × unsaves.
+$("saved-cp-list").addEventListener("click", (e) => {
+  const rm = e.target.closest("[data-cp-unsave]");
+  if (rm) { e.stopPropagation(); _cpToggleSave(rm.dataset.cpUnsave); return; }
+  const it = e.target.closest("[data-cp]");
+  if (!it) return;
+  switchView("carpark");
+  const open = () => {
+    const cp = CP.items.get(it.dataset.cp);
+    if (cp?.lat != null) _cpMap.setView([cp.lat, cp.lng], 17);
+    _cpOpen(it.dataset.cp);
+  };
+  if (_cpMap) open(); else _whenLeaflet(() => setTimeout(open, 100));
+});
 $("cp-refresh").addEventListener("click", () => _cpLocate(true));
 $("cp-locate-btn").addEventListener("click", () => _cpLocate(true));
 
