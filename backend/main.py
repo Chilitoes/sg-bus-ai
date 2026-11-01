@@ -27,6 +27,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from api_routes import router
 from auth_routes import router as auth_router, hash_password, verify_password
 from carpark_routes import router as carpark_router
+from mrt_routes import router as mrt_router
 from config import DEFAULT_MONITORED_STOPS
 from data_collector import start_data_collection
 from database import init_db, SessionLocal, User
@@ -164,6 +165,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(carpark_router, prefix="/api")
+app.include_router(mrt_router, prefix="/api")
 
 # Serve the React/HTML frontend.
 # Must be mounted AFTER the API router so "/api/*" routes take priority.

@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.28";
+const APP_VERSION = "1.2.29";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -905,6 +905,7 @@ function switchView(name) {
   if (name === "settings") _updateSettingsUI();
   if (name === "checkpoint") loadCheckpoint();
   if (name === "carpark") { _cpInit(); _cpLoadSaved(); }
+  if (name === "mrt") _mrtInit();
 }
 document.querySelectorAll(".nav-item").forEach((b) =>
   b.addEventListener("click", () => switchView(b.dataset.view)));
@@ -3998,6 +3999,7 @@ $("name-save-btn")?.addEventListener("click", async () => {
 // ── Arrivals map ──────────────────────────────────────────
 let _arrMap       = null;
 let _cpMap        = null;   // Carpark tab map (see the Carpark section)
+let _mrtMap       = null;   // MRT tab map (see the MRT section)
 let _arrLocMarker = null;
 let _arrPinStore  = new Map(); // code → { marker, label }
 
@@ -4027,7 +4029,7 @@ function _snapSheet(name) {
   const s = _sheetSnaps();
   _sheetSnapName = name in s ? name : "mid";
   _setSheetH(s[_sheetSnapName]);
-  setTimeout(() => { _arrMap?.invalidateSize(); _cpMap?.invalidateSize(); }, 280);
+  setTimeout(() => { _arrMap?.invalidateSize(); _cpMap?.invalidateSize(); _mrtMap?.invalidateSize(); }, 280);
 }
 // Folding/unfolding an iPhone Duo, rotating, or resizing a Split View pane
 // changes the window size in one jump. The sheet's height is in px computed
@@ -5273,13 +5275,12 @@ function _cpShowDetail(cp, d) {
     </div>`;
 }
 
-// Centre a point in the part of the map you can actually see: between the
-// search bar and the bottom sheet on phones. (In the landscape side-panel
+// Centre a point in the part of a tab's map you can actually see: between
+// the search bar and the bottom sheet on phones. (In the landscape side-panel
 // layout the map already starts right of the panel, so plain centre works.)
-function _cpFocus(latlng) {
-  const m = _cpMap;
+function _focusInView(m, viewId, latlng) {
   const c = m.getContainer().getBoundingClientRect();
-  const view = $("view-carpark");
+  const view = $(viewId);
   const sh = view.querySelector(".arr-sheet").getBoundingClientRect();
   const sb = view.querySelector(".arr-search-wrap").getBoundingClientRect();
   let y = c.height / 2;
@@ -5288,6 +5289,7 @@ function _cpFocus(latlng) {
   const target = m.project(latlng).add([0, c.height / 2 - y]);
   m.panTo(m.unproject(target), { animate: true, duration: 0.4 });
 }
+function _cpFocus(latlng) { _focusInView(_cpMap, "view-carpark", latlng); }
 
 // ── Saved carparks (account-synced; see /api/saved-carparks) ──
 function _cpIsSaved(id) { return CP.saved.some((c) => c.id === id); }
@@ -5432,6 +5434,271 @@ $("saved-cp-list").addEventListener("click", (e) => {
 });
 $("cp-refresh").addEventListener("click", () => _cpLocate(true));
 $("cp-locate-btn").addEventListener("click", () => _cpLocate(true));
+
+// ── MRT tab ───────────────────────────────────────────────
+// Scheduled train info, like Apple / Google Maps: typical frequency, first /
+// last trains per direction (SMRT lines) and live disruption alerts. There is
+// no public live train-arrival feed in Singapore, so nothing here is a live
+// countdown — see mrt_routes.py.
+const MRT = {
+  stations: null,       // all stations (fetched once)
+  pins: new Map(),      // name → marker
+  sel: null,            // selected station name
+  data: null,           // last /api/mrt/station response for sel
+  locMarker: null,
+  tick: null,
+  refresh: null,
+  busy: false,
+};
+
+function _mrtChips(lines) {
+  return lines.map((l) => `<span class="mrt-code" style="background:${esc(l.color)}">${esc(l.code)}</span>`).join("");
+}
+
+function _mrtPinIcon(st, selected = false) {
+  const cols = st.lines.map((l) => l.color);
+  const bg = cols.length === 1 ? cols[0]
+    : `conic-gradient(${cols.map((c, i) => `${c} ${(i * 360) / cols.length}deg ${((i + 1) * 360) / cols.length}deg`).join(", ")})`;
+  return L.divIcon({
+    className: "mrt-pin-wrap",
+    html: `<div class="mrt-pin${selected ? " sel" : ""}" style="background:${bg}"></div>`,
+    iconSize: [18, 18], iconAnchor: [9, 9],
+  });
+}
+
+async function _mrtStations() {
+  if (MRT.stations) return MRT.stations;
+  const d = await api("/api/mrt/stations");
+  MRT.stations = d.results || [];
+  return MRT.stations;
+}
+
+function _mrtInit() {
+  if (_mrtMap) { setTimeout(() => _mrtMap.invalidateSize(), 60); return; }
+  if (!_leafletReady()) { _whenLeaflet(_mrtInit); return; }
+  _mrtMap = L.map($("mrt-map"), { zoomControl: false, attributionControl: false }).setView(SG_CENTER, 15);
+  _sgAddBase(_mrtMap, true);
+  setTimeout(() => _mrtMap.invalidateSize(), 60);
+  _mrtStations().then((list) => list.forEach((st) => {
+    const m = L.marker([st.lat, st.lng], { icon: _mrtPinIcon(st), title: st.name }).addTo(_mrtMap);
+    m.on("click", () => _mrtOpen(st.name));
+    MRT.pins.set(st.name, m);
+  })).catch(() => {});
+  _mrtLocate(false);
+}
+
+function _mrtLocate(fresh) {
+  if (!_mrtMap || MRT.busy) return;
+  MRT.busy = true;
+  $("mrt-refresh")?.classList.add("spinning");
+  const done = () => { MRT.busy = false; $("mrt-refresh")?.classList.remove("spinning"); };
+  const fromCentre = (msg) => {
+    const c = _mrtMap.getCenter();
+    _mrtLoadNearby(c.lat, c.lng).finally(done);
+    if (msg) toast(msg);
+  };
+  if (!navigator.geolocation) { fromCentre("Location unavailable — showing stations near the map centre"); return; }
+  navigator.geolocation.getCurrentPosition(
+    ({ coords: { latitude: lat, longitude: lng } }) => {
+      _mrtMap.setView([lat, lng], Math.max(_mrtMap.getZoom(), 15));
+      if (MRT.locMarker) MRT.locMarker.remove();
+      MRT.locMarker = L.circleMarker([lat, lng], {
+        radius: 8, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
+      }).addTo(_mrtMap);
+      _mrtLoadNearby(lat, lng).finally(done);
+    },
+    () => fromCentre(fresh ? "Couldn't get your location — showing stations near the map centre" : ""),
+    fresh ? { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+          : { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+  );
+}
+
+async function _mrtLoadNearby(lat, lng) {
+  const status = $("mrt-status");
+  try {
+    const d = await api(`/api/mrt/nearby?lat=${lat}&lng=${lng}&limit=8`);
+    hide(status);
+    $("mrt-list").innerHTML = (d.results || []).map(_mrtRow).join("");
+  } catch (e) {
+    status.textContent = `Couldn't load stations: ${e.message}`;
+    show(status);
+  }
+}
+
+function _mrtRow(st) {
+  return `
+    <button class="arr-stop-item mrt-item" data-mrt="${esc(st.name)}">
+      <span class="mrt-codes">${_mrtChips(st.lines)}</span>
+      <span class="arr-stop-info">
+        <span class="arr-stop-name">${esc(st.name)}</span>
+        <span class="arr-stop-road">${esc(st.lines.map((l) => l.name).join(" · "))}</span>
+      </span>
+      ${st.distance_m != null ? `<span class="arr-stop-dist">${_cpDist(st.distance_m)}</span>` : ""}
+      <svg class="arr-stop-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>
+    </button>`;
+}
+
+// Singapore time, and minutes into the service day (which starts ~04:30, so
+// a 00:25 last train is still late "today").
+function _mrtSgt(offsetMs = 0) { return new Date(Date.now() + 8 * 3600e3 + offsetMs); }  // read with getUTC*
+function _mrtMins(hhmm) {
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(":").map(Number);
+  return (h < 4 || (h === 4 && m < 30) ? h + 24 : h) * 60 + m;
+}
+function _mrtNowMins() {
+  const t = _mrtSgt();
+  return _mrtMins(`${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}`);
+}
+// "weekday" / "saturday" / "sunday" for today's service day (offset 0) or the next (1).
+function _mrtDayType(offsetDays = 0) {
+  const wd = _mrtSgt(-(4 * 60 + 30) * 60e3 + offsetDays * 86400e3).getUTCDay();
+  return wd === 0 ? "sunday" : wd === 6 ? "saturday" : "weekday";
+}
+function _mrtToday(dir) { return dir[_mrtDayType()] || dir.today || null; }
+
+// Status for one direction right now. After the last train, the "first
+// train" quoted is the next service day's (e.g. Monday's after Sunday night).
+function _mrtStatus(dir) {
+  const today = _mrtToday(dir);
+  if (!today) return null;
+  const now = _mrtNowMins(), first = _mrtMins(today.first), last = _mrtMins(today.last);
+  if (first != null && now < first) return { cls: "off", ended: true, txt: `Starts at ${today.first}` };
+  if (last != null && now > last) {
+    const next = dir[_mrtDayType(1)]?.first || today.first;
+    return { cls: "off", ended: true, txt: next ? `Service ended · first train ${next}` : "Service ended" };
+  }
+  if (last != null && last - now <= 45) return { cls: "warn", txt: last - now <= 0 ? "Last train now" : `Last train in ${last - now} min` };
+  return null;
+}
+
+function _mrtLineHtml(l) {
+  const f = l.frequency;
+  const main = l.directions.filter((d) => d.kind === "main");
+  const lastOnly = l.directions.filter((d) => d.kind === "short" && d.note === "Last trains only" && _mrtToday(d)?.last);
+  const ends = l.directions.filter((d) => d.kind === "short" && /^Ends at/.test(d.note) && _mrtToday(d)?.last);
+  const early = l.directions.filter((d) => d.kind === "short" && d.note === "Early trains only" && _mrtToday(d)?.first);
+  const statuses = main.map(_mrtStatus);
+  const now = _mrtNowMins();
+  const noService = l.timetable
+    ? statuses.length > 0 && statuses.every((x) => x?.ended)
+    : now > 24 * 60 + 30 && now < 29 * 60 + 30;   // ~00:30–05:30, from general hours
+  const dirRows = main.map((d, i) => {
+    const st = statuses[i], today = _mrtToday(d);
+    return `
+      <div class="mrt-dir">
+        <div class="mrt-dir-to"><span class="mrt-arrow">→</span>${esc(d.to)}</div>
+        ${today ? `<div class="mrt-dir-times">
+          <span><small>First</small> ${esc(today.first || "–")}</span>
+          <span><small>Last</small> ${esc(today.last || "–")}</span>
+        </div>` : ""}
+        ${st ? `<div class="mrt-dir-status ${st.cls}">${esc(st.txt)}</div>` : ""}
+      </div>`;
+  }).join("");
+  const extras = [
+    lastOnly.length ? `Last trains that end early: ${lastOnly.map((d) => `${esc(d.to)} ${esc(_mrtToday(d).last)}`).join(" · ")}` : "",
+    ends.length ? `Late trains that end early: ${ends.map((d) => `${esc(d.note.replace(/^Ends at /, ""))} ${esc(_mrtToday(d).last)}`).join(" · ")}` : "",
+    early.length ? `First trains start from ${early.map((d) => `${esc(d.to)} (${esc(_mrtToday(d).first)})`).join(", ")}` : "",
+    !l.timetable ? `Runs ${esc(l.general_hours || "")}. ${esc(l.operator)} doesn't publish first/last train times per station.` : "",
+  ].filter(Boolean);
+  const disrupted = l.disruption?.length;
+  return `
+    <section class="mrt-line">
+      <div class="mrt-line-hd">
+        <span class="mrt-code" style="background:${esc(l.color)}">${esc(l.code)}</span>
+        <span class="mrt-line-name">${esc(l.name)}</span>
+        <span class="mrt-op">${esc(l.operator)}</span>
+      </div>
+      ${disrupted ? `<div class="mrt-disrupt">Disruption on this line${l.disruption[0].stations ? ` (${esc(l.disruption[0].stations.replace(/,/g, ", "))})` : ""}</div>` : ""}
+      ${noService
+        ? `<div class="mrt-freq off"><b>No trains running now</b><span>every ${f.min}–${f.max} min when running</span></div>`
+        : `<div class="mrt-freq"><b>Every ${f.min}–${f.max} min</b><span>${f.period === "peak" ? "peak hours" : "off-peak"} · typical</span></div>`}
+      ${dirRows}
+      ${extras.length ? `<div class="mrt-extras">${extras.map((x) => `<p>${x}</p>`).join("")}</div>` : ""}
+    </section>`;
+}
+
+function _mrtRender() {
+  const d = MRT.data;
+  if (!d) return;
+  $("mrt-card").innerHTML = `
+    <div class="stop-card mrt-head">
+      <div class="stop-name">${esc(d.name)}</div>
+      <div class="mrt-head-codes">${_mrtChips(d.lines)}</div>
+      ${d.alert_messages?.length ? `<div class="mrt-alert">${d.alert_messages.map((m) => `<p>${esc(m)}</p>`).join("")}</div>` : ""}
+    </div>
+    ${d.lines.map(_mrtLineHtml).join("")}
+    <p class="mrt-foot">Scheduled times, not live — Singapore doesn't publish live train arrivals. Frequencies are typical; first/last trains from SMRT's published timetable. Disruptions are live from LTA.</p>`;
+}
+
+async function _mrtOpen(name) {
+  const prev = MRT.sel;
+  MRT.sel = name;
+  const st = (MRT.stations || []).find((s) => s.name === name);
+  if (prev && prev !== name) { const p = (MRT.stations || []).find((s) => s.name === prev); MRT.pins.get(prev)?.setIcon(_mrtPinIcon(p)); }
+  if (st) {
+    MRT.pins.get(name)?.setIcon(_mrtPinIcon(st, true));
+    MRT.pins.get(name)?.setZIndexOffset(1000);
+    _focusInView(_mrtMap, "view-mrt", L.latLng(st.lat, st.lng));
+  }
+  hide($("mrt-nearby")); show($("mrt-detail"));
+  $("view-mrt").querySelector(".arr-sheet-scroll").scrollTop = 0;
+  $("mrt-card").innerHTML = `<div class="stop-card mrt-head"><div class="stop-name">${esc(name)}</div><p class="cp-status">Loading timings…</p></div>`;
+  _snapSheet("mid");
+  clearInterval(MRT.tick); clearInterval(MRT.refresh);
+  MRT.tick = setInterval(() => { if (S.view === "mrt" && !document.hidden) _mrtRender(); }, 30_000);
+  MRT.refresh = setInterval(() => { if (S.view === "mrt" && !document.hidden) _mrtFetch(); }, 120_000);
+  await _mrtFetch();
+}
+async function _mrtFetch() {
+  const name = MRT.sel;
+  if (!name) return;
+  try {
+    const d = await api(`/api/mrt/station/${encodeURIComponent(name)}`);
+    if (MRT.sel !== name) return;
+    MRT.data = d;
+    _mrtRender();
+  } catch (e) {
+    if (MRT.sel === name && !MRT.data) $("mrt-card").innerHTML = `<p class="cp-status">Couldn't load ${esc(name)}: ${esc(e.message)}</p>`;
+  }
+}
+function _mrtBack() {
+  clearInterval(MRT.tick); clearInterval(MRT.refresh);
+  const prev = MRT.sel;
+  MRT.sel = null; MRT.data = null;
+  if (prev) { const p = (MRT.stations || []).find((s) => s.name === prev); if (p) { MRT.pins.get(prev)?.setIcon(_mrtPinIcon(p)); MRT.pins.get(prev)?.setZIndexOffset(0); } }
+  hide($("mrt-detail")); show($("mrt-nearby"));
+  _snapSheet("mid");
+}
+
+// Search — the station list is small and static, so it's filtered locally.
+$("mrt-input").addEventListener("input", async (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  $("mrt-search-clear").classList.toggle("hidden", !e.target.value);
+  const ac = $("mrt-ac");
+  if (!q) { hide(ac); return; }
+  const list = await _mrtStations().catch(() => []);
+  const hits = list.filter((s) => s.name.toLowerCase().includes(q) || s.lines.some((l) => l.code.toLowerCase() === q))
+    .sort((a, b) => (a.name.toLowerCase().startsWith(q) ? 0 : 1) - (b.name.toLowerCase().startsWith(q) ? 0 : 1) || a.name.localeCompare(b.name))
+    .slice(0, 8);
+  ac.innerHTML = hits.length ? hits.map((s) => `
+    <button class="ac-item cp-ac-item" data-mrt="${esc(s.name)}">
+      <span class="mrt-codes">${_mrtChips(s.lines)}</span>
+      <span class="ac-txt"><span class="ac-name">${esc(s.name)}</span></span>
+    </button>`).join("") : `<div class="ac-empty">No station matches “${esc(e.target.value.trim())}”</div>`;
+  show(ac);
+});
+$("mrt-search-clear").addEventListener("click", () => { $("mrt-input").value = ""; hide($("mrt-search-clear")); hide($("mrt-ac")); });
+$("mrt-ac").addEventListener("click", (e) => {
+  const it = e.target.closest("[data-mrt]");
+  if (!it) return;
+  hide($("mrt-ac")); $("mrt-input").blur();
+  _mrtOpen(it.dataset.mrt);
+});
+$("mrt-list").addEventListener("click", (e) => { const it = e.target.closest("[data-mrt]"); if (it) _mrtOpen(it.dataset.mrt); });
+$("mrt-back").addEventListener("click", _mrtBack);
+$("mrt-refresh").addEventListener("click", () => _mrtLocate(true));
+$("mrt-locate-btn").addEventListener("click", () => _mrtLocate(true));
 
 initTheme();
 syncAccountUI();
