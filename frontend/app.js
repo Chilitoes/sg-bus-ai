@@ -18,7 +18,7 @@ const RECENT_KEY = "sgbus_recent";
 const ALERTS_KEY = "sgbus_alerts";   // { stopCode: { service: thresholdSec } }
 // Fire the arrival alert once the next bus is within this many seconds — early
 // enough that there's still time to walk to the stop.
-const ALERT_THRESHOLD_SEC = 150;
+const ALERT_THRESHOLD_SEC = 60;   // ping when the bus is ~1 min away
 const THEME_KEY  = "sgbus_theme";
 const TOKEN_KEY  = "sgbus_token";
 const USER_KEY   = "sgbus_user";
@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.32";
+const APP_VERSION = "1.2.33";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1648,7 +1648,7 @@ function _checkAlerts() {
   // user had just been promised.
   for (const stop of Object.keys(S.alerts)) {
     for (const svc of Object.keys(S.alerts[stop])) {
-      const thr = S.alerts[stop][svc];
+      const thr = ALERT_THRESHOLD_SEC;  // (alerts saved under an older threshold follow the current one)
       const key = `${stop}|${svc}`;
       const secs = secsUntil(parseUTC(S.alertEtas[key]));
       if (secs === null) continue;
