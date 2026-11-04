@@ -1175,11 +1175,17 @@ th.num, td.num { text-align: right; }
 }
 /* Vector base maps (MapLibre, see _sgAddBase) are themed by their style —
    no filter; background matches each style's land colour. */
-.leaflet-container.sg-vector { background: #f4f3f0; }
+.leaflet-container.sg-vector, .sg-gl { background: #f4f3f0; }
+/* MapLibre HTML markers (SGL in app.js): a zero-size anchor holding the icon,
+   positioned like a Leaflet divIcon via its iconAnchor. */
+.sgm { width: 0; height: 0; cursor: pointer; }
+.sgm-icon { position: absolute; overflow: visible; }
+.sg-gl .maplibregl-canvas { outline: none; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .leaflet-container.sg-vector { background: #1c1d20; }
+  :root:not([data-theme="light"]) .leaflet-container.sg-vector,
+  :root:not([data-theme="light"]) .sg-gl { background: #1c1d20; }
 }
-[data-theme="dark"] .leaflet-container.sg-vector { background: #1c1d20; }
+[data-theme="dark"] .leaflet-container.sg-vector, [data-theme="dark"] .sg-gl { background: #1c1d20; }
 /* ── Per-card inline map ─────────────────────────────────── */
 .jcard-map-wrap {
   border-top: 1px solid var(--line);
@@ -1322,8 +1328,19 @@ th.num, td.num { text-align: right; }
   transition: opacity .12s, bottom .05s linear;
 }
 .arr-locate-btn:active { opacity: .8; }
+/* 2D / 3D toggle, stacked above the locate button (MapLibre maps only) */
+.sg-tilt-btn {
+  position: fixed; right: 14px; z-index: 16;
+  bottom: calc(var(--sheet-h) + 12px + 54px);
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  font: 800 .78rem/1 system-ui, sans-serif; letter-spacing: .02em;
+  box-shadow: 0 2px 12px rgba(0,0,0,.3); cursor: pointer;
+  transition: opacity .12s, bottom .05s linear;
+}
+.sg-tilt-btn:active { opacity: .8; }
 @media (max-width: 719px), (orientation: portrait) {
-  .sheet-high .arr-locate-btn { opacity: 0; pointer-events: none; }
+  .sheet-high .arr-locate-btn, .sheet-high .sg-tilt-btn { opacity: 0; pointer-events: none; }
 }
 
 /* Floating search bar — sits just below the iOS status bar */
@@ -2662,6 +2679,10 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
   .arr-locate-btn {
     right: calc(env(safe-area-inset-right) + 14px);
     bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 14px);
+  }
+  .sg-tilt-btn {
+    right: calc(env(safe-area-inset-right) + 14px);
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 14px + 54px);
   }
 }
 

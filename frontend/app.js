@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.40";
+const APP_VERSION = "1.2.41";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -2140,18 +2140,18 @@ async function _showRouteOnMap(svc, stop) {
   if (pts.length < 2) { toast("No map data for this route yet"); return; }
   closeMim();
   switchView("arrivals");
-  if (!_arrMap) { toast("Map isn't ready yet"); return; }
+  if (!_arrMap) await _arrMapP;
   _clearRouteOnMap();
   const cut = Math.max(0, pts.findIndex((x) => x.code === stop));
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#e11d48";
-  _routeLayer = L.layerGroup().addTo(_arrMap);
-  if (cut > 0) L.polyline(pts.slice(0, cut + 1).map((x) => x.ll), { color: accent, weight: 4, opacity: .3, dashArray: "4 7" }).addTo(_routeLayer);
+  _routeLayer = SGL.layerGroup().addTo(_arrMap);
+  if (cut > 0) SGL.polyline(pts.slice(0, cut + 1).map((x) => x.ll), { color: accent, weight: 4, opacity: .3, dashArray: "4 7" }).addTo(_routeLayer);
   const ahead = pts.slice(cut);
-  L.polyline(ahead.map((x) => x.ll), { color: "#fff", weight: 8, opacity: .85 }).addTo(_routeLayer);
-  L.polyline(ahead.map((x) => x.ll), { color: accent, weight: 5 }).addTo(_routeLayer);
+  SGL.polyline(ahead.map((x) => x.ll), { color: "#fff", weight: 8, opacity: .85 }).addTo(_routeLayer);
+  SGL.polyline(ahead.map((x) => x.ll), { color: accent, weight: 5 }).addTo(_routeLayer);
   pts.forEach((x, k) => {
     const isHere = k === cut && x.code === stop, isEnd = k === pts.length - 1;
-    L.circleMarker(x.ll, {
+    SGL.circleMarker(x.ll, {
       radius: isHere ? 8 : isEnd ? 6 : 3.5, weight: isHere ? 3 : 2,
       color: k < cut ? "rgba(120,120,120,.6)" : accent, fillColor: isHere ? accent : "#fff", fillOpacity: 1,
     }).bindTooltip(`${esc(_stopLabel(x))} · ${esc(x.code)}`, { direction: "top", offset: [0, -6] })
@@ -2176,7 +2176,7 @@ async function _showRouteOnMap(svc, stop) {
   _snapSheet("min");
   setTimeout(() => {
     _arrMap.invalidateSize();
-    const b = L.latLngBounds(ahead.map((x) => x.ll));
+    const b = SGL.latLngBounds(ahead.map((x) => x.ll));
     const sb = wrap.getBoundingClientRect(), sh = $("view-arrivals").querySelector(".arr-sheet").getBoundingClientRect();
     const mc = _arrMap.getContainer().getBoundingClientRect();
     const sideBySide = sh.right <= mc.left + 4;   // landscape side panel
@@ -4614,16 +4614,25 @@ function _initOneSheetDrag(sheet) {
   handle.addEventListener("pointercancel", end);
 }
 
+let _arrMapP = null;
+let _arrUserLL = null;        // last known position of the user
+let _arrLastStops = [];       // last nearby-stops result, pinned once the map exists
 function initArrMap() {
   if (!_leafletReady()) { _whenLeaflet(initArrMap); return; }
   _syncTopbarH();
   if (_arrMap) { setTimeout(() => _arrMap.invalidateSize(), 60); return; }
-  _arrMap = L.map($("arr-map"), { zoomControl: false, attributionControl: false })
-             .setView([1.3521, 103.8198], 15);
-  // Vector base map with a OneMap raster fallback — see _sgAddBase.
-  _sgAddBase(_arrMap, true);
+  if (_arrMapP) return;
   $("arr-locate-btn").addEventListener("click", _arrRefreshNearby);
+  // The nearby list doesn't wait for the map (the 3D library is ~1 MB on a
+  // first visit): locate and list stops now, pin them when the map is up.
   _arrGeolocate();
+  _arrMapP = _sgCreateMap($("arr-map"), _arrUserLL ? [_arrUserLL.lat, _arrUserLL.lng] : [1.3521, 103.8198], 15).then((m) => {
+    _arrMap = m;
+    _sgTiltBtn("view-arrivals", () => _arrMap);
+    if (_arrUserLL) _arrShowMyLocation(_arrUserLL.lat, _arrUserLL.lng);
+    _arrAddPins(_arrLastStops);
+    if (S.stop) _arrHighlightPin(S.stop);   // a stop opened before the map was ready
+  });
 }
 
 // Theme toggle hook — the dark map look is a pure-CSS filter keyed on the
@@ -4631,9 +4640,11 @@ function initArrMap() {
 function _swapArrTiles() {}
 
 function _arrShowMyLocation(lat, lng) {
+  _arrUserLL = { lat, lng };
+  if (!_arrMap) return;
   _arrMap.setView([lat, lng], Math.max(_arrMap.getZoom(), 16));
   if (_arrLocMarker) _arrLocMarker.remove();
-  _arrLocMarker = L.circleMarker([lat, lng], {
+  _arrLocMarker = SGL.circleMarker([lat, lng], {
     radius: 8, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
   }).addTo(_arrMap);
 }
@@ -4644,7 +4655,6 @@ function _arrGeolocate() {
   _loadArrStops(1.3521, 103.8198);
   navigator.geolocation?.getCurrentPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
-      if (!_arrMap) return;
       _arrShowMyLocation(lat, lng);
       _loadArrStops(lat, lng);
     },
@@ -4658,20 +4668,19 @@ function _arrGeolocate() {
 // list. Without location access, list the stops around the map's centre.
 let _arrRefreshing = false;
 function _arrRefreshNearby() {
-  if (!_arrMap || _arrRefreshing) return;
+  if (_arrRefreshing) return;
   _arrRefreshing = true;
   const btn = $("arr-nearby-refresh");
   btn?.classList.add("spinning");
   const done = () => { _arrRefreshing = false; btn?.classList.remove("spinning"); };
   const fromMapCentre = (msg) => {
-    const c = _arrMap.getCenter();
+    const c = _arrMap ? _arrMap.getCenter() : { lat: 1.3521, lng: 103.8198 };
     _loadArrStops(c.lat, c.lng).finally(done);
     if (msg) toast(msg);
   };
   if (!navigator.geolocation) { fromMapCentre("Location unavailable — showing stops near the map centre"); return; }
   navigator.geolocation.getCurrentPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
-      if (!_arrMap) { done(); return; }
       _arrShowMyLocation(lat, lng);
       _loadArrStops(lat, lng).finally(done);
     },
@@ -4681,17 +4690,28 @@ function _arrRefreshNearby() {
 }
 $("arr-nearby-refresh")?.addEventListener("click", _arrRefreshNearby);
 
+let _arrLoadSeq = 0;
 async function _loadArrStops(lat, lng) {
-  if (!_arrMap) return;
+  // Only the newest request may update the list: the first-load "central
+  // Singapore" fetch can finish after the one for the user's real position.
+  const seq = ++_arrLoadSeq;
   try {
     const d = await api(`/api/stops/nearby?lat=${lat}&lng=${lng}&limit=20`)
       .catch(() => localNearby(lat, lng, 20));
+    if (seq !== _arrLoadSeq) return;
     const stops = d.results || [];
-    // Add pins (skip duplicates)
+    _arrLastStops = stops;
+    _arrAddPins(stops);
+    _renderArrNearbyList(stops);
+  } catch {}
+}
+
+function _arrAddPins(stops) {
+  if (!_arrMap) return;
     stops.forEach((s) => {
       if (!s.latitude || _arrPinStore.has(s.bus_stop_code)) return;
       const label = s.description || s.bus_stop_code;
-      const marker = L.marker([s.latitude, s.longitude], {
+      const marker = SGL.marker([s.latitude, s.longitude], {
         icon: _stopPinIcon(label, true), title: label,
       }).addTo(_arrMap);
       // Bind on the marker, not the icon's inner DOM — setIcon() (highlight /
@@ -4701,9 +4721,6 @@ async function _loadArrStops(lat, lng) {
       _arrPinStore.set(s.bus_stop_code, { marker, label, stop: s });
     });
     _evictArrPins();
-    _arrMap.invalidateSize();
-    _renderArrNearbyList(stops);
-  } catch {}
 }
 
 // Markers accumulate as the user pans / re-geolocates; cap the store so the map
@@ -4765,7 +4782,7 @@ function _arrHighlightPin(code) {
   const entry = _arrPinStore.get(code);
   if (!entry) return;
   const { marker, label } = entry;
-  marker.setIcon(L.divIcon({
+  marker.setIcon(SGL.divIcon({
     className: "stop-pin",
     html: `<button class="stop-pin-btn" style="background:#e5282a;transform:scale(1.4)" aria-label="${esc(label)}"></button><span class="stop-pin-label" style="font-weight:700">${esc(label)}</span>`,
     iconSize: [22, 22], iconAnchor: [11, 11],
@@ -4793,6 +4810,202 @@ function _leafletReady() { return typeof L !== "undefined"; }
 function _whenLeaflet(fn) {
   if (_leafletReady()) { fn(); return; }
   document.addEventListener("DOMContentLoaded", fn, { once: true });
+}
+
+// ── Live maps: native MapLibre (tilt + 3D buildings) ──────
+// The Bus, Parking and MRT maps run on MapLibre GL directly, so they can tilt,
+// rotate and show 3D buildings (Leaflet can't). The app's map code was written
+// against Leaflet, so `SGL` mirrors the small slice of Leaflet it uses —
+// markers with HTML icons, circle markers, polylines, layer groups, setView /
+// panTo / fitBounds — with a MapLibre implementation. When WebGL or the library
+// isn't available, the same calls fall back to real Leaflet + OneMap tiles, so
+// every phone still gets a working map. (The archived journey planner's maps
+// stay on Leaflet.) Zoom levels are kept in Leaflet terms throughout:
+// MapLibre's 512 px tiles make its zoom one less for the same scale.
+let _sgMode = null;            // "gl" | "leaflet", decided by the first live map
+const _sgGLMaps = new Set();   // GL maps, for theme swaps
+const SG_PITCH = 50;           // default tilt for the 3D view
+const _toLL = (ll) => Array.isArray(ll) ? { lat: ll[0], lng: ll[1] } : { lat: ll.lat, lng: ll.lng };
+const _toLngLat = (ll) => { const p = _toLL(ll); return [p.lng, p.lat]; };
+let _sgUid = 0;
+
+class GLGroup {
+  constructor() { this._kids = []; this._map = null; }
+  addTo(t) { if (t instanceof GLGroup) { t._add(this); return this; } this._map = t; this._kids.forEach((k) => k.addTo(t)); return this; }
+  _add(k) { this._kids.push(k); if (this._map) k.addTo(this._map); }
+  remove() { this._kids.forEach((k) => k.remove()); this._map = null; return this; }
+}
+
+class GLMarker {
+  constructor(ll, o = {}) {
+    this._ll = _toLL(ll);
+    this._el = document.createElement("div");
+    this._el.className = "sgm";
+    this._inner = document.createElement("div");
+    this._el.appendChild(this._inner);
+    if (o.title) this._el.title = o.title;
+    this._handlers = [];
+    this._el.addEventListener("click", (e) => { e.stopPropagation(); this._handlers.forEach((f) => f(e)); });
+    this.setIcon(o.icon || { className: "", html: "", iconSize: [0, 0] });
+    this.setZIndexOffset(o.zIndexOffset || 0);
+  }
+  setIcon(icon) {
+    const [w, h] = icon.iconSize || [0, 0];
+    const [ax, ay] = icon.iconAnchor || [w / 2, h / 2];
+    this._inner.className = "sgm-icon " + (icon.className || "");
+    this._inner.innerHTML = icon.html || "";
+    Object.assign(this._inner.style, { width: w + "px", height: h + "px", left: -ax + "px", top: -ay + "px" });
+    return this;
+  }
+  setZIndexOffset(z) { this._el.style.zIndex = String(1 + (z > 0 ? 1000 : 0)); return this; }
+  getLatLng() { return { ...this._ll }; }
+  setLatLng(ll) { this._ll = _toLL(ll); this._mk?.setLngLat(_toLngLat(this._ll)); return this; }
+  on(evt, fn) { if (evt === "click") this._handlers.push(fn); return this; }
+  bindTooltip(text) { this._el.title = String(text).replace(/<[^>]+>/g, ""); return this; }
+  addTo(t) {
+    if (t instanceof GLGroup) { t._add(this); return this; }
+    this._mk?.remove();
+    this._mk = new maplibregl.Marker({ element: this._el, anchor: "top-left" }).setLngLat(_toLngLat(this._ll)).addTo(t._gl);
+    return this;
+  }
+  remove() { this._mk?.remove(); this._mk = null; return this; }
+}
+
+class GLCircle extends GLMarker {
+  constructor(ll, o = {}) {
+    const r = o.radius ?? 6, w = o.weight ?? 2;
+    super(ll, { ...o, icon: {
+      className: "sgm-dot", iconSize: [r * 2, r * 2], iconAnchor: [r, r],
+      html: `<div style="width:100%;height:100%;box-sizing:border-box;border-radius:50%;background:${o.fillColor || "#fff"};opacity:${o.opacity ?? 1};border:${w}px solid ${o.color || "#3b82f6"};box-shadow:0 1px 4px rgba(0,0,0,.35)"></div>`,
+    } });
+  }
+}
+
+class GLLine {
+  constructor(lls, o = {}) { this._coords = lls.map(_toLngLat); this._o = o; this._id = `sgl-${++_sgUid}`; this._map = null; }
+  addTo(t) { if (t instanceof GLGroup) { t._add(this); return this; } this._map = t; t._lines.set(this._id, this); t._drawLine(this); return this; }
+  remove() { if (this._map) { this._map._lines.delete(this._id); this._map._eraseLine(this); } this._map = null; return this; }
+}
+
+class GLMap {
+  constructor(el, center, zoom, style) {
+    this._el = el; this._lines = new Map(); this._pitched = true;
+    this._gl = new maplibregl.Map({
+      container: el, style, center: _toLngLat(center), zoom: zoom - 1,
+      pitch: SG_PITCH, maxPitch: 70, attributionControl: false,
+      dragRotate: true, touchPitch: true, pitchWithRotate: true, fadeDuration: 0,
+    });
+    this._gl.touchZoomRotate.enableRotation();
+    // Overlays can be added once the style itself has loaded (tiles may still
+    // be streaming in). A theme swap replaces the style, so redraw after it.
+    this._ready = false;
+    this._gl.on("style.load", () => { this._ready = true; this._lines.forEach((l) => this._drawLine(l)); });
+    el.classList.add("sg-gl");
+    _sgGLMaps.add(this);
+  }
+  setView(ll, z) { this._gl.jumpTo({ center: _toLngLat(ll), zoom: (z ?? this.getZoom()) - 1 }); return this; }
+  getZoom() { return this._gl.getZoom() + 1; }
+  getCenter() { const c = this._gl.getCenter(); return { lat: c.lat, lng: c.lng }; }
+  panTo(ll, o = {}) { this._gl.easeTo({ center: _toLngLat(ll), duration: (o.duration ?? 0.25) * 1000 }); return this; }
+  fitBounds(lls, o = {}) {
+    const [l, t] = o.paddingTopLeft || [20, 20], [r, b] = o.paddingBottomRight || [20, 20];
+    const pts = lls.map(_toLngLat);
+    const lo = [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1]))];
+    const hi = [Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
+    this._gl.fitBounds([lo, hi], { padding: { top: t, left: l, right: r, bottom: b }, maxZoom: (o.maxZoom ?? 18) - 1, duration: 600, pitch: this._gl.getPitch(), bearing: this._gl.getBearing() });
+    return this;
+  }
+  // Centre `ll` in the visible strip between `top` and `bottom` (px insets).
+  focusIn(ll, { top = 0, bottom = 0 } = {}) {
+    this._gl.easeTo({ center: _toLngLat(ll), padding: { top, bottom, left: 0, right: 0 }, duration: 400 });
+  }
+  invalidateSize() { this._gl.resize(); return this; }
+  getContainer() { return this._el; }
+  setTilt(on) { this._pitched = on; this._gl.easeTo({ pitch: on ? SG_PITCH : 0, bearing: on ? this._gl.getBearing() : 0, duration: 500 }); }
+  _drawLine(l) {
+    const m = this._gl;
+    if (!this._ready || m.getSource(l._id)) return;   // drawn on style.load otherwise
+    m.addSource(l._id, { type: "geojson", data: { type: "Feature", geometry: { type: "LineString", coordinates: l._coords } } });
+    const w = l._o.weight ?? 3;
+    const paint = { "line-color": l._o.color || "#3b82f6", "line-width": w, "line-opacity": l._o.opacity ?? 1 };
+    if (l._o.dashArray) paint["line-dasharray"] = String(l._o.dashArray).split(/[\s,]+/).map((x) => +x / w);
+    // Under the labels, over the roads.
+    const firstSymbol = m.getStyle().layers.find((x) => x.type === "symbol")?.id;
+    m.addLayer({ id: l._id, type: "line", source: l._id, layout: { "line-join": "round", "line-cap": "round" }, paint }, firstSymbol);
+  }
+  _eraseLine(l) {
+    const m = this._gl;
+    if (m.getLayer(l._id)) m.removeLayer(l._id);
+    if (m.getSource(l._id)) m.removeSource(l._id);
+  }
+}
+
+// Factory used by all live-map code: MapLibre objects in GL mode, plain
+// Leaflet otherwise.
+const SGL = {
+  divIcon: (o) => _sgMode === "gl" ? o : L.divIcon(o),
+  marker: (ll, o) => _sgMode === "gl" ? new GLMarker(ll, o) : L.marker(ll, o),
+  circleMarker: (ll, o) => _sgMode === "gl" ? new GLCircle(ll, o) : L.circleMarker(ll, o),
+  polyline: (lls, o) => _sgMode === "gl" ? new GLLine(lls, o) : L.polyline(lls, o),
+  layerGroup: () => _sgMode === "gl" ? new GLGroup() : L.layerGroup(),
+  latLng: (a, b) => ({ lat: a, lng: b }),
+  latLngBounds: (lls) => _sgMode === "gl" ? lls : L.latLngBounds(lls),
+};
+
+// Create a live map in `el`. Resolves to a GLMap, or a Leaflet map with
+// OneMap tiles if MapLibre can't run here (no WebGL, blocked CDN, timeout).
+function _sgCreateMap(el, center, zoom) {
+  const leaflet = () => {
+    _sgMode = _sgMode || "leaflet";
+    const m = L.map(el, { zoomControl: false, attributionControl: false }).setView(center, zoom);
+    _sgTiles().addTo(m);
+    return m;
+  };
+  if (_sgMode === "leaflet") return Promise.resolve(leaflet());
+  const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("map timeout")), 8000));
+  return Promise.race([_loadVectorMaps(), timeout]).then((base) => {
+    _sgMode = "gl";
+    const m = new GLMap(el, center, zoom, _sgTuneStyle(base, _isDark(), { buildings3d: true }));
+    m._styleBase = base; m._dark = _isDark();
+    return m;
+  }).catch((e) => { console.warn("3D map unavailable, using flat map:", e?.message); _sgMode = "leaflet"; return leaflet(); });
+}
+
+// Centre a point in the visible part of a live map (between search bar and
+// bottom sheet on phones; plain centre in the landscape side-panel layout).
+function _mapFocus(m, viewId, latlng) {
+  if (!m) return;
+  const c = m.getContainer().getBoundingClientRect();
+  const view = $(viewId);
+  const sh = view.querySelector(".arr-sheet").getBoundingClientRect();
+  const sb = view.querySelector(".arr-search-wrap").getBoundingClientRect();
+  const overlapX = Math.min(sh.right, c.right) - Math.max(sh.left, c.left);
+  const covered = overlapX > c.width / 2 && sh.top > c.top;
+  if (m instanceof GLMap) {
+    m.focusIn(latlng, covered ? { top: Math.max(0, sb.bottom - c.top), bottom: Math.max(0, c.bottom - sh.top) } : {});
+    return;
+  }
+  let y = c.height / 2;
+  if (covered) y = ((sb.bottom - c.top) + (sh.top - c.top)) / 2;
+  const target = m.project(_toLL(latlng)).add([0, c.height / 2 - y]);
+  m.panTo(m.unproject(target), { animate: true, duration: 0.4 });
+}
+
+// 2D / 3D toggle (GL maps only): one button per map view.
+function _sgTiltBtn(viewId, getMap) {
+  if (_sgMode !== "gl") return;
+  const view = $(viewId);
+  if (!view || view.querySelector(".sg-tilt-btn")) return;
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "sg-tilt-btn"; b.textContent = "2D";
+  b.setAttribute("aria-label", "Switch to a flat 2D map");
+  b.addEventListener("click", () => {
+    const m = getMap(); if (!(m instanceof GLMap)) return;
+    m.setTilt(!m._pitched);
+    b.textContent = m._pitched ? "2D" : "3D";
+    b.setAttribute("aria-label", m._pitched ? "Switch to a flat 2D map" : "Switch to the 3D map");
+  });
+  view.appendChild(b);
 }
 
 function _isDark() {
@@ -4876,6 +5089,13 @@ function _sgAddBase(map, vector) {
 }
 
 function _syncTileTheme() {
+  const dark0 = _isDark();
+  _sgGLMaps.forEach((m) => {
+    if (m._dark === dark0) return;
+    m._dark = dark0;
+    m._ready = false;
+    m._gl.setStyle(_sgTuneStyle(m._styleBase, dark0, { buildings3d: true }));
+  });
   const url = _sgTileUrl();
   _sgTileLayers.forEach((l) => { if (l._url !== url) l.setUrl(url); });
   const dark = _isDark();
@@ -4922,10 +5142,10 @@ function _sgMapColors(v, f) {
   return v;
 }
 const _SG_DROP = /^(natural_earth|poi_r\d+|building-3d|road_one_way_arrow.*|highway-shield.*|road_shield_us|road_area_pattern|.*_hatching)$/;
-function _sgTuneStyle(base, dark) {
+function _sgTuneStyle(base, dark, { buildings3d = false } = {}) {
   const s = JSON.parse(JSON.stringify(base));
   delete s.sources.ne2_shaded;
-  s.layers = s.layers.filter((l) => !_SG_DROP.test(l.id));
+  s.layers = s.layers.filter((l) => !_SG_DROP.test(l.id) || (buildings3d && l.id === "building-3d"));
   const P = dark
     ? { bg: "#1c1d20", building: "#2a2c31", bOutline: "#34373d", minor: "#33363c", major: "#41444b", motorway: "#4d4a43",
         casing: "#1c1d20", rail: "#8a93a6", railTunnel: "#5d6372", label: "#c9ccd2", halo: "#1c1d20", station: "#e8ebf0",
@@ -4942,6 +5162,13 @@ function _sgTuneStyle(base, dark) {
     else if (/^(park|landcover_(grass|wood)|landuse_pitch)$/.test(id)) { p["fill-color"] = P.green; p["fill-opacity"] = 0.9; }
     else if (dark && /^landuse_(hospital|school|cemetery|track|residential)$/.test(id)) { p["fill-color"] = P.special; p["fill-opacity"] = 0.6; }
     else if (id === "building") { p["fill-color"] = P.building; p["fill-outline-color"] = P.bOutline; p["fill-opacity"] = 1; }
+    else if (id === "building-3d") {
+      // Soft, matte blocks so HDB estates read as 3D without stealing focus.
+      p["fill-extrusion-color"] = dark ? "#2d3036" : "#e4e1db";
+      p["fill-extrusion-opacity"] = dark ? 0.9 : 0.85;
+      p["fill-extrusion-vertical-gradient"] = true;
+      l.minzoom = 14;
+    }
     else if (/_casing$/.test(id) && l.type === "line") p["line-color"] = P.casing;
     else if (/motorway(_link)?$/.test(id) && l.type === "line") p["line-color"] = P.motorway;
     else if (/(trunk_primary|secondary_tertiary)$/.test(id)) p["line-color"] = P.major;
@@ -4987,7 +5214,7 @@ function _sgTuneStyle(base, dark) {
 // would otherwise overlap into an unreadable mess).
 function _stopPinIcon(label, noLabel = false) {
   const lbl = noLabel ? "" : `<span class="stop-pin-label">${esc(label || "")}</span>`;
-  return L.divIcon({
+  return SGL.divIcon({
     className: "stop-pin",
     html: `<button class="stop-pin-btn" aria-label="${esc(label || "")}"></button>${lbl}`,
     iconSize: [22, 22],
@@ -5635,20 +5862,25 @@ function _cpCar(cp) { return cp?.lots?.car ?? null; }
 
 function _cpPinIcon(cp, selected = false) {
   const n = _cpCar(cp);
-  return L.divIcon({
+  return SGL.divIcon({
     className: "cp-pin-wrap",
     html: `<div class="cp-pin ${_cpLevel(n)}${selected ? " sel" : ""}">${n == null ? "P" : n}</div>`,
     iconSize: [36, 24], iconAnchor: [18, 12],
   });
 }
 
+let _cpMapP = null;
 function _cpInit() {
   if (_cpMap) { setTimeout(() => _cpMap.invalidateSize(), 60); return; }
   if (!_leafletReady()) { _whenLeaflet(_cpInit); return; }
-  _cpMap = L.map($("cp-map"), { zoomControl: false, attributionControl: false }).setView(SG_CENTER, 16);
-  _sgAddBase(_cpMap, true);
-  setTimeout(() => _cpMap.invalidateSize(), 60);
-  _cpLocate(false);
+  if (_cpMapP) return;
+  _cpMapP = _sgCreateMap($("cp-map"), _arrUserLL ? [_arrUserLL.lat, _arrUserLL.lng] : SG_CENTER, 16).then((m) => {
+    _cpMap = m;
+    _sgTiltBtn("view-carpark", () => _cpMap);
+    setTimeout(() => _cpMap.invalidateSize(), 60);
+    CP.items.forEach((cp) => _cpPutPin(cp));   // anything loaded (e.g. saved) before the map
+    _cpLocate(false);
+  });
 }
 
 // fresh=false on first open (a recent cached fix is fine and fast); the
@@ -5669,7 +5901,7 @@ function _cpLocate(fresh) {
     ({ coords: { latitude: lat, longitude: lng } }) => {
       _cpMap.setView([lat, lng], Math.max(_cpMap.getZoom(), 16));
       if (CP.locMarker) CP.locMarker.remove();
-      CP.locMarker = L.circleMarker([lat, lng], {
+      CP.locMarker = SGL.circleMarker([lat, lng], {
         radius: 8, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
       }).addTo(_cpMap);
       _cpLoadNearby(lat, lng).finally(done);
@@ -5706,7 +5938,8 @@ function _cpPutPin(cp) {
   const icon = _cpPinIcon(cp, cp.id === CP.sel);
   const m = CP.pins.get(cp.id);
   if (m) { m.setIcon(icon); return; }
-  const marker = L.marker([cp.lat, cp.lng], { icon, title: _cpName(cp.name), zIndexOffset: cp.id === CP.sel ? 1000 : 0 }).addTo(_cpMap);
+  if (!_cpMap) return;
+  const marker = SGL.marker([cp.lat, cp.lng], { icon, title: _cpName(cp.name), zIndexOffset: cp.id === CP.sel ? 1000 : 0 }).addTo(_cpMap);
   marker.on("click", () => _cpOpen(cp.id));
   CP.pins.set(cp.id, marker);
 }
@@ -5813,21 +6046,7 @@ function _cpShowDetail(cp, d) {
     </div>`;
 }
 
-// Centre a point in the part of a tab's map you can actually see: between
-// the search bar and the bottom sheet on phones. (In the landscape side-panel
-// layout the map already starts right of the panel, so plain centre works.)
-function _focusInView(m, viewId, latlng) {
-  const c = m.getContainer().getBoundingClientRect();
-  const view = $(viewId);
-  const sh = view.querySelector(".arr-sheet").getBoundingClientRect();
-  const sb = view.querySelector(".arr-search-wrap").getBoundingClientRect();
-  let y = c.height / 2;
-  const overlapX = Math.min(sh.right, c.right) - Math.max(sh.left, c.left);
-  if (overlapX > c.width / 2 && sh.top > c.top) y = ((sb.bottom - c.top) + (sh.top - c.top)) / 2;
-  const target = m.project(latlng).add([0, c.height / 2 - y]);
-  m.panTo(m.unproject(target), { animate: true, duration: 0.4 });
-}
-function _cpFocus(latlng) { _focusInView(_cpMap, "view-carpark", latlng); }
+function _cpFocus(latlng) { _mapFocus(_cpMap, "view-carpark", latlng); }
 
 // ── Saved carparks (account-synced; see /api/saved-carparks) ──
 function _cpIsSaved(id) { return CP.saved.some((c) => c.id === id); }
@@ -5968,7 +6187,7 @@ $("saved-cp-list").addEventListener("click", (e) => {
     if (cp?.lat != null) _cpMap.setView([cp.lat, cp.lng], 17);
     _cpOpen(it.dataset.cp);
   };
-  if (_cpMap) open(); else _whenLeaflet(() => setTimeout(open, 100));
+  if (_cpMap) open(); else _cpMapP?.then(() => setTimeout(open, 100));
 });
 $("cp-refresh").addEventListener("click", () => _cpLocate(true));
 $("cp-locate-btn").addEventListener("click", () => _cpLocate(true));
@@ -5998,7 +6217,7 @@ function _mrtPinIcon(st, selected = false) {
   const cols = st.lines.map((l) => l.color);
   const bg = cols.length === 1 ? cols[0]
     : `conic-gradient(${cols.map((c, i) => `${c} ${(i * 360) / cols.length}deg ${((i + 1) * 360) / cols.length}deg`).join(", ")})`;
-  return L.divIcon({
+  return SGL.divIcon({
     className: "mrt-pin-wrap",
     html: `<div class="mrt-pin${selected ? " sel" : ""}" style="background:${bg}"></div>`,
     iconSize: [18, 18], iconAnchor: [9, 9],
@@ -6012,18 +6231,22 @@ async function _mrtStations() {
   return MRT.stations;
 }
 
+let _mrtMapP = null;
 function _mrtInit() {
   if (_mrtMap) { setTimeout(() => _mrtMap.invalidateSize(), 60); return; }
   if (!_leafletReady()) { _whenLeaflet(_mrtInit); return; }
-  _mrtMap = L.map($("mrt-map"), { zoomControl: false, attributionControl: false }).setView(SG_CENTER, 15);
-  _sgAddBase(_mrtMap, true);
-  setTimeout(() => _mrtMap.invalidateSize(), 60);
-  _mrtStations().then((list) => list.forEach((st) => {
-    const m = L.marker([st.lat, st.lng], { icon: _mrtPinIcon(st), title: st.name }).addTo(_mrtMap);
-    m.on("click", () => _mrtOpen(st.name));
-    MRT.pins.set(st.name, m);
-  })).catch(() => {});
-  _mrtLocate(false);
+  if (_mrtMapP) return;
+  _mrtMapP = _sgCreateMap($("mrt-map"), _arrUserLL ? [_arrUserLL.lat, _arrUserLL.lng] : SG_CENTER, 15).then((m) => {
+    _mrtMap = m;
+    _sgTiltBtn("view-mrt", () => _mrtMap);
+    setTimeout(() => _mrtMap.invalidateSize(), 60);
+    _mrtStations().then((list) => list.forEach((st) => {
+      const pin = SGL.marker([st.lat, st.lng], { icon: _mrtPinIcon(st, st.name === MRT.sel), title: st.name }).addTo(_mrtMap);
+      pin.on("click", () => _mrtOpen(st.name));
+      MRT.pins.set(st.name, pin);
+    })).catch(() => {});
+    _mrtLocate(false);
+  });
 }
 
 function _mrtLocate(fresh) {
@@ -6041,7 +6264,7 @@ function _mrtLocate(fresh) {
     ({ coords: { latitude: lat, longitude: lng } }) => {
       _mrtMap.setView([lat, lng], Math.max(_mrtMap.getZoom(), 15));
       if (MRT.locMarker) MRT.locMarker.remove();
-      MRT.locMarker = L.circleMarker([lat, lng], {
+      MRT.locMarker = SGL.circleMarker([lat, lng], {
         radius: 8, color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2.5,
       }).addTo(_mrtMap);
       _mrtLoadNearby(lat, lng).finally(done);
@@ -6227,7 +6450,7 @@ async function _mrtOpen(name) {
   if (st) {
     MRT.pins.get(name)?.setIcon(_mrtPinIcon(st, true));
     MRT.pins.get(name)?.setZIndexOffset(1000);
-    _focusInView(_mrtMap, "view-mrt", L.latLng(st.lat, st.lng));
+    _mapFocus(_mrtMap, "view-mrt", SGL.latLng(st.lat, st.lng));
   }
   hide($("mrt-nearby")); show($("mrt-detail"));
   $("view-mrt").querySelector(".arr-sheet-scroll").scrollTop = 0;
@@ -6350,7 +6573,7 @@ $("saved-mrt-list").addEventListener("click", (e) => {
     if (st?.lat != null) _mrtMap.setView([st.lat, st.lng], 16);
     _mrtOpen(it.dataset.mrt);
   };
-  if (_mrtMap) open(); else _whenLeaflet(() => setTimeout(open, 100));
+  if (_mrtMap) open(); else _mrtMapP?.then(() => setTimeout(open, 100));
 });
 
 // Search — the station list is small and static, so it's filtered locally.
