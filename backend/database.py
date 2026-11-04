@@ -232,6 +232,39 @@ class SavedCarpark(Base):
     added_at   = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class PushAlert(Base):
+    """A pending bus alert delivered by Web Push, so it reaches the phone even
+    when the app is closed (see push_routes.py). One-shot: deleted once sent,
+    cancelled or expired. Not tied to an account; `id` is a random secret the
+    device uses to cancel it.
+
+    kind "arrive": ping when the next bus (after `skip_until`) of `service_no`
+                   is ~1 min from `watch_stop`.
+    kind "alight": the rider is on (or about to board at `board_stop`) a bus of
+                   `service_no`; ping when that bus reaches `watch_stop`, the
+                   stop before `dest_stop`. The bus is followed by its live
+                   position (`bus_lat`/`bus_lng`), updated every poll.
+    """
+    __tablename__ = "push_alerts"
+
+    id          = Column(String(40), primary_key=True)
+    kind        = Column(String(10), nullable=False)
+    endpoint    = Column(String(1000), nullable=False, index=True)
+    p256dh      = Column(String(200), nullable=False)
+    auth        = Column(String(100), nullable=False)
+    service_no  = Column(String(8), nullable=False)
+    watch_stop  = Column(String(10), nullable=False)
+    board_stop  = Column(String(10), nullable=True)
+    dest_stop   = Column(String(10), nullable=True)
+    title_stop  = Column(String(120), nullable=True)   # name used in the message
+    skip_until  = Column(DateTime, nullable=True)       # UTC; ignore buses due before this
+    bus_lat     = Column(Float, nullable=True)
+    bus_lng     = Column(Float, nullable=True)
+    phase       = Column(String(10), nullable=True)     # alight: "boarding" | "riding"
+    created_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at  = Column(DateTime, nullable=False)
+
+
 class SavedStation(Base):
     """MRT/LRT stations a user saved (MRT map mode), synced across devices.
     Keyed by station name, as used by /api/mrt/station/{name}."""

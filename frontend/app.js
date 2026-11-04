@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.39";
+const APP_VERSION = "1.2.40";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -93,21 +93,21 @@ function toast(msg) {
   t.textContent = msg;
   show(t);
   clearTimeout(toastTmr);
-  toastTmr = setTimeout(() => hide(t), 2200);
+  toastTmr = setTimeout(() => hide(t), Math.min(5000, 2200 + Math.max(0, msg.length - 40) * 45));
 }
 
-function showConfirm(msg, okLabel, onConfirm) {
+function showConfirm(msg, okLabel, onConfirm, { cancelLabel = "Cancel", onCancel = null } = {}) {
   const el = document.createElement("div");
   el.className = "confirm-overlay";
   el.innerHTML = `<div class="confirm-card">
     <p class="confirm-msg">${msg}</p>
     <div class="confirm-btns">
-      <button class="confirm-cancel">Cancel</button>
+      <button class="confirm-cancel">${cancelLabel}</button>
       <button class="confirm-ok">${okLabel}</button>
     </div>
   </div>`;
   document.body.appendChild(el);
-  el.querySelector(".confirm-cancel").addEventListener("click", () => el.remove());
+  el.querySelector(".confirm-cancel").addEventListener("click", () => { el.remove(); onCancel?.(); });
   el.querySelector(".confirm-ok").addEventListener("click", () => { el.remove(); onConfirm(); });
   el.addEventListener("click", (e) => { if (e.target === el) el.remove(); });
 }
@@ -1627,7 +1627,7 @@ function renderArrivals(data) {
   if (S.stop && S.alerts[S.stop]) {
     data.services.forEach((svc) => {
       if (S.alerts[S.stop][svc.service_no] && svc.buses?.[0]?.api_arrival) {
-        S.alertEtas[`${S.stop}|${svc.service_no}`] = svc.buses[0].api_arrival;
+        _alertTrack(S.stop, svc.service_no, svc.buses);
       }
     });
   }
@@ -1698,30 +1698,122 @@ function startTicker() {
 // only: the page must be open (background push needs a push server).
 function _alertActive(stop, svc) { return !!(stop && S.alerts[stop] && S.alerts[stop][svc]); }
 
+// ── Web Push (alerts that arrive with the app closed) ─────
+// The server watches the bus and pushes the ping (see push_routes.py), so it
+// reaches the phone even when the app is in the background or closed. Works
+// on Android, and on iPhone once the app is on the Home Screen (iOS 16.4+).
+// Without push (unsupported browser, permission refused, server not set up)
+// alerts still work while the app is open.
+let _pushKey;   // undefined = not asked yet, null = push unavailable
+function _b64ToBytes(b64) {
+  const s = atob(b64.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64.length + 3) % 4));
+  return Uint8Array.from(s, (c) => c.charCodeAt(0));
+}
+async function _pushSubscription() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return null;
+  if (Notification.permission === "default") await Notification.requestPermission();
+  if (Notification.permission !== "granted") return null;
+  if (_pushKey === undefined) {
+    try { const k = await api("/api/push/key"); _pushKey = k.enabled ? k.key : null; } catch { return null; }
+  }
+  if (!_pushKey) return null;
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _b64ToBytes(_pushKey) });
+  return sub.toJSON();
+}
+async function _pushCreate(body) {
+  try {
+    const subscription = await _pushSubscription();
+    if (!subscription) return null;
+    return (await api("/api/push/alerts", { method: "POST", body: JSON.stringify({ subscription, ...body }) })).id;
+  } catch { return null; }
+}
+function _pushCancel(id) {
+  if (id) api(`/api/push/alerts/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+}
+
+// ── Arrival alerts ────────────────────────────────────────
+// Each alert follows one specific bus: the first one due after `skip` (set
+// when the user asked for "the next one" because the current bus was already
+// arriving). Following a single bus by its arrival time means that once it has
+// come (and the push has gone out), reopening the app won't ping again for
+// the bus after it.
+const ALERT_META_KEY = "sgbus_alert_meta";
+S.alertMeta = readJSON(ALERT_META_KEY, {});   // "stop|svc" → { skip, target, pushId }
+function _saveAlerts() { writeJSON(ALERTS_KEY, S.alerts); writeJSON(ALERT_META_KEY, S.alertMeta); }
+
+function _alertTrack(stop, svc, buses) {
+  const key = `${stop}|${svc}`, m = (S.alertMeta[key] ||= {});
+  const t = (b) => parseUTC(b.api_arrival)?.getTime();
+  let pick;
+  if (m.target) {
+    const tt = parseUTC(m.target)?.getTime();
+    pick = buses.filter((b) => t(b) && Math.abs(t(b) - tt) <= 180e3)
+      .sort((x, y) => Math.abs(t(x) - tt) - Math.abs(t(y) - tt))[0];
+    if (!pick) return;   // keep the last known time; it may just be between refreshes
+  } else {
+    const skip = m.skip ? parseUTC(m.skip).getTime() + 30e3 : -Infinity;
+    pick = buses.find((b) => t(b) && t(b) > skip);
+    if (!pick) return;
+  }
+  m.target = pick.api_arrival;
+  S.alertEtas[key] = pick.api_arrival;
+  writeJSON(ALERT_META_KEY, S.alertMeta);
+}
+
+function _clearAlert(stop, svc, { cancelPush = true } = {}) {
+  const key = `${stop}|${svc}`;
+  if (cancelPush) _pushCancel(S.alertMeta[key]?.pushId);
+  if (S.alerts[stop]) { delete S.alerts[stop][svc]; if (!Object.keys(S.alerts[stop]).length) delete S.alerts[stop]; }
+  delete S.alertMeta[key]; delete S.alertEtas[key];
+  _saveAlerts();
+}
+
+function _armAlert(stop, svc, buses, skipIso = null) {
+  const key = `${stop}|${svc}`;
+  S.alerts[stop] = S.alerts[stop] || {};
+  S.alerts[stop][svc] = ALERT_THRESHOLD_SEC;
+  S.alertMeta[key] = { skip: skipIso };
+  S.firedAlerts.delete(key);
+  if (buses?.length) _alertTrack(stop, svc, buses);
+  _saveAlerts();
+  _syncAlertBtns();
+  const stopName = (stop === S.stop && S.stopInfo?.description) || `Stop ${stop}`;
+  const mins = (() => { const x = secsUntil(parseUTC(S.alertEtas[key])); return x == null ? null : Math.max(1, Math.round(x / 60)); })();
+  _pushCreate({ kind: "arrive", service_no: svc, stop, stop_name: stopName, skip_until: skipIso }).then((id) => {
+    if (!S.alerts[stop]?.[svc]) { _pushCancel(id); return; }   // cancelled meanwhile
+    if (id) { S.alertMeta[key].pushId = id; _saveAlerts(); }
+    const denied = "Notification" in window && Notification.permission === "denied";
+    const tail = skipIso && mins ? ` (due in ${mins} min)` : "";
+    toast(id ? `You'll be pinged ~1 min before bus ${svc}${tail}, even with the app closed`
+      : denied ? `Alert set for bus ${svc}${tail}. Notifications are off, so keep the app open`
+      : `Alert set for bus ${svc}${tail}. Keep the app open to get it`);
+  });
+}
+
 function toggleAlert(stop, svc) {
   if (!stop || !svc) return;
   if (_alertActive(stop, svc)) {
-    delete S.alerts[stop][svc];
-    if (!Object.keys(S.alerts[stop]).length) delete S.alerts[stop];
-    writeJSON(ALERTS_KEY, S.alerts);
+    _clearAlert(stop, svc);
     toast(`Alert off for bus ${svc}`);
-  } else {
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
-    S.alerts[stop] = S.alerts[stop] || {};
-    S.alerts[stop][svc] = ALERT_THRESHOLD_SEC;
-    S.firedAlerts.delete(`${stop}|${svc}`);
-    // Seed the watcher's ETA from the rendered card right away — arming
-    // happens after render, so waiting for the next refresh would leave the
-    // alert blind if the user backs out immediately.
-    const iso = document.querySelector(`#rows .svc[data-svc="${CSS.escape(svc)}"] .eta-now[data-eta-iso]`)?.dataset.etaIso;
-    if (iso) S.alertEtas[`${stop}|${svc}`] = iso;
-    writeJSON(ALERTS_KEY, S.alerts);
-    const denied = "Notification" in window && Notification.permission === "denied";
-    toast(denied ? `Alert set for bus ${svc} (in-app only)` : `You'll be pinged before bus ${svc} arrives`);
+    _syncAlertBtns();
+    return;
   }
-  _syncAlertBtns();
+  // Ask for notification permission inside the tap (iPhone requires a gesture).
+  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+  const buses = (S.lastArrivals?.stop === stop ? S.lastArrivals.data.services?.find((x) => x.service_no === svc)?.buses : null) || [];
+  const first = buses[0], firstSecs = first ? secsUntil(parseUTC(first.api_arrival)) : null;
+  // Already inside the 1-minute mark: a ping now would be pointless. Say so,
+  // and offer to ping before the following bus instead.
+  if (firstSecs != null && firstSecs <= ALERT_THRESHOLD_SEC) {
+    const next = buses[1] ? secsUntil(parseUTC(buses[1].api_arrival)) : null;
+    const nextTxt = next != null ? ` The next one is due in ${Math.max(1, Math.round(next / 60))} min.` : "";
+    showConfirm(`<b>Bus ${esc(svc)} is arriving now.</b>${esc(nextTxt)}<br>Ping you before the next one?`,
+      "Ping next bus", () => _armAlert(stop, svc, buses, first.api_arrival), { cancelLabel: "No thanks" });
+    return;
+  }
+  _armAlert(stop, svc, buses);
 }
 
 // Reflect alert state on the rendered buttons without a full re-render.
@@ -1743,17 +1835,18 @@ function _checkAlerts() {
   // user had just been promised.
   for (const stop of Object.keys(S.alerts)) {
     for (const svc of Object.keys(S.alerts[stop])) {
-      const thr = ALERT_THRESHOLD_SEC;  // (alerts saved under an older threshold follow the current one)
       const key = `${stop}|${svc}`;
       const secs = secsUntil(parseUTC(S.alertEtas[key]));
       if (secs === null) continue;
-      if (secs <= thr && secs > -45 && !S.firedAlerts.has(key)) {
+      if (secs <= ALERT_THRESHOLD_SEC && secs > -45 && !S.firedAlerts.has(key)) {
         S.firedAlerts.add(key);
+        // The app is open and caught it: ping here and call off the push.
         _fireArrivalAlert(stop, svc, secs);
-        delete S.alerts[stop][svc];
-        if (!Object.keys(S.alerts[stop]).length) delete S.alerts[stop];
-        delete S.alertEtas[key];
-        writeJSON(ALERTS_KEY, S.alerts);
+        _clearAlert(stop, svc);
+        _syncAlertBtns();
+      } else if (secs <= -120) {
+        // Its bus came and went while the app was closed; the push handled it.
+        _clearAlert(stop, svc, { cancelPush: false });
         _syncAlertBtns();
       }
     }
@@ -1769,9 +1862,7 @@ async function _refreshAlertEtas() {
     try {
       const d = await api(`/api/arrivals/${stop}`);
       (d.services || []).forEach((svc) => {
-        if (S.alerts[stop]?.[svc.service_no] && svc.buses?.[0]?.api_arrival) {
-          S.alertEtas[`${stop}|${svc.service_no}`] = svc.buses[0].api_arrival;
-        }
+        if (S.alerts[stop]?.[svc.service_no] && svc.buses?.length) _alertTrack(stop, svc.service_no, svc.buses);
       });
     } catch { /* keep last known ETA; next round may succeed */ }
   }
@@ -1787,7 +1878,7 @@ function _fireArrivalAlert(stop, svc, secs) {
   const title = `Bus ${svc} arriving ${when}`;
   try { navigator.vibrate?.([200, 100, 200]); } catch {}
   toast(`🔔 ${title}`);   // always show in-app too; the system banner may be suppressed while the app is open
-  _systemNotify(title, { body: stopName, tag: `sgbus-${stop}-${svc}` });
+  _systemNotify(title, { body: stopName, tag: `sgbus-arrive-${svc}-${stop}` });
 }
 
 // System notification. Android Chrome (and installed iPhone web apps) don't
@@ -2000,20 +2091,28 @@ async function _renderMimRoute(showEarlier = false) {
         Show on map
       </button>
     </div>
+    <p class="mim-route-tip">Tap 🔔 next to your stop to get a ping one stop before it.</p>
     ${i > 0 && !showEarlier ? `<button type="button" class="mim-route-earlier" data-route-earlier>Show ${i} earlier stop${i === 1 ? "" : "s"}</button>` : ""}
     <ol class="mim-route-list">
       ${d.stops.slice(from).map((x, k) => {
         const j = from + k, dist = km(x);
         const cls = j < i ? "past" : j === i ? "here" : "";
+        const ride = _rideFor(svc);
+        const bellOn = ride && ride.dest === x.code;
+        const bell = j > i && i >= 0
+          ? `<button type="button" class="mim-route-bell${bellOn ? " on" : ""}" data-ride-dest="${esc(x.code)}"
+               aria-pressed="${!!bellOn}" aria-label="${bellOn ? "Cancel the alert for" : "Ping me one stop before"} ${esc(_stopLabel(x))}">
+               <svg width="15" height="15" viewBox="0 0 24 24" fill="${bellOn ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+             </button>` : "";
         return `<li class="mim-route-stop ${cls}${j === d.stops.length - 1 ? " end" : ""}">
-          <button type="button" data-route-stop="${esc(x.code)}">
+          <button type="button" class="mim-route-main" data-route-stop="${esc(x.code)}">
             <span class="mim-route-dot"></span>
             <span class="mim-route-info">
               <span class="mim-route-name">${esc(_stopLabel(x))}${j === i ? ` <em>You're here</em>` : ""}</span>
               <span class="mim-route-meta">${esc(x.code)}${x.road ? ` · ${esc(x.road)}` : ""}</span>
             </span>
             ${dist != null && dist > 0 ? `<span class="mim-route-km">${dist.toFixed(1)} km</span>` : ""}
-          </button>
+          </button>${bell}
         </li>`;
       }).join("")}
     </ol>`;
@@ -2022,6 +2121,8 @@ $("mim-route").addEventListener("toggle", () => { if ($("mim-route").open) _rend
 $("mim-route-body").addEventListener("click", async (e) => {
   if (e.target.closest("[data-route-earlier]")) { _renderMimRoute(true); return; }
   if (e.target.closest("[data-route-map]")) { _showRouteOnMap(M.svc, M.stop); return; }
+  const bell = e.target.closest("[data-ride-dest]");
+  if (bell) { _toggleRide(M.svc, M.stop, bell.dataset.rideDest); return; }
   const b = e.target.closest("[data-route-stop]");
   if (b && b.dataset.routeStop !== M.stop) { closeMim(); loadStop(b.dataset.routeStop); }
 });
@@ -2094,6 +2195,124 @@ function _clearRouteOnMap() {
   const chip = $("route-chip");
   if (chip) hide(chip);
 }
+
+// ── "Ping me one stop before my stop" (riding alerts) ─────
+// While riding, get a heads-up when the bus reaches the stop before yours.
+// The server follows the bus itself (LTA's live bus positions) and pushes the
+// ping, so it works with the app closed; while the app is open the phone's
+// GPS can trigger it too. One per bus service.
+const RIDES_KEY = "sgbus_rides";
+S.rides = readJSON(RIDES_KEY, []).filter((r) => Date.now() - r.at < 3 * 3600e3);
+const _saveRides = () => writeJSON(RIDES_KEY, S.rides);
+const _rideFor = (svc) => S.rides.find((r) => r.svc === svc);
+function _ll(code) { const x = _loadStopsCache().find((s) => s.bus_stop_code === code); return x?.latitude != null ? [x.latitude, x.longitude] : null; }
+function _mDist(a, b) {
+  if (!a || !b) return Infinity;
+  const r = Math.PI / 180, dp = (b[0] - a[0]) * r, dl = (b[1] - a[1]) * r;
+  const h = Math.sin(dp / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dl / 2) ** 2;
+  return 6371000 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+async function _toggleRide(svc, board, dest) {
+  const cur = _rideFor(svc);
+  if (cur && cur.dest === dest) { _endRide(cur, true); toast("Stop alert cancelled"); _renderMimRoute(); return; }
+  let data;
+  try { data = await _routeData(svc); } catch (e) { toast(`Route not available: ${e.message}`); return; }
+  const { d } = _routeDirFor(data, board);
+  const j = d.stops.findIndex((x) => x.code === dest);
+  if (j < 1) return;
+  const prev = d.stops[j - 1], destStop = d.stops[j];
+  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+  const go = async (onBoard) => {
+    if (cur) _endRide(cur, true);
+    const ride = { svc, board, dest, destName: _stopLabel(destStop), prev: prev.code, onBoard, at: Date.now(), moved: onBoard };
+    const body = { kind: "alight", service_no: svc, stop: prev.code, board_stop: board, dest_stop: dest, stop_name: ride.destName };
+    if (onBoard) {
+      const pos = await new Promise((res) => navigator.geolocation
+        ? navigator.geolocation.getCurrentPosition((p) => res(p.coords), () => res(null), { enableHighAccuracy: true, timeout: 6000, maximumAge: 20000 })
+        : res(null));
+      if (pos) { body.rider_lat = pos.latitude; body.rider_lng = pos.longitude; }
+    } else {
+      // The bus you'll catch: the one picked in this sheet, else the next one due.
+      body.skip_until = M.target || M.buses?.find((b) => secsUntil(parseUTC(b.api_arrival)) > -30)?.api_arrival || null;
+    }
+    S.rides.push(ride); _saveRides();
+    _renderMimRoute(); _renderRideChip(); _rideWatch();
+    const id = await _pushCreate(body);
+    if (!S.rides.includes(ride)) { _pushCancel(id); return; }
+    ride.pushId = id; _saveRides();
+    toast(id ? `You'll be pinged one stop before ${ride.destName}, even with the app closed`
+      : `Alert set for ${ride.destName}. Keep the app open (with location on) to get it`);
+  };
+  showConfirm(`Ping you one stop before <b>${esc(_stopLabel(destStop))}</b>.<br>Are you on bus ${esc(svc)} yet?`,
+    "Not yet, catching it", () => go(false), { cancelLabel: "I'm on it", onCancel: () => go(true) });
+}
+
+function _endRide(ride, cancelPush) {
+  if (cancelPush) _pushCancel(ride.pushId);
+  S.rides = S.rides.filter((r) => r !== ride); _saveRides();
+  _renderRideChip(); _rideWatch();
+}
+
+function _fireRide(ride) {
+  try { navigator.vibrate?.([300, 120, 300, 120, 300]); } catch {}
+  const title = "Your stop is next";
+  const body = `Get ready to get off bus ${ride.svc} at ${ride.destName}`;
+  toast(`🔔 ${title}: ${ride.destName}`);
+  _systemNotify(title, { body, tag: `sgbus-alight-${ride.svc}-${ride.prev}`, vibrate: [300, 120, 300, 120, 300] });
+  _endRide(ride, true);   // the app caught it; call off the server push
+  if (M.open) _renderMimRoute();
+}
+
+// While the app is open, the phone's own position can trigger the ping:
+// once you've left the boarding stop, being near the stop before yours (or
+// already past it) counts. The server push covers the app-closed case.
+let _rideWatchId = null;
+function _rideWatch() {
+  const need = S.rides.length && !document.hidden && navigator.geolocation;
+  if (need && _rideWatchId === null) {
+    _rideWatchId = navigator.geolocation.watchPosition(({ coords }) => {
+      const me = [coords.latitude, coords.longitude];
+      for (const r of [...S.rides]) {
+        const board = _ll(r.board), prev = _ll(r.prev), dest = _ll(r.dest);
+        if (!prev || !dest) continue;
+        if (!r.moved && _mDist(me, board) > 250) { r.moved = true; _saveRides(); }
+        if (!r.moved) continue;
+        if (_mDist(me, prev) <= 150 || _mDist(me, dest) < _mDist(prev, dest) - 40) _fireRide(r);
+      }
+    }, () => {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+  } else if (!need && _rideWatchId !== null) {
+    navigator.geolocation.clearWatch(_rideWatchId); _rideWatchId = null;
+  }
+}
+document.addEventListener("visibilitychange", _rideWatch);
+
+// Chip on the Bus map while a stop alert is set, with × to cancel.
+function _renderRideChip() {
+  const wrap = $("view-arrivals").querySelector(".arr-search-wrap");
+  let chip = $("ride-chip");
+  if (!S.rides.length) { chip?.classList.add("hidden"); return; }
+  if (!chip) {
+    chip = document.createElement("div");
+    chip.id = "ride-chip"; chip.className = "route-chip ride-chip";
+    wrap.appendChild(chip);
+    chip.addEventListener("click", (e) => {
+      const x = e.target.closest("[data-ride-cancel]");
+      const r = x && S.rides.find((q) => q.svc === x.dataset.rideCancel);
+      if (r) { _endRide(r, true); toast("Stop alert cancelled"); if (M.open) _renderMimRoute(); }
+    });
+  }
+  const r = S.rides[S.rides.length - 1];
+  chip.innerHTML = `<span class="route-chip-badge">🔔 ${esc(r.svc)}</span>
+    <span class="route-chip-txt">ping before ${esc(r.destName)}</span>
+    <button type="button" class="route-chip-x" data-ride-cancel="${esc(r.svc)}" aria-label="Cancel stop alert">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>`;
+  chip.classList.remove("hidden");
+}
+// Expire stale ones (the server drops them after 3 h too) and restore on load.
+setInterval(() => { S.rides.filter((r) => Date.now() - r.at > 3 * 3600e3).forEach((r) => _endRide(r, true)); }, 60e3);
+setTimeout(() => { _renderRideChip(); _rideWatch(); }, 0);
 
 function closeMim() {
   M.open = false;

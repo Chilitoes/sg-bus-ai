@@ -719,8 +719,9 @@ th.num, td.num { text-align: right; }
   left: 50%; transform: translateX(-50%); z-index: 1200;
   background: var(--ink); color: var(--bg);
   font-size: .8rem; font-weight: 500;
-  border-radius: 999px; padding: .55rem 1.1rem;
-  white-space: nowrap;
+  border-radius: 18px; padding: .55rem 1.1rem;
+  width: max-content; max-width: min(92vw, 460px);
+  text-align: center; line-height: 1.4;
   box-shadow: var(--shadow);
   animation: toastIn .2s ease;
 }
@@ -2895,19 +2896,21 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
   font: inherit; font-size: .76rem; font-weight: 600; cursor: pointer;
 }
 .mim-route-list { list-style: none; margin: 0; padding: 0; }
-.mim-route-stop button {
+.mim-route-stop { display: flex; align-items: center; gap: .25rem; }
+.mim-route-stop .mim-route-main {
+  flex: 1; min-width: 0;
   position: relative; display: flex; align-items: center; gap: .7rem; width: 100%;
   padding: .42rem .2rem .42rem 0; border: none; background: none; text-align: left;
   font: inherit; color: var(--ink); cursor: pointer; border-radius: 8px;
 }
-.mim-route-stop button:active { background: var(--surface-2); }
+.mim-route-stop .mim-route-main:active { background: var(--surface-2); }
 /* timeline: a vertical line through every dot */
-.mim-route-stop button::before {
+.mim-route-stop .mim-route-main::before {
   content: ""; position: absolute; left: 6px; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: .55;
 }
-.mim-route-stop:first-child button::before { top: 50%; }
-.mim-route-stop.end button::before { bottom: 50%; }
-.mim-route-stop.past button::before { background: var(--line); opacity: 1; }
+.mim-route-stop:first-child .mim-route-main::before { top: 50%; }
+.mim-route-stop.end .mim-route-main::before { bottom: 50%; }
+.mim-route-stop.past .mim-route-main::before { background: var(--line); opacity: 1; }
 .mim-route-dot {
   position: relative; z-index: 1; flex-shrink: 0; width: 14px; height: 14px; border-radius: 50%;
   background: var(--surface); border: 2.5px solid var(--accent);
@@ -2939,3 +2942,13 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
   flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; border: none;
   background: var(--surface-2); color: var(--ink-2); display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
+
+/* Riding alert: bell beside each stop ahead */
+.mim-route-tip { font-size: .72rem; color: var(--ink-3); margin: -.2rem 0 .5rem; }
+.mim-route-bell {
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-3);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.mim-route-bell.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.ride-chip { margin-top: .35rem; }

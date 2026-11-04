@@ -28,6 +28,7 @@ from api_routes import router
 from auth_routes import router as auth_router, hash_password, verify_password
 from carpark_routes import router as carpark_router
 from mrt_routes import router as mrt_router
+from push_routes import push_watcher, router as push_router
 from config import DEFAULT_MONITORED_STOPS
 from data_collector import start_data_collection
 from database import init_db, SessionLocal, User
@@ -85,12 +86,13 @@ async def lifespan(app: FastAPI):
     logger.info("Starting background data collector …")
     collector_task = asyncio.create_task(start_data_collection())
     warmer_task = asyncio.create_task(_admin_cache_warmer())
+    push_task = asyncio.create_task(push_watcher())
 
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
     logger.info("Shutting down …")
-    for task in (collector_task, warmer_task):
+    for task in (collector_task, warmer_task, push_task):
         task.cancel()
         try:
             await task
@@ -169,6 +171,7 @@ app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(carpark_router, prefix="/api")
 app.include_router(mrt_router, prefix="/api")
+app.include_router(push_router, prefix="/api")
 
 # Serve the React/HTML frontend.
 # Must be mounted AFTER the API router so "/api/*" routes take priority.

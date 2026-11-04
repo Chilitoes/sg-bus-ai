@@ -24,3 +24,6 @@ wait_and_start.sh
 
 # macOS
 .DS_Store
+
+# Web Push signing key (generated on first start; keep private)
+backend/vapid_private.pem

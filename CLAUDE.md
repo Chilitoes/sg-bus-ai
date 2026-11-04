@@ -22,6 +22,16 @@ SSH into the Linux machine and run:
 cd ~/sg-bus-ai && git pull origin main && sudo systemctl restart sg-bus-ai
 ```
 
+If `requirements.txt` changed, install first:
+
+```bash
+cd ~/sg-bus-ai && git pull origin main && .venv/bin/pip install -r requirements.txt && sudo systemctl restart sg-bus-ai
+```
+
+Web Push (bus alerts with the app closed, `backend/push_routes.py`) generates its
+signing key on first start at `backend/vapid_private.pem` (gitignored). Keep that
+file: replacing it invalidates every phone's push subscription.
+
 ### Useful commands
 
 | Command | Purpose |

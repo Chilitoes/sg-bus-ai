@@ -6,7 +6,7 @@
    3 s on a slow connection. (An old cache-first strategy for unversioned
    files served stale app.js after a version bump — don't do that.) */
 
-const CACHE = "sgbus-shell-v1.2.39";
+const CACHE = "sgbus-shell-v1.2.40";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -89,4 +89,20 @@ self.addEventListener("notificationclick", (e) => {
       return win ? win.focus() : self.clients.openWindow("./");
     })
   );
+});
+
+// Web Push from the server (bus arrival / "your stop is next"). Delivered
+// even when the app is closed. The tag matches the in-app notification for
+// the same alert, so if both fire they replace each other instead of stacking.
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { title: e.data?.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || "SG Bus", {
+    body: d.body || "",
+    tag: d.tag || "sgbus",
+    renotify: true,
+    icon: "icons/icon-192.png",
+    badge: "icons/icon-192.png",
+    vibrate: [300, 120, 300],
+  }));
 });
