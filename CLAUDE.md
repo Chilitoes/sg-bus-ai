@@ -59,6 +59,17 @@ When bumping a version:
 3. Update `?v=` query strings on `<link>` and `<script>` tags in `bus/index.html`
 4. Mirror changes to `sg-bus-ai/frontend/` if they affect the backend-served copy
 
+## Safe fallback version
+
+Branch **`safe-v1.2.40`** in both repos is the known-good version from before the
+MapLibre 3D map migration (bus app v1.2.40: Leaflet maps, push alerts working).
+Don't delete or move it. To roll back:
+
+- Frontend: in `main-portfolio`, `git checkout safe-v1.2.40 -- bus/`, bump the version
+  past the current one (see the checklist below) so phones refresh, commit, push `main`.
+- Backend: in `sg-bus-ai`, `git checkout safe-v1.2.40 -- backend/ frontend/ requirements.txt`,
+  commit, push `main`, then redeploy as above.
+
 ## Development branch
 
 Active feature branch: `claude/bus-portfolio-page-3yo82i` (both repos)
