@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.36";
+const APP_VERSION = "1.2.37";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1833,6 +1833,10 @@ async function openMim(svc) {
     && S.lastArrivals.data.services?.find((x) => x.service_no === svc);
   if (cached) _mimSetSvc(cached);
   $("mim-more").open = false;
+  $("mim-route").open = false;
+  $("mim-route-body").innerHTML = "";
+  $("mim-route-sum").textContent = "";
+  _routeSummary(svc, S.stop);
   M.open = true;
   $("mim-badge").textContent = svc;
   $("mim-sub").textContent = M.stopName;
@@ -1844,6 +1848,155 @@ async function openMim(svc) {
   _mimStartLoops();
   _mimRender();
   _mimRefresh();
+}
+
+// ── Bus route (inside the bus sheet) ──────────────────────
+// The service's stops in order, starting from the stop you're at, with the
+// option to draw the route on the map. Uses /api/routes/{svc} (LTA BusRoutes)
+// and the cached stop list for coordinates.
+const _routeCache = new Map();   // svc → Promise<route data>
+function _routeData(svc) {
+  if (!_routeCache.has(svc)) {
+    _routeCache.set(svc, api(`/api/routes/${encodeURIComponent(svc)}`)
+      .catch((e) => { _routeCache.delete(svc); throw e; }));
+  }
+  return _routeCache.get(svc);
+}
+// The direction this stop is served in. A stop can appear in both directions
+// (or twice on a loop); prefer the one where it isn't the final stop.
+function _routeDirFor(data, stop) {
+  let best = null;
+  for (const d of data.directions) {
+    const i = d.stops.findIndex((x) => x.code === stop);
+    if (i < 0) continue;
+    if (!best || (best.i === best.d.stops.length - 1 && i < d.stops.length - 1)) best = { d, i };
+  }
+  return best || { d: data.directions[0], i: -1 };
+}
+const _stopLabel = (x) => x?.name || x?.code || "";
+
+async function _routeSummary(svc, stop) {
+  try {
+    const { d, i } = _routeDirFor(await _routeData(svc), stop);
+    if (M.svc !== svc || M.stop !== stop) return;
+    const left = i >= 0 ? d.stops.length - 1 - i : d.stops.length;
+    $("mim-route-sum").textContent = `· to ${_stopLabel(d.stops.at(-1))}${i >= 0 ? `, ${left} stop${left === 1 ? "" : "s"}` : ""}`;
+  } catch { /* summary is optional */ }
+}
+
+async function _renderMimRoute(showEarlier = false) {
+  const body = $("mim-route-body");
+  const svc = M.svc, stop = M.stop;
+  if (!body.innerHTML) body.innerHTML = `<p class="mim-route-msg">Loading route…</p>`;
+  let data;
+  try { data = await _routeData(svc); }
+  catch (e) { if (M.svc === svc) body.innerHTML = `<p class="mim-route-msg">Route not available: ${esc(e.message)}</p>`; return; }
+  if (M.svc !== svc || M.stop !== stop) return;
+  const { d, i } = _routeDirFor(data, stop);
+  const here = i >= 0 ? d.stops[i] : null;
+  const from = showEarlier || i < 0 ? 0 : i;
+  const km = (x) => (here && x.distance_km != null && here.distance_km != null) ? x.distance_km - here.distance_km : null;
+  body.innerHTML = `
+    <div class="mim-route-top">
+      <span>Towards <b>${esc(_stopLabel(d.stops.at(-1)))}</b></span>
+      <button type="button" class="pillbtn mim-route-map" data-route-map>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.1 4.5 9.9 2.6a2 2 0 0 0-1.6 0L3.6 4.7A1 1 0 0 0 3 5.6v14.1a1 1 0 0 0 1.4.9l3.9-1.8a2 2 0 0 1 1.6 0l4.2 1.9a2 2 0 0 0 1.6 0l4.7-2.1a1 1 0 0 0 .6-.9V3.6a1 1 0 0 0-1.4-.9l-3.9 1.8a2 2 0 0 1-1.6 0Z"/></svg>
+        Show on map
+      </button>
+    </div>
+    ${i > 0 && !showEarlier ? `<button type="button" class="mim-route-earlier" data-route-earlier>Show ${i} earlier stop${i === 1 ? "" : "s"}</button>` : ""}
+    <ol class="mim-route-list">
+      ${d.stops.slice(from).map((x, k) => {
+        const j = from + k, dist = km(x);
+        const cls = j < i ? "past" : j === i ? "here" : "";
+        return `<li class="mim-route-stop ${cls}${j === d.stops.length - 1 ? " end" : ""}">
+          <button type="button" data-route-stop="${esc(x.code)}">
+            <span class="mim-route-dot"></span>
+            <span class="mim-route-info">
+              <span class="mim-route-name">${esc(_stopLabel(x))}${j === i ? ` <em>You're here</em>` : ""}</span>
+              <span class="mim-route-meta">${esc(x.code)}${x.road ? ` · ${esc(x.road)}` : ""}</span>
+            </span>
+            ${dist != null && dist > 0 ? `<span class="mim-route-km">${dist.toFixed(1)} km</span>` : ""}
+          </button>
+        </li>`;
+      }).join("")}
+    </ol>`;
+}
+$("mim-route").addEventListener("toggle", () => { if ($("mim-route").open) _renderMimRoute(); });
+$("mim-route-body").addEventListener("click", async (e) => {
+  if (e.target.closest("[data-route-earlier]")) { _renderMimRoute(true); return; }
+  if (e.target.closest("[data-route-map]")) { _showRouteOnMap(M.svc, M.stop); return; }
+  const b = e.target.closest("[data-route-stop]");
+  if (b && b.dataset.routeStop !== M.stop) { closeMim(); loadStop(b.dataset.routeStop); }
+});
+
+// Draw the route on the Bus map: the part still ahead in the accent colour,
+// the part already passed faded, with a dot per stop (tap one to open it).
+let _routeLayer = null;
+async function _showRouteOnMap(svc, stop) {
+  let data;
+  try { data = await _routeData(svc); } catch (e) { toast(`Route not available: ${e.message}`); return; }
+  await ensureStopsCache().catch(() => {});
+  const pos = new Map(_loadStopsCache().map((x) => [x.bus_stop_code, [x.latitude, x.longitude]]));
+  const { d, i } = _routeDirFor(data, stop);
+  const pts = d.stops.map((x) => ({ ...x, ll: pos.get(x.code) })).filter((x) => x.ll && x.ll[0] != null);
+  if (pts.length < 2) { toast("No map data for this route yet"); return; }
+  closeMim();
+  switchView("arrivals");
+  if (!_arrMap) { toast("Map isn't ready yet"); return; }
+  _clearRouteOnMap();
+  const cut = Math.max(0, pts.findIndex((x) => x.code === stop));
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#e11d48";
+  _routeLayer = L.layerGroup().addTo(_arrMap);
+  if (cut > 0) L.polyline(pts.slice(0, cut + 1).map((x) => x.ll), { color: accent, weight: 4, opacity: .3, dashArray: "4 7" }).addTo(_routeLayer);
+  const ahead = pts.slice(cut);
+  L.polyline(ahead.map((x) => x.ll), { color: "#fff", weight: 8, opacity: .85 }).addTo(_routeLayer);
+  L.polyline(ahead.map((x) => x.ll), { color: accent, weight: 5 }).addTo(_routeLayer);
+  pts.forEach((x, k) => {
+    const isHere = k === cut && x.code === stop, isEnd = k === pts.length - 1;
+    L.circleMarker(x.ll, {
+      radius: isHere ? 8 : isEnd ? 6 : 3.5, weight: isHere ? 3 : 2,
+      color: k < cut ? "rgba(120,120,120,.6)" : accent, fillColor: isHere ? accent : "#fff", fillOpacity: 1,
+    }).bindTooltip(`${esc(_stopLabel(x))} · ${esc(x.code)}`, { direction: "top", offset: [0, -6] })
+      .on("click", () => loadStop(x.code))
+      .addTo(_routeLayer);
+  });
+  // Chip under the mode switch: which route is shown, and × to clear it.
+  const wrap = $("view-arrivals").querySelector(".arr-search-wrap");
+  let chip = $("route-chip");
+  if (!chip) {
+    chip = document.createElement("div");
+    chip.id = "route-chip"; chip.className = "route-chip";
+    wrap.appendChild(chip);
+    chip.addEventListener("click", (e) => { if (e.target.closest("[data-route-clear]")) _clearRouteOnMap(); });
+  }
+  chip.innerHTML = `<span class="route-chip-badge">${esc(svc)}</span>
+    <span class="route-chip-txt">to ${esc(_stopLabel(d.stops.at(-1)))}</span>
+    <button type="button" class="route-chip-x" data-route-clear aria-label="Hide route">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>`;
+  show(chip);
+  _snapSheet("min");
+  setTimeout(() => {
+    _arrMap.invalidateSize();
+    const b = L.latLngBounds(ahead.map((x) => x.ll));
+    const sb = wrap.getBoundingClientRect(), sh = $("view-arrivals").querySelector(".arr-sheet").getBoundingClientRect();
+    const mc = _arrMap.getContainer().getBoundingClientRect();
+    const sideBySide = sh.right <= mc.left + 4;   // landscape side panel
+    // Use the sheet's target height, not its on-screen size: it may still be
+    // sliding down, and over-sized padding makes Leaflet zoom all the way in.
+    const sheetH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sheet-h")) || 0;
+    let top = sideBySide ? 24 : Math.max(24, sb.bottom - mc.top + 12);
+    let bottom = sideBySide ? 24 : Math.max(24, sheetH + 16);
+    const room = mc.height * 0.75;   // always leave a quarter of the map for the route
+    if (top + bottom > room) { const k = room / (top + bottom); top *= k; bottom *= k; }
+    _arrMap.fitBounds(b, { paddingTopLeft: [24, top], paddingBottomRight: [24, bottom], maxZoom: 16 });
+  }, 320);
+}
+function _clearRouteOnMap() {
+  if (_routeLayer) { _routeLayer.remove(); _routeLayer = null; }
+  const chip = $("route-chip");
+  if (chip) hide(chip);
 }
 
 function closeMim() {
