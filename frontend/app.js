@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.37";
+const APP_VERSION = "1.2.38";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -647,6 +647,7 @@ async function loadNotifications() {
 
     maybeShowNotifPopup(items);
   } catch { hide(_notifBell); }
+  maybeShowFeedbackPopup();
 }
 
 // ── New-notification popup ────────────────────────────────
@@ -671,6 +672,7 @@ function _notifParts(body) {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden || Date.now() - _lastNotifFetch < 60_000) return;
   _notifPopupAttempted = false;
+  _fbPopupAttempted = false;
   loadNotifications();
 });
 
@@ -751,11 +753,94 @@ function dismissNotifPopup() {
     _pendingPopupSeen = null;
   }
   el.classList.remove("show");
-  setTimeout(() => hide(el), 280);
+  setTimeout(() => { hide(el); maybeShowFeedbackPopup(); }, 280);
 }
 
 $("notif-popup-ok")?.addEventListener("click", dismissNotifPopup);
 $("notif-popup")?.querySelector(".notif-popup-backdrop")?.addEventListener("click", dismissNotifPopup);
+
+// ── New-feedback popup (admin only) ──────────────────────
+// When users have sent feedback the admin hasn't seen, pop it up on app open
+// (and on return to the foreground, via loadNotifications). The highest
+// feedback id seen is saved on dismiss, so each entry pops once per device.
+// A device that has never checked only pops the last 7 days, not the backlog.
+const FB_POPUP_KEY = "sgbus_fb_popup_id";
+let _fbPopupAttempted = false;
+let _fbPendingMaxId = 0;
+
+async function maybeShowFeedbackPopup() {
+  if (!isAdmin() || _fbPopupAttempted) return;
+  const el = $("fb-popup");
+  if (!el || !el.classList.contains("hidden")) return;
+  // One dialog at a time: wait for the notification popup / install guide;
+  // dismissNotifPopup() calls back in here once it closes.
+  if (_isOpen("notif-popup") || _isOpen("a2hs-guide")) return;
+  _fbPopupAttempted = true;
+  let items;
+  try { items = (await api("/api/feedback?limit=50")).items || []; } catch { return; }
+  let seen = null;
+  try { seen = localStorage.getItem(FB_POPUP_KEY); } catch {}
+  const weekAgo = Date.now() - 7 * 864e5;
+  const fresh = items.filter((f) => seen !== null
+    ? Number(f.id) > parseInt(seen, 10)
+    : new Date(f.submitted_at + "Z").getTime() > weekAgo);
+  if (!fresh.length || !isAdmin() || _isOpen("notif-popup")) return;
+
+  const fmt = (iso) => new Date(iso + "Z").toLocaleString("en-SG", {
+    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+    hour12: false, timeZone: "Asia/Singapore",
+  });
+  const stars = (n) => n
+    ? `<span class="fb-admin-stars">${"★".repeat(n)}<span class="fb-admin-empty-stars">${"★".repeat(5 - n)}</span></span>`
+    : "";
+  const shown = fresh.slice(0, 3);
+  $("fb-popup-title").textContent = fresh.length === 1 ? "New feedback" : `${fresh.length} new feedback`;
+  $("fb-popup-list").innerHTML = shown.map((f) => `
+    <div class="fb-popup-item">
+      <div class="fb-popup-head">
+        ${f.username ? `<strong>${esc(f.username)}</strong>` : `<span>Anonymous</span>`}
+        ${stars(f.rating)}
+        <span>· ${esc(fmt(f.submitted_at))}</span>
+      </div>
+      ${f.message ? `<div class="fb-popup-msg">${esc(f.message)}</div>` : ""}
+    </div>`).join("");
+  const more = $("fb-popup-more");
+  more.textContent = fresh.length > shown.length ? `+${fresh.length - shown.length} more` : "";
+  more.classList.toggle("hidden", fresh.length <= shown.length);
+  _fbPendingMaxId = Math.max(...items.map((f) => Number(f.id)));
+  show(el);
+  requestAnimationFrame(() => {
+    el.classList.add("show");
+    $("fb-popup-view")?.focus({ preventScroll: true });
+    el.querySelector(".notif-popup-card").scrollTop = 0;
+  });
+}
+
+function dismissFeedbackPopup() {
+  const el = $("fb-popup");
+  if (!el) return;
+  if (_fbPendingMaxId) {
+    try { localStorage.setItem(FB_POPUP_KEY, String(_fbPendingMaxId)); } catch {}
+    _fbPendingMaxId = 0;
+  }
+  el.classList.remove("show");
+  setTimeout(() => hide(el), 280);
+}
+
+$("fb-popup-later")?.addEventListener("click", dismissFeedbackPopup);
+$("fb-popup")?.querySelector(".notif-popup-backdrop")?.addEventListener("click", dismissFeedbackPopup);
+$("fb-popup-view")?.addEventListener("click", () => {
+  dismissFeedbackPopup();
+  switchView("data");
+  // the Data tab renders the feedback block asynchronously; scroll once it shows
+  const t0 = Date.now();
+  const scrollWhenReady = () => {
+    const block = $("feedback-admin-block");
+    if (block && !block.classList.contains("hidden")) block.scrollIntoView({ behavior: "smooth", block: "start" });
+    else if (Date.now() - t0 < 8000) setTimeout(scrollWhenReady, 200);
+  };
+  scrollWhenReady();
+});
 
 // Escape closes the topmost open overlay — none of the dialogs handled the
 // keyboard at all, leaving keyboard users stuck behind aria-modal surfaces.
@@ -763,6 +848,7 @@ const _isOpen = (id) => { const el = $(id); return el && !el.classList.contains(
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (_isOpen("notif-popup"))        { dismissNotifPopup(); }
+  else if (_isOpen("fb-popup"))      { dismissFeedbackPopup(); }
   else if (_isOpen("a2hs-guide"))    { dismissInstallGuide(); }
   else if (_isOpen("feedback-overlay")) { $("feedback-close")?.click(); }
   else if (_isOpen("stop-picker-modal")) { closeStopPicker(); }
@@ -6274,8 +6360,7 @@ function maybeShowInstallGuide() {
   setTimeout(() => {
     // One thing at a time: if a notification popup is up, don't stack the guide.
     // Leave the flag unset so it gets its turn on a future visit.
-    const np = $("notif-popup");
-    if (np && !np.classList.contains("hidden")) return;
+    if (_isOpen("notif-popup") || _isOpen("fb-popup")) return;
     openInstallGuide(force === "android" || force === "ios" ? force : null);
     localStorage.setItem(A2HS_KEY, "1");
   }, 1600);

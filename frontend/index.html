@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.2.37" />
+  <link rel="stylesheet" href="styles.css?v=1.2.38" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" />
@@ -77,6 +77,19 @@
     <div class="notif-popup-time" id="notif-popup-time"></div>
     <div class="notif-popup-more hidden" id="notif-popup-more"></div>
     <button id="notif-popup-ok" class="notif-popup-ok" type="button">Got it</button>
+  </div>
+</div>
+
+<!-- New-feedback popup — admin only -->
+<div id="fb-popup" class="notif-popup hidden" role="dialog" aria-modal="true" aria-labelledby="fb-popup-title">
+  <div class="notif-popup-backdrop"></div>
+  <div class="notif-popup-card">
+    <div class="notif-popup-icon">💬</div>
+    <div class="notif-popup-title" id="fb-popup-title">New feedback</div>
+    <div class="fb-popup-list" id="fb-popup-list"></div>
+    <div class="notif-popup-more hidden" id="fb-popup-more"></div>
+    <button id="fb-popup-view" class="notif-popup-ok" type="button">View all feedback</button>
+    <button id="fb-popup-later" class="feedback-later fb-popup-later" type="button">Later</button>
   </div>
 </div>
 
@@ -862,7 +875,7 @@
           </button>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">1.2.37</span>
+            <span class="stg-row-val" id="stg-version-val">1.2.38</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -1170,6 +1183,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"></script>
-<script src="app.js?v=1.2.37"></script>
+<script src="app.js?v=1.2.38"></script>
 </body>
 </html>

@@ -2489,6 +2489,21 @@ body.maintenance-open { overflow: hidden; }
   .notif-popup-card { transition: none; }
 }
 
+/* New-feedback popup (admin) reuses the notification popup card */
+.fb-popup-list { display: flex; flex-direction: column; gap: .55rem; margin-top: .8rem; text-align: left; }
+.fb-popup-item {
+  background: var(--surface-2, var(--bg)); border: 1px solid var(--line);
+  border-radius: 12px; padding: .6rem .75rem;
+}
+.fb-popup-head { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; font-size: .78rem; color: var(--ink-3); }
+.fb-popup-head strong { color: var(--ink); font-weight: 600; }
+.fb-popup-msg {
+  font-size: .86rem; color: var(--ink); line-height: 1.4; margin-top: .3rem;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.fb-popup-later { display: block; width: 100%; margin-top: .5rem; }
+
 /* ── Carpark tab ─────────────────────────────────────────
    Reuses the Arrivals map/sheet/list classes; these are the carpark-only
    pieces. Colours by available car lots: ok >= 10, low 1–9, full 0. */
