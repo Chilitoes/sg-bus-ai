@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.38";
+const APP_VERSION = "1.2.39";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1786,16 +1786,26 @@ function _fireArrivalAlert(stop, svc, secs) {
   const when = secs < DUE_SECS ? "now" : `in ~${Math.max(1, Math.round(secs / 60))} min`;
   const title = `Bus ${svc} arriving ${when}`;
   try { navigator.vibrate?.([200, 100, 200]); } catch {}
-  if ("Notification" in window && Notification.permission === "granted") {
-    try {
-      const n = new Notification(title, {
-        body: stopName, tag: `sgbus-${stop}-${svc}`, icon: "icons/icon-192.png",
-      });
-      n.onclick = () => { window.focus(); n.close(); };
-      return;
-    } catch { /* fall through to toast */ }
-  }
-  toast(`🔔 ${title}`);
+  toast(`🔔 ${title}`);   // always show in-app too; the system banner may be suppressed while the app is open
+  _systemNotify(title, { body: stopName, tag: `sgbus-${stop}-${svc}` });
+}
+
+// System notification. Android Chrome (and installed iPhone web apps) don't
+// allow `new Notification()` from a page; it throws "Illegal constructor". They
+// require the service worker's showNotification(), so try that first and only
+// fall back to the constructor (desktop browsers).
+async function _systemNotify(title, opts) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return false;
+  const o = { icon: "icons/icon-192.png", badge: "icons/icon-192.png", renotify: true, vibrate: [200, 100, 200], ...opts };
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (reg) { await reg.showNotification(title, o); return true; }
+  } catch { /* fall through */ }
+  try {
+    const n = new Notification(title, o);
+    n.onclick = () => { window.focus(); n.close(); };
+    return true;
+  } catch { return false; }
 }
 
 // ── "Can I make it?" ──────────────────────────────────────
@@ -2377,15 +2387,8 @@ function _mimCheckNotify() {
     const title = `Leave now for bus ${n.svc}`;
     const body = `Arrives ${fmtClock(t.at)} at ${M.stopName}`;
     try { navigator.vibrate?.([300, 120, 300]); } catch {}
-    let shown = false;
-    if ("Notification" in window && Notification.permission === "granted") {
-      try {
-        const nn = new Notification(title, { body, tag: `sgbus-leave-${n.stop}-${n.svc}`, icon: "icons/icon-192.png" });
-        nn.onclick = () => { window.focus(); nn.close(); if (!M.open) openMim(n.svc); };
-        shown = true;
-      } catch {}
-    }
-    if (!shown || !document.hidden) toast(`🚶 ${title}`);
+    toast(`🚶 ${title}`);
+    _systemNotify(title, { body, tag: `sgbus-leave-${n.stop}-${n.svc}`, vibrate: [300, 120, 300] });
     setTimeout(() => {
       if (M.notify === n) { M.notify = null; if (!M.open) _mimStopAll(); _mimRenderPill(); if (M.open) _mimRender(); }
     }, 5000);

@@ -6,7 +6,7 @@
    3 s on a slow connection. (An old cache-first strategy for unversioned
    files served stale app.js after a version bump — don't do that.) */
 
-const CACHE = "sgbus-shell-v1.2.38";
+const CACHE = "sgbus-shell-v1.2.39";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -77,4 +77,16 @@ self.addEventListener("fetch", (e) => {
     return;
   }
   e.respondWith(network.catch(cached));
+});
+
+// Tapping a bus-arrival / leave-time notification brings the app forward
+// (or opens it if it was closed).
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      const win = list.find((c) => c.url.includes("/bus/"));
+      return win ? win.focus() : self.clients.openWindow("./");
+    })
+  );
 });
