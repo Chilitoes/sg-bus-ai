@@ -112,6 +112,15 @@ def _parse_lta_dt(iso_str: str | None) -> datetime | None:
         return None
 
 
+def _lta_coord(v) -> float | None:
+    """LTA sends coordinates as strings, with "0" (or "") when unknown."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return round(f, 6) if f else None
+
+
 def _sgt_iso(dt: datetime | None) -> str | None:
     """UTC-naive datetime -> Singapore-time (UTC+8) ISO string."""
     return (dt + timedelta(hours=8)).isoformat() if dt else None
@@ -366,6 +375,10 @@ async def get_arrivals(
                 "ai_arrival_sgt":     _sgt_iso(ai_arrival),
                 "ai_wait_min":        _fmt_minutes(ai_arrival),
                 "ai_adjustment_sec":  round(adjustment_sec),
+                # Live GPS position of this bus (LTA; null before it sets off or
+                # when LTA has none). Drives the 3D buses on the app's map.
+                "lat":                _lta_coord(bus.get("Latitude")),
+                "lng":                _lta_coord(bus.get("Longitude")),
             })
 
         if buses:

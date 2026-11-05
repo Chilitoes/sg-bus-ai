@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.41";
+const APP_VERSION = "1.2.42";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1621,6 +1621,7 @@ function renderArrivals(data) {
   }
   hide($("no-services"));
   S.lastArrivals = { stop: S.stop, data };
+  window.LiveBuses?.update(S.stop, data);   // 3D buses on the map + timeline strip
   $("rows").innerHTML = data.services.map(svcCard).join("");
   // Keep the alert watcher's ETA store fresh from every render, so armed
   // alerts keep tracking even after the user navigates away from this stop.
@@ -4767,6 +4768,7 @@ $("stop-card").addEventListener("click", () => {
 });
 
 $("arr-back-btn").addEventListener("click", () => {
+  window.LiveBuses?.clear();
   clearInterval(S.refreshTmr);
   clearInterval(S.tickTmr);
   S.stop = null;
@@ -4982,7 +4984,10 @@ function _mapFocus(m, viewId, latlng) {
   const overlapX = Math.min(sh.right, c.right) - Math.max(sh.left, c.left);
   const covered = overlapX > c.width / 2 && sh.top > c.top;
   if (m instanceof GLMap) {
-    m.focusIn(latlng, covered ? { top: Math.max(0, sb.bottom - c.top), bottom: Math.max(0, c.bottom - sh.top) } : {});
+    // Use the sheet's target height (--sheet-h), not its on-screen top: it may
+    // still be sliding after a snap.
+    const sheetH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sheet-h")) || (c.bottom - sh.top);
+    m.focusIn(latlng, covered ? { top: Math.max(0, sb.bottom - c.top), bottom: Math.max(0, Math.min(c.height - 120, c.bottom - (innerHeight - sheetH))) } : {});
     return;
   }
   let y = c.height / 2;
