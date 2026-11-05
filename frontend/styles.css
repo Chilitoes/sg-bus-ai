@@ -3103,3 +3103,27 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
   border: 1px solid var(--glass-line); border-radius: 16px;
 }
 .stg-about-panel { margin: 0 0 .6rem; }
+
+/* "+N" opens every coming bus as tappable chips */
+.lb-more { cursor: pointer; font: inherit; font-weight: 700; font-size: .74rem; }
+.lb-more.on { color: var(--accent); }
+.lb-all { display: flex; flex-wrap: wrap; gap: .35rem; margin: .55rem .1rem .1rem; }
+.lb-chip2 {
+  display: inline-flex; align-items: center; gap: .35rem; padding: .22rem .5rem .22rem .25rem; border-radius: 999px; cursor: pointer;
+  background: var(--glass-strong); border: 1px solid var(--glass-line); color: var(--ink-2);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  font: 600 .74rem/1 system-ui, sans-serif;
+}
+.lb-chip2 b { background: #1f6f3a; color: #fff; border-radius: 999px; padding: .22rem .45rem; font-weight: 800; }
+.lb-chip2.arr b { background: var(--accent); }
+.lb-chip2.arr span { color: var(--accent); }
+.lb-chip2.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* "Show where this bus is" in the Can I make it? sheet */
+.mim-where {
+  display: flex; align-items: center; justify-content: center; gap: .45rem;
+  width: 100%; margin-top: .55rem; padding: .62rem; border-radius: 13px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
+  font: inherit; font-size: .84rem; font-weight: 600;
+}
+.mim-where svg { color: var(--accent); }

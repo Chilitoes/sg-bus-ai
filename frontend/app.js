@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.46";
+const APP_VERSION = "1.2.47";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -2317,6 +2317,17 @@ function _renderRideChip() {
 // Expire stale ones (the server drops them after 3 h too) and restore on load.
 setInterval(() => { S.rides.filter((r) => Date.now() - r.at > 3 * 3600e3).forEach((r) => _endRide(r, true)); }, 60e3);
 setTimeout(() => { _renderRideChip(); _rideWatch(); }, 0);
+
+// "Show where this bus is": close the sheet and fly to the bus picked in it
+// (live 3D bus on the map — see live-buses.js).
+$("mim-where")?.addEventListener("click", () => {
+  const iso = M.target || M.buses?.find((b) => secsUntil(parseUTC(b.api_arrival)) > -30)?.api_arrival;
+  const svc = M.svc;
+  closeMim();
+  setTimeout(() => {
+    if (!window.LiveBuses?.focusSvc(svc, iso)) toast(`Bus ${svc} isn't on the map yet — it shows once it's within 30 min`);
+  }, 300);
+});
 
 function closeMim() {
   M.open = false;

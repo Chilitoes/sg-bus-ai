@@ -256,7 +256,7 @@
 
   function clear(keepStrip = false) {
     LB.buses.forEach(dropBus);
-    LB.buses = []; LB.stop = null; LB.sel = null;
+    LB.buses = []; LB.stop = null; LB.sel = null; LB.expanded = false;
     clearInterval(LB.timer); LB.timer = null;
     if (!keepStrip) { const el = $("live-strip"); if (el) { el.innerHTML = ""; el.classList.add("hidden"); } }
   }
@@ -542,6 +542,7 @@
   function renderStrip(data) {
     const el = $("live-strip");
     if (!el) return;
+    if (data) LB.lastData = data; else data = LB.lastData;
     const now = Date.now();
     const items = [];
     for (const svc of data?.services || []) {
@@ -570,10 +571,18 @@
       html += `<button type="button" class="lb-plate${it.eta < 60 ? " arr" : ""}${it.id && it.id === LB.sel ? " sel" : ""}" style="--x:${x}"
         data-lb-id="${it.id ?? ""}" data-lb-svc="${esc(it.svc)}" aria-label="Bus ${esc(it.svc)}, ${it.eta < 60 ? "arriving" : Math.round(it.eta / 60) + " min"}${it.gps ? ", live position" : ""}. Show on map">${esc(it.svc)}</button>`;
     }
-    if (shown < items.length) html += `<span class="lb-more" style="--x:${1 - plusW}" title="More buses in the list below">+${items.length - shown}</span>`;
+    const more = items.length - shown;
+    if (more > 0 || LB.expanded) {
+      html += `<button type="button" class="lb-more${LB.expanded ? " on" : ""}" style="--x:${1 - plusW}" data-lb-more
+        aria-expanded="${!!LB.expanded}" aria-label="${LB.expanded ? "Show fewer buses" : `Show all ${items.length} buses`}">${LB.expanded ? "×" : `+${more}`}</button>`;
+    }
+    // Expanded: every bus due in the next 20 min, soonest first, as tappable
+    // chips — so the ones squeezed into "+N" can be found on the map too.
+    const all = LB.expanded ? `<div class="lb-all">${items.map((it) => `<button type="button" class="lb-chip2${it.eta < 60 ? " arr" : ""}${it.id && it.id === LB.sel ? " sel" : ""}"
+        data-lb-id="${it.id ?? ""}" data-lb-svc="${esc(it.svc)}"><b>${esc(it.svc)}</b><span>${it.eta < 60 ? "Arr" : Math.round(it.eta / 60) + " min"}</span></button>`).join("")}</div>` : "";
     el.innerHTML = `
       <div class="lb-track"><span class="lb-now"></span>${html}</div>
-      <div class="lb-ticks"><span style="--x:0">Now</span><span style="--x:${xAt(300)}">5</span><span style="--x:${xAt(600)}">10</span><span style="--x:1">20 min</span></div>`;
+      <div class="lb-ticks"><span style="--x:0">Now</span><span style="--x:${xAt(300)}">5</span><span style="--x:${xAt(600)}">10</span><span style="--x:1">20 min</span></div>${all}`;
     el.classList.remove("hidden");
   }
 
@@ -582,7 +591,7 @@
     if (!b || !b.pos || !_arrMap) return;
     LB.sel = id;
     const now = Date.now();
-    LB.buses.forEach((x) => x.chip?.setIcon(chipIcon(x, x.eta - (now - x.t0) / 1000)));
+    LB.buses.forEach((x) => { x.chip?.setIcon(chipIcon(x, x.eta - (now - x.t0) / 1000)); x.chip?.setZIndexOffset(x.id === id ? 1000 : 1); });
     const ll = fromXY(b.pos.x, b.pos.y, LB.ref);
     if (fromStrip) _snapSheet("min");
     setTimeout(() => {
@@ -592,12 +601,26 @@
     document.querySelectorAll(".lb-plate").forEach((p) => p.classList.toggle("sel", +p.dataset.lbId === id));
   }
 
+  // Show where a given bus is — from the "Can I make it?" sheet. Picks the
+  // live bus of `svc` whose arrival is closest to `iso` (the one selected there).
+  function focusSvc(svc, iso) {
+    const at = parseUTC(iso)?.getTime();
+    const now = Date.now();
+    const cands = LB.buses.filter((b) => b.svc === svc && b.pos);
+    if (!cands.length) return false;
+    const etaOf = (b) => b.eta - (now - b.t0) / 1000;
+    const b = at ? cands.sort((x, y) => Math.abs(now + etaOf(x) * 1000 - at) - Math.abs(now + etaOf(y) * 1000 - at))[0] : cands[0];
+    focusBus(b.id, true);
+    return true;
+  }
+
   document.addEventListener("click", (e) => {
-    const p = e.target.closest(".lb-plate");
+    if (e.target.closest("[data-lb-more]")) { LB.expanded = !LB.expanded; renderStrip(); return; }
+    const p = e.target.closest(".lb-plate, .lb-chip2");
     if (!p) return;
     if (p.dataset.lbId) focusBus(+p.dataset.lbId, true);
     else toast(`Bus ${p.dataset.lbSvc} isn't on the map yet`);
   });
 
-  window.LiveBuses = { update, clear, focusBus, _state: LB, _buildBus: buildBus, _signTexture: signTexture, _motion: { plan, sModel, step, estimateS } };
+  window.LiveBuses = { update, clear, focusBus, focusSvc, _state: LB, _buildBus: buildBus, _signTexture: signTexture, _motion: { plan, sModel, step, estimateS } };
 })();
