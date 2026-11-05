@@ -3138,3 +3138,28 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
 .lb-ticks span:first-child { transform: none; left: -1.3rem; }
 .lb-ticks span:last-child { transform: translateX(-100%); left: calc(100% + .3rem); }
 @media (prefers-reduced-motion: reduce) { .lb-plate { transition: none; } }
+
+/* ── Side rail (screens with a status column on the right, e.g. iPhone Duo).
+   Turned on by app.js only when iOS gives the app that column. ── */
+.stg-screen { font-size: .7rem; font-variant-numeric: tabular-nums; text-align: right; }
+:root.rail-right { --nav-h: 0px; --rail-w: env(safe-area-inset-right, 0px); }
+.rail-right .bottomnav {
+  top: calc(env(safe-area-inset-top) + 250px); bottom: auto; left: auto; right: 0;
+  width: var(--rail-w); padding: 0; gap: 14px;
+  flex-direction: column; align-items: center; justify-content: flex-start;
+  background: none; border: none;
+}
+.rail-right .nav-item {
+  flex: none; width: 54px; height: 54px; max-width: none; padding: 0; border-radius: 50%;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(20px) saturate(170%); backdrop-filter: blur(20px) saturate(170%);
+  border: 1px solid var(--glass-line); box-shadow: 0 4px 14px rgba(0,0,0,.25);
+}
+.rail-right .nav-item::before { display: none; }
+.rail-right .nav-item.active { background: var(--accent-soft); border-color: var(--accent); }
+/* Keep the app's own surfaces out of the status column. */
+.rail-right .arr-map-wrap { right: var(--rail-w); }
+.rail-right .arr-sheet { right: var(--rail-w); }
+.rail-right .arr-search-wrap { left: calc((100% - var(--rail-w)) / 2); width: min(640px, calc(100% - var(--rail-w) - 1.5rem)); }
+.rail-right .arr-locate-btn, .rail-right .sg-tilt-btn { right: calc(var(--rail-w) + 14px); }
+.rail-right .toast { left: calc((100% - var(--rail-w)) / 2); }

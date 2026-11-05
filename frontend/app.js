@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.52";
+const APP_VERSION = "1.2.53";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -301,7 +301,37 @@ function syncAccountUI() {
   _updateSettingsUI();
 }
 
+// ── Side rail for screens with a status column (iPhone Duo) ─
+// Some screens keep a column down one side for the clock and status icons.
+// If iOS lets the app draw in it (it reports a side safe area of 56 px or
+// more while upright), the nav moves into that column as a stack of round
+// buttons below the status icons, like the native apps do, and the bottom
+// bar goes away. Otherwise nothing changes. Settings › About › Screen shows
+// what iOS reports, for checking on a new device.
+function _safeAreas() {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;left:0;top:0;" +
+    "padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)";
+  document.body.appendChild(probe);
+  const cs = getComputedStyle(probe);
+  const v = { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+  probe.remove();
+  return v;
+}
+function _syncSideRail() {
+  const sa = _safeAreas();
+  const upright = innerHeight > innerWidth;
+  const on = upright && sa.r >= 56 && sa.l < 20;
+  document.documentElement.classList.toggle("rail-right", on);
+  const el = $("stg-screen-val");
+  if (el) el.textContent = `${innerWidth}×${innerHeight} · safe area R ${Math.round(sa.r)} L ${Math.round(sa.l)} T ${Math.round(sa.t)} B ${Math.round(sa.b)}${on ? " · side rail" : ""}`;
+}
+addEventListener("resize", () => setTimeout(_syncSideRail, 50));
+addEventListener("orientationchange", () => setTimeout(_syncSideRail, 300));
+setTimeout(_syncSideRail, 0);
+
 function _updateSettingsUI() {
+  _syncSideRail();
   const loggedIn = !!S.token;
   const lbl = $("stg-account-label");
   if (lbl) lbl.textContent = loggedIn ? displayName() : "Sign in";
