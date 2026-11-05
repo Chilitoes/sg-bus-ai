@@ -12,7 +12,10 @@
 
 (() => {
   const MIN_ZOOM = 14.6;          // MapLibre zoom (Leaflet 15.6)
-  const MAX_TREES = 2500;
+  const MAX_TREES = 4000;
+  // Roadside trees: half-width of the road (m) by class; both sides on
+  // main roads, one side (alternating) on small streets.
+  const ROAD = { trunk: [12, 13, 2], primary: [10, 13, 2], secondary: [8, 14, 2], tertiary: [7, 15, 2], minor: [5, 19, 1] };
   const ORIGIN = { lat: 1.3521, lng: 103.8198 };
   const R = 6371000, RAD = Math.PI / 180, COS = Math.cos(ORIGIN.lat * RAD);
   const toXY = (lng, lat) => [(lng - ORIGIN.lng) * RAD * R * COS, (lat - ORIGIN.lat) * RAD * R];
@@ -49,6 +52,38 @@
       }
     }
     const wet = (x, y) => water.some((w) => x >= w.a && x <= w.c && y >= w.bb && y <= w.d && inRing(x, y, w.ring));
+    // Street trees first (they're what you see from a following camera).
+    const inView = (x, y) => x > x0 - 60 && x < x1 + 60 && y > y0 - 60 && y < y1 + 60;
+    for (const f of map.querySourceFeatures("openmaptiles", { sourceLayer: "transportation" })) {
+      const cfg = ROAD[f.properties.class];
+      if (!cfg || f.properties.brunnel === "tunnel" || f.properties.brunnel === "bridge") continue;
+      const [half, sp, sides] = cfg;
+      const lines = f.geometry.type === "LineString" ? [f.geometry.coordinates] : f.geometry.type === "MultiLineString" ? f.geometry.coordinates : [];
+      for (const line of lines) {
+        const pts = line.map(([lng, lat]) => toXY(lng, lat));
+        for (let k = 1; k < pts.length; k++) {
+          const [ax, ay] = pts[k - 1], [bx, by] = pts[k];
+          const L = Math.hypot(bx - ax, by - ay);
+          if (L < 1) continue;
+          const ux = (bx - ax) / L, uy = (by - ay) / L;
+          // world-anchored stations along the road so trees don't slide as tiles change
+          for (let t = (sp - ((ax * ux + ay * uy) % sp + sp) % sp); t < L; t += sp) {
+            const cx = ax + ux * t, cy = ay + uy * t;
+            if (!inView(cx, cy)) continue;
+            for (const side of sides === 2 ? [1, -1] : [hash(Math.round(cx / sp), Math.round(cy / sp)) < 0.5 ? 1 : -1]) {
+              const x = cx - uy * side * (half + 2.5), y = cy + ux * side * (half + 2.5);
+              const key = `r:${Math.round(x / 7)}:${Math.round(y / 7)}`;
+              if (seen.has(key)) continue;
+              const r1 = hash(Math.round(x), Math.round(y));
+              if (r1 < 0.18 || wet(x, y)) continue;   // gaps (driveways, bus stops)
+              seen.add(key);
+              out.push({ x, y, s: 0.8 + 0.5 * hash(Math.round(y), Math.round(x)), r: r1 * Math.PI * 2, c: hash(Math.round(x) + 5, Math.round(y) - 9) });
+              if (out.length >= MAX_TREES * 0.6) break;
+            }
+          }
+        }
+      }
+    }
     for (const f of feats) {
       const sp = SPACING(f.properties);
       if (!sp) continue;

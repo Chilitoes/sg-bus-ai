@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.58";
+const APP_VERSION = "1.2.59";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -5256,12 +5256,12 @@ function _sgTuneStyle(base, dark, { buildings3d = false } = {}) {
         casing: "#16181b", rail: "#8a93a6", railTunnel: "#5d6372", label: "#c9ccd2", halo: "#16181b", station: "#e8ebf0",
         water: "#16324d", green: "#1d3324", grass: "#1b2f22", wood: "#183a26", pitch: "#1f3d2b",
         school: "#2c2a22", hospital: "#33252a", residential: "#1e2024", sand: "#2e2b23",
-        b3d: ["#2c3038", "#333845", "#3b4252"] }
+        b3d: ["#2c3038", "#333845", "#3b4252"], pastel: ["#383a3f", "#3c3935", "#343b37", "#333a43", "#3a3640"], lane: "rgba(255,255,255,.32)" }
     : { bg: "#f3efe6", building: "#e4ded3", bOutline: "#d8d1c4", minor: "#ffffff", major: "#ffffff", motorway: "#ffd58a",
         casing: "#d9d2c5", rail: "#5f6b7e", railTunnel: "#9aa3b2", label: "#454b55", halo: "#ffffff", station: "#2b3240",
         water: "#86c5ec", green: "#c4e5ae", grass: "#d3ebbf", wood: "#a9d48f", pitch: "#b5e0a0",
         school: "#f5ead0", hospital: "#f8dcdc", residential: "#eee9df", sand: "#f2e6c4",
-        b3d: ["#efe8dc", "#e3dccf", "#d5dce6"] };
+        b3d: ["#efe8dc", "#e3dccf", "#d5dce6"], pastel: ["#f4e8d2", "#f2dcc9", "#dcecdc", "#dae6f1", "#ece2ee"], lane: "rgba(255,255,255,.95)" };
   for (const l of s.layers) {
     const p = (l.paint = l.paint || {});
     const id = l.id;
@@ -5281,7 +5281,12 @@ function _sgTuneStyle(base, dark, { buildings3d = false } = {}) {
     else if (id === "building-3d") {
       // Soft, matte blocks so HDB estates read as 3D without stealing focus.
       // Shaded by height: low-rise warm, HDB mid-rise sand, towers cooler.
-      p["fill-extrusion-color"] = ["interpolate", ["linear"], ["coalesce", ["get", "render_height"], 10], 0, P.b3d[0], 30, P.b3d[1], 90, P.b3d[2]];
+      // HDB-style pastels, varied block to block (picked from the height so a
+      // block keeps its colour), and cooler glass tones for towers.
+      const h = ["coalesce", ["get", "render_height"], 10];
+      const pick = ["%", ["floor", ["*", h, 7]], 5];
+      p["fill-extrusion-color"] = ["case", [">", h, 70], P.b3d[2],
+        ["match", pick, 0, P.pastel[0], 1, P.pastel[1], 2, P.pastel[2], 3, P.pastel[3], P.pastel[4]]];
       p["fill-extrusion-opacity"] = dark ? 0.66 : 0.6;   // see-through enough that buses and trees read behind them
       p["fill-extrusion-vertical-gradient"] = true;
       l.minzoom = 14;
@@ -5322,6 +5327,16 @@ function _sgTuneStyle(base, dark, { buildings3d = false } = {}) {
       paint: { "text-color": P.station, "text-halo-color": P.halo, "text-halo-width": 1.4 },
     });
   }
+  // Dashed lane markings on main roads, visible up close (follow cam).
+  const at = s.layers.findIndex((l) => l.id === "road_trunk_primary");
+  if (at >= 0) s.layers.splice(at + 1, 0, {
+    id: "sg_lane_marks", type: "line", source: "openmaptiles", "source-layer": "transportation", minzoom: 15.5,
+    filter: ["all", ["match", ["get", "class"], ["trunk", "primary", "secondary", "tertiary"], true, false],
+             ["match", ["get", "brunnel"], ["tunnel"], false, true]],
+    layout: { "line-join": "round", "line-cap": "butt" },
+    paint: { "line-color": P.lane, "line-width": ["interpolate", ["linear"], ["zoom"], 15.5, 0.5, 18, 1.4, 20, 2.6],
+             "line-dasharray": [3, 4], "line-opacity": ["interpolate", ["linear"], ["zoom"], 15.5, 0, 16.5, 1] },
+  });
   // Sun from the south-west lights building sides unevenly (more depth), and
   // a sky with haze on the horizon when the map is tilted.
   s.light = { anchor: "viewport", color: "#ffffff", intensity: dark ? 0.25 : 0.42, position: [1.4, 210, 35] };

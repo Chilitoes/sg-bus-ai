@@ -779,6 +779,12 @@
       gl.easeTo({ center: [c.lng, c.lat], zoom: Math.max(gl.getZoom(), FOLLOW_ZOOM), pitch: FOLLOW_PITCH, bearing: LB.followBear,
                   padding: followPadding(), duration: 850 });
     }
+    // Up close, see-through buildings look like ghosts: make them solid
+    // while following (restored afterwards).
+    if (gl?.getLayer("building-3d")) {
+      LB.bOpacity ??= gl.getPaintProperty("building-3d", "fill-extrusion-opacity");
+      gl.setPaintProperty("building-3d", "fill-extrusion-opacity", 0.94);
+    }
     renderFollowChip(b);
   }
   function followPadding() {
@@ -815,7 +821,12 @@
     if (!LB.follow) return;
     LB.follow = null;
     $("follow-chip")?.classList.add("hidden");
-    if (_arrMap instanceof GLMap) _arrMap._gl.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
+    if (_arrMap instanceof GLMap) {
+      const gl = _arrMap._gl;
+      gl.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
+      if (LB.bOpacity != null && gl.getLayer("building-3d")) gl.setPaintProperty("building-3d", "fill-extrusion-opacity", LB.bOpacity);
+      LB.bOpacity = null;
+    }
   }
   function renderFollowChip(b) {
     const wrap = $("view-arrivals").querySelector(".arr-search-wrap");
