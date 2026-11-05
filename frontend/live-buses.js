@@ -133,7 +133,10 @@
   }
 
   // ── State ──
-  const LB = { stop: null, ref: null, buses: [], layer: null, three: null, timer: null, sel: null, gen: 0 };
+  // One fixed origin for the whole app (central Singapore), so buses heading
+  // to different stops share one coordinate frame and cached paths stay valid.
+  const LB = { mode: null, stop: null, ref: { lat: 1.3521, lng: 103.8198 }, buses: [], layer: null, three: null,
+               timer: null, sel: null, gen: 0, nearStops: [], nearTimer: null };
   let _uid = 0;
 
   // ── Motion ──
@@ -208,64 +211,117 @@
       b.dwellUntil = now + DWELL * 1000;
   }
 
-  async function update(stop, data) {
-    if (!stop || !data) return;
-    const gen = ++LB.gen;
-    if (stop !== LB.stop) clear(true);
-    LB.stop = stop;
-    LB.ref = (data.latitude != null && data.longitude != null) ? { lat: data.latitude, lng: data.longitude } : stopLL(stop);
-    renderStrip(data);
-    if (!LB.ref) return;
-    const ref = LB.ref, now = Date.now();
-    const wanted = [];
-    for (const svc of data.services || []) {
+  // Buses due at `stop` (from its /api/arrivals response) as entries.
+  function entriesFor(stop, data, now) {
+    const out = [];
+    for (const svc of data?.services || []) {
       (svc.buses || []).slice(0, PER_SVC).forEach((bus) => {
         const at = parseUTC(bus.ai_arrival || bus.api_arrival);
         const eta = at ? (at - now) / 1000 : null;
         if (eta == null || eta > MAX_ETA || eta < -60) return;
-        wanted.push({ svc: svc.service_no, bus, eta });
+        out.push({ stop, svc: svc.service_no, bus, eta });
       });
     }
-    const paths = await Promise.all(wanted.map((w) => pathFor(w.svc, stop, ref)));
-    if (gen !== LB.gen || LB.stop !== stop) return;
-    const keep = new Set();
-    wanted.forEach((w, n) => {
+    return out;
+  }
+
+  // Stop mode: the buses coming to the open stop (+ the timeline strip).
+  async function update(stop, data) {
+    if (!stop || !data) return;
+    if (LB.mode !== "stop" || stop !== LB.stop) clear(true);
+    LB.mode = "stop"; LB.stop = stop;
+    stopNearby();
+    renderStrip(data);
+    await ingest(entriesFor(stop, data, Date.now()), () => LB.mode === "stop" && LB.stop === stop);
+    renderStrip(data);
+  }
+
+  // Nearby mode (no stop open): every bus heading to the stops nearest you,
+  // refreshed every 30 s. A bus on its way to two of them is drawn once.
+  const NEAR_N = 4, MAX_BUSES = 40;
+  function nearby(codes) {
+    if (S.stop) return;
+    const list = (codes || []).filter(Boolean).slice(0, NEAR_N);
+    if (!list.length) return;
+    if (LB.mode !== "nearby") clear();
+    LB.mode = "nearby"; LB.stop = null;
+    LB.nearStops = list;
+    clearInterval(LB.nearTimer);
+    LB.nearTimer = setInterval(() => { if (!document.hidden && S.view === "arrivals" && !S.stop) refreshNearby(); }, 30000);
+    refreshNearby();
+  }
+  async function refreshNearby() {
+    if (LB.mode !== "nearby") return;
+    const codes = LB.nearStops, now = Date.now();
+    const res = await Promise.all(codes.map((c) => api(`/api/arrivals/${c}`).catch(() => null)));
+    if (LB.mode !== "nearby" || S.stop) return;
+    const entries = res.flatMap((d, i) => d ? entriesFor(codes[i], d, now) : []);
+    await ingest(entries, () => LB.mode === "nearby" && !S.stop, { dedupe: true });
+  }
+  function stopNearby() { clearInterval(LB.nearTimer); LB.nearTimer = null; }
+
+  // Place entries on their paths and match them to the buses already drawn.
+  async function ingest(entries, stillWanted, { dedupe = false } = {}) {
+    const gen = ++LB.gen, ref = LB.ref, now = Date.now();
+    const paths = await Promise.all(entries.map((w) => pathFor(w.svc, w.stop, ref)));
+    if (gen !== LB.gen || !stillWanted()) return;
+    let cands = entries.map((w, n) => {
       const p = paths[n];
-      if (!p) return;
+      if (!p) return null;
       let s0 = estimateS(p, w.eta), gps = false;
       if (w.bus.lat != null && w.bus.lng != null) {
         const [x, y] = toXY(w.bus.lat, w.bus.lng, ref);
         const pr = project(p, x, y);
         if (pr.dist < 350) { s0 = pr.s; gps = true; }
       }
-      // Same physical bus as last refresh: same service, ETA within 2.5 min.
-      let b = LB.buses.find((o) => o.svc === w.svc && !keep.has(o) && Math.abs(o.eta - w.eta) < 150);
+      return { ...w, p, s0, gps, pt: pointAt(p, s0) };
+    }).filter(Boolean);
+    if (dedupe) {
+      // The same bus shows up in the lists of every nearby stop it'll pass:
+      // same service and (nearly) the same place = one bus, kept for the
+      // stop it reaches first.
+      cands.sort((a, b) => a.eta - b.eta);
+      const kept = [];
+      for (const c of cands) {
+        if (!kept.some((k) => k.svc === c.svc && Math.hypot(k.pt.x - c.pt.x, k.pt.y - c.pt.y) < (c.gps && k.gps ? 120 : 300))) kept.push(c);
+      }
+      cands = kept.slice(0, MAX_BUSES);
+    }
+    const keep = new Set();
+    for (const w of cands) {
+      const p = w.p;
+      let s0 = w.s0;
+      // Same physical bus as last refresh: same service heading to the same
+      // stop with a similar ETA, or (its target stop changed) same service
+      // drawn close to where this one is.
+      let b = LB.buses.find((o) => !keep.has(o) && o.svc === w.svc && o.stop === w.stop && Math.abs(o.eta - w.eta) < 150)
+           || LB.buses.find((o) => !keep.has(o) && o.svc === w.svc && o.pos && Math.hypot(o.pos.x - w.pt.x, o.pos.y - w.pt.y) < 250);
       if (!b) { b = { id: ++_uid, svc: w.svc, born: now }; LB.buses.push(b); }
       // Without GPS there's nothing new to learn about *where* a bus we're
       // already showing is — only when it'll arrive — so keep it where it's
       // drawn and re-time the rest of its trip (no correction, no jump).
-      if (!gps && b.sDisp != null && b.path === p) s0 = b.sDisp;
-      // A path change (straight → road shape) or a big correction (LTA GPS
-      // was way off): jump instead of chasing it across the map.
+      if (!w.gps && b.sDisp != null && b.path === p) s0 = b.sDisp;
+      // A path change (other stop / road shape arrived) or a big correction
+      // (LTA GPS was way off): jump instead of chasing it across the map.
       if (b.path !== p || (b.sDisp != null && Math.abs(b.sDisp - s0) > 800)) b.sDisp = null;
       Object.assign(b, {
-        path: p, s0, t0: now, eta: w.eta, gps,
+        stop: w.stop, path: p, s0, t0: now, eta: w.eta, gps: w.gps,
         type: w.bus.type === "DD" ? "DD" : w.bus.type === "BD" ? "BD" : "SD",
       });
       plan(b);
       keep.add(b);
-    });
+    }
     LB.buses.filter((b) => !keep.has(b)).forEach(dropBus);
     LB.buses = LB.buses.filter((b) => keep.has(b));
     await ensureDrawing();
-    renderStrip(data);
   }
 
   function dropBus(b) { b.chip?.remove(); b.chip = null; if (b.obj) { LB.three?.scene.remove(b.obj); b.obj = null; } }
 
   function clear(keepStrip = false) {
+    stopNearby();
     LB.buses.forEach(dropBus);
-    LB.buses = []; LB.stop = null; LB.sel = null; LB.expanded = false;
+    LB.buses = []; LB.stop = null; LB.mode = null; LB.sel = null; LB.expanded = false;
     clearInterval(LB.timer); LB.timer = null;
     if (!keepStrip) { const el = $("live-strip"); if (el) { el.innerHTML = ""; el.classList.add("hidden"); } }
   }
@@ -299,6 +355,7 @@
 
   function tick() {
     if (!_arrMap || !LB.buses.length || document.hidden || S.view !== "arrivals") return;
+    if (LB.mode === "nearby" && S.stop) return;
     const now = Date.now();
     LB.buses.forEach((b) => {
       step(b, now);
@@ -328,15 +385,12 @@
   // (or giving way where two routes cross). Only the drawing moves — not the
   // bus's timetable — and the offset eases in so nothing snaps.
   const LEN = { SD: 12, DD: 11.3, BD: 18.3 };
-  function drawScale() {
-    if (_arrMap instanceof GLMap && LB.three) return Math.min(12, Math.max(2.4, Math.pow(2, 17.6 - _arrMap._gl.getZoom())));
-    // Flat map: keep ~44 px between bus markers.
-    const z = _arrMap?.getZoom?.() ?? 16;
-    return (44 * 156543 * Math.cos((LB.ref?.lat || 1.35) * RAD) / Math.pow(2, z)) / 14;
-  }
   const QUEUE_M = 250;          // only queue up near our stop
+  const QUEUE_K = 2.4;          // spacing in bus lengths × this (= the up-close drawing scale)
   function queue(now) {
-    const k = drawScale();
+    // Spacing is a fixed distance on the ground (not tied to zoom), so zooming
+    // never shuffles buses along the road.
+    const k = QUEUE_K;
     const placed = [];
     [...LB.buses].filter((b) => !b.hidden).sort((a, b) => a.sDisp - b.sDisp).forEach((b) => {
       let sq = b.sDisp, pt = pointAt(b.path, sq);
@@ -646,5 +700,5 @@
     else toast(`Bus ${p.dataset.lbSvc} isn't on the map yet`);
   });
 
-  window.LiveBuses = { update, clear, focusBus, focusSvc, _state: LB, _buildBus: buildBus, _signTexture: signTexture, _motion: { plan, sModel, step, estimateS } };
+  window.LiveBuses = { update, nearby, clear, focusBus, focusSvc, _state: LB, _buildBus: buildBus, _signTexture: signTexture, _motion: { plan, sModel, step, estimateS } };
 })();

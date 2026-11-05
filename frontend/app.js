@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.48";
+const APP_VERSION = "1.2.49";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1017,7 +1017,7 @@ function switchView(name) {
     v.classList.toggle("active", v.id === `view-${name}`));
   if (name === "saved") { renderSaved(); _cpLoadSaved(); _mrtLoadSaved(); }
   if (name === "data") loadData();
-  if (name === "arrivals") setTimeout(() => _arrMap?.invalidateSize(), 60);
+  if (name === "arrivals") { setTimeout(() => _arrMap?.invalidateSize(), 60); if (!S.stop && window.LiveBuses?._state.mode !== "nearby") setTimeout(_liveNearby, 0); }
   if (name === "settings") _updateSettingsUI();
   if (name === "checkpoint") loadCheckpoint();
   if (name === "carpark") { _cpInit(); _cpLoadSaved(); }
@@ -4716,6 +4716,7 @@ async function _loadArrStops(lat, lng) {
     _arrLastStops = stops;
     _arrAddPins(stops);
     _renderArrNearbyList(stops);
+    _liveNearby();
   } catch {}
 }
 
@@ -4773,8 +4774,15 @@ $("arr-stops-list").addEventListener("click", (e) => {
   if (btn) loadStop(btn.dataset.code);
 });
 
+// Buses heading to the stops nearest you, on the map while no stop is open.
+function _liveNearby() {
+  if (S.stop || S.view !== "arrivals") return;
+  window.LiveBuses?.nearby(_arrLastStops.map((s) => s.bus_stop_code));
+}
+
 $("arr-back-btn").addEventListener("click", () => {
   window.LiveBuses?.clear();
+  setTimeout(_liveNearby, 0);
   clearInterval(S.refreshTmr);
   clearInterval(S.tickTmr);
   S.stop = null;
