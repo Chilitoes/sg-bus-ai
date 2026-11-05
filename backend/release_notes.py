@@ -15,15 +15,15 @@ from database import SessionLocal, SystemNotification
 logger = logging.getLogger(__name__)
 
 RELEASE_NOTE = {
-    "title": "New: one Map for Bus, MRT and Parking",
+    "title": "New: live 3D buses on the map",
     "level": "update",
     "body": (
-        "Switch between them under the search bar.\n"
-        "• MRT: next trains, plus first and last train times\n"
-        "• Parking: live free lots nearby\n"
-        "• Saved: bus stops, stations and carparks in one place\n"
-        "• Tap a bus to see when to leave, or the bell for an alert\n"
-        "[img:whats-new/map-modes.webp]"
+        "See your bus driving towards your stop, on a 3D map.\n"
+        "• Buses near you show up straight away\n"
+        "• Tap a bus in the timeline to find it on the map\n"
+        "• Bus route: see every stop, and get pinged one stop before yours\n"
+        "• Alerts now arrive even with the app closed\n"
+        "[img:whats-new/live-buses.webp]"
     ),
 }
 
@@ -31,7 +31,8 @@ RELEASE_NOTE = {
 REPLACES = (
     "New: Can I make it?",
     "You can now get alerts before your bus comes",
-    "What's new: one Map for Bus, MRT and Parking",  # earlier, longer draft
+    "What's new: one Map for Bus, MRT and Parking",
+    "New: one Map for Bus, MRT and Parking",
 )
 
 
