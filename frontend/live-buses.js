@@ -291,10 +291,10 @@
   function tick() {
     if (!_arrMap || !LB.buses.length || document.hidden || S.view !== "arrivals") return;
     const now = Date.now();
+    LB.buses.forEach((b) => step(b, now));
+    queue(now);
     LB.buses.forEach((b) => {
-      step(b, now);
-      const pt = pointAt(b.path, b.sDisp);
-      b.pos = pt;
+      const pt = b.pos;
       const ll = fromXY(pt.x, pt.y, LB.ref);
       b.chip?.setLatLng([ll.lat, ll.lng]);
       // ETA counts down between refreshes
@@ -303,6 +303,36 @@
       if (b._label !== label) { b._label = label; b.chip?.setIcon(chipIcon(b, eta)); }
     });
     if (LB.layer && _arrMap._gl) _arrMap._gl.triggerRepaint();
+  }
+
+  // ── Keep buses from driving into each other ──
+  // Buses are drawn larger than life, so two at (or queuing for) the same
+  // stop would overlap. Place them closest-first; one that would overlap a
+  // bus already placed is drawn just behind it, as if queuing for the bay
+  // (or giving way where two routes cross). Only the drawing moves — not the
+  // bus's timetable — and the offset eases in so nothing snaps.
+  const LEN = { SD: 12, DD: 11.3, BD: 18.3 };
+  function drawScale() {
+    if (_arrMap instanceof GLMap && LB.three) return Math.min(12, Math.max(2.4, Math.pow(2, 17.6 - _arrMap._gl.getZoom())));
+    // Flat map: keep ~44 px between bus markers.
+    const z = _arrMap?.getZoom?.() ?? 16;
+    return (44 * 156543 * Math.cos((LB.ref?.lat || 1.35) * RAD) / Math.pow(2, z)) / 14;
+  }
+  function queue(now) {
+    const k = drawScale();
+    const placed = [];
+    [...LB.buses].sort((a, b) => a.sDisp - b.sDisp).forEach((b) => {
+      let sq = b.sDisp, pt = pointAt(b.path, sq);
+      for (let n = 0; n < 40; n++) {
+        const hit = placed.find((q) => Math.hypot(pt.x - q.pt.x, pt.y - q.pt.y) < ((LEN[b.type] + LEN[q.type]) / 2 + 3) * k);
+        if (!hit || sq >= b.path.len) break;
+        sq = Math.min(b.path.len, sq + ((LEN[b.type] + LEN[hit.type]) / 6 + 1) * k);
+        pt = pointAt(b.path, sq);
+      }
+      b.qOff = b.qOff == null ? sq - b.sDisp : b.qOff + (sq - b.sDisp - b.qOff) * 0.18;
+      b.pos = pointAt(b.path, b.sDisp + b.qOff);
+      placed.push({ pt: b.pos, type: b.type });
+    });
   }
 
   // ── three.js layer + procedural Singapore buses ──

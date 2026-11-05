@@ -75,7 +75,7 @@ def _stops_for(service_no: str) -> dict[int, list[tuple[str, float, float]]]:
     return out
 
 
-async def _osrm(points: list[tuple[float, float]]) -> list[dict] | None:
+async def _osrm(points: list[tuple[float, float]], straight: bool = True) -> list[dict] | None:
     """Per-leg geometry for a chain of (lat, lng) waypoints, or None."""
     global _last_call
     wait = MIN_GAP - (time.monotonic() - _last_call)
@@ -84,7 +84,7 @@ async def _osrm(points: list[tuple[float, float]]) -> list[dict] | None:
     _last_call = time.monotonic()
     coords = ";".join(f"{lng:.6f},{lat:.6f}" for lat, lng in points)
     params = {"overview": "false", "steps": "true", "geometries": "geojson",
-              "continue_straight": "true", "radiuses": ";".join([str(SNAP_M)] * len(points))}
+              "continue_straight": "true" if straight else "false", "radiuses": ";".join([str(SNAP_M)] * len(points))}
     try:
         r = await _client.get(OSRM + coords, params=params)
         d = r.json()
@@ -92,7 +92,7 @@ async def _osrm(points: list[tuple[float, float]]) -> list[dict] | None:
         logger.warning("OSRM request failed: %s", exc)
         return None
     if d.get("code") != "Ok" or not d.get("routes"):
-        logger.info("OSRM: %s %s", d.get("code"), d.get("message", ""))
+        logger.debug("OSRM: %s %s (%d points)", d.get("code"), d.get("message", ""), len(points))
         return None
     legs = []
     for leg in d["routes"][0]["legs"]:
@@ -107,12 +107,25 @@ async def _osrm(points: list[tuple[float, float]]) -> list[dict] | None:
 
 async def _build_direction(stops: list[tuple[str, float, float]]) -> tuple[list, list, int]:
     pts_ll = [(lat, lng) for _, lat, lng in stops]
+    async def legs_for(chunk: list) -> list:
+        """Legs for a chain of waypoints. One unroutable stop (an interchange
+        bay needing a U-turn, a bus-only road) makes OSRM reject the whole
+        request, so retry allowing U-turns, then split in half, down to
+        single legs; only legs that still fail come back as None."""
+        for straight in (True, False):
+            res = await _osrm(chunk, straight)
+            if res and len(res) == len(chunk) - 1:
+                return res
+        if len(chunk) <= 2:
+            return [None]
+        mid = len(chunk) // 2
+        return (await legs_for(chunk[:mid + 1])) + (await legs_for(chunk[mid:]))
+
     legs: list[dict | None] = []
     k = 0
     while k < len(pts_ll) - 1:
         chunk = pts_ll[k:k + CHUNK]
-        res = await _osrm(chunk)
-        legs.extend(res if res and len(res) == len(chunk) - 1 else [None] * (len(chunk) - 1))
+        legs.extend(await legs_for(chunk))
         k += len(chunk) - 1
     coords: list[list[float]] = []
     stop_index: list[int] = []
