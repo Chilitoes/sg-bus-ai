@@ -32,7 +32,6 @@
   const MAX_ETA = 30 * 60;      // show buses due within 30 min
   const PER_SVC = 2;            // at most this many buses per service
   const EST_SPEED = 6;          // m/s, for buses with no GPS (≈ 22 km/h incl. stops)
-  const TWEEN_MS = 2500;
   const FPS = 30;
 
   let threeP = null;
@@ -85,19 +84,26 @@
     const p = Promise.all([_routeData(svc), shapeFor(svc)]).then(([data, shape]) => {
       const { d, i } = _routeDirFor(data, stop);
       if (i < 1) return null;
-      let lls = null;
+      let lls = null, stopPts = null;   // stopPts: index in pts of each earlier stop
       const sh = shape?.directions?.find((x) => x.direction === d.direction);
       if (sh && sh.stop_index.length === d.stops.length && sh.stop_index[i] > 0) {
         lls = sh.coords.slice(0, sh.stop_index[i] + 1).reverse().map(([lat, lng]) => ({ lat, lng }));
+        stopPts = sh.stop_index.slice(0, i).map((k) => sh.stop_index[i] - k);
       }
       const road = !!lls;
-      if (!lls) lls = d.stops.slice(0, i + 1).reverse().map((x) => stopLL(x.code)).filter(Boolean);
+      if (!lls) {
+        lls = d.stops.slice(0, i + 1).reverse().map((x) => stopLL(x.code)).filter(Boolean);
+        stopPts = lls.map((_, k) => k).slice(1);
+      }
       if (lls.length < 2) return null;
       const pts = lls.map((ll) => toXY(ll.lat, ll.lng, ref));
       const cum = [0];
       for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
-      pathCache.set(key, { p: Promise.resolve({ pts, cum, len: cum[cum.length - 1], road }), road, at: Date.now() });
-      return { pts, cum, len: cum[cum.length - 1], road };
+      // Distances (m before our stop) of the stops the bus pauses at on the way.
+      const stopsS = stopPts.filter((k) => k > 0 && k < cum.length).map((k) => cum[k]).sort((a, b) => a - b);
+      const path = { pts, cum, len: cum[cum.length - 1], road, stopsS };
+      pathCache.set(key, { p: Promise.resolve(path), road, at: Date.now() });
+      return path;
     }).catch(() => null);
     pathCache.set(key, { p, road: null, at: Date.now() });
     return p;
@@ -130,13 +136,67 @@
   const LB = { stop: null, ref: null, buses: [], layer: null, three: null, timer: null, sel: null, gen: 0 };
   let _uid = 0;
 
-  function sNow(b, now) {
-    const dr = Math.max(0, b.s0 - b.v * (now - b.t0) / 1000);
-    if (b.tw0 == null) return dr;
-    const f = Math.min(1, (now - b.tw0) / TWEEN_MS);
-    if (f >= 1) { b.tw0 = null; return dr; }
-    const e = f * f * (3 - 2 * f);
-    return b.twFrom + (dr - b.twFrom) * e;
+  // ── Motion ──
+  // Each bus follows a little timetable: drive, stop DWELL s at every bus stop
+  // between it and ours, drive on, arriving at our stop when LTA says. Its
+  // driving speed is what fits the ETA once those stops are taken out.
+  // What's drawn (b.sDisp) only ever moves forward: when a refresh puts the
+  // bus behind where it's drawn, it waits at the next stop if one is close,
+  // otherwise slows to a crawl (as if in traffic) until the timetable catches
+  // up; when it puts it ahead, the bus speeds up a little to close the gap.
+  // Buses without GPS are only placed once; later refreshes just re-time them.
+  const DWELL = 5;              // seconds at each bus stop
+  function plan(b) {
+    const stops = (b.path.stopsS || []).filter((x) => x < b.s0 - 15).sort((x, y) => y - x);   // in the order it meets them
+    // Still part-way through a stop when re-timed: finish that pause first.
+    b.wait0 = b.dwellUntil > b.t0 ? (b.dwellUntil - b.t0) / 1000 : 0;
+    const drive = Math.max(b.eta - b.wait0 - DWELL * stops.length, b.eta * 0.5, 10);
+    b.v = Math.min(16, Math.max(1.5, b.s0 / drive));
+    b.stopsAhead = stops;
+  }
+  // First guess for a bus with no GPS: how far out a bus driving at
+  // EST_SPEED, stopping DWELL s at each stop, would be with `eta` s to go.
+  function estimateS(p, eta) {
+    let s = Math.min(p.len, Math.max(0, eta) * EST_SPEED);
+    for (let k = 0; k < 3; k++) {
+      const n = (p.stopsS || []).filter((x) => x < s).length;
+      s = Math.min(p.len, Math.max(0, eta - DWELL * n) * EST_SPEED);
+    }
+    return s;
+  }
+  // Where the timetable has the bus `now` (metres before our stop).
+  function sModel(b, now) {
+    let t = (now - b.t0) / 1000 - (b.wait0 || 0), s = b.s0;
+    if (t < 0) return s;
+    for (const st of b.stopsAhead) {
+      const dt = (s - st) / b.v;
+      if (t <= dt) return s - b.v * t;
+      t -= dt; s = st;
+      if (t <= DWELL) return s;
+      t -= DWELL;
+    }
+    return Math.max(0, s - b.v * t);
+  }
+  function step(b, now) {
+    const target = sModel(b, now);
+    const dt = Math.min(0.25, (now - (b.lastStep || now)) / 1000);
+    b.lastStep = now;
+    if (b.sDisp == null) { b.sDisp = target; return; }
+    const before = b.sDisp;
+    if (target < b.sDisp) {
+      // Ahead of what's drawn: drive towards it, a bit faster than cruise.
+      b.sDisp = Math.max(target, b.sDisp - Math.max(1.6 * b.v, 8) * dt);
+    } else if (target > b.sDisp + 0.5) {
+      // Behind what's drawn: never reverse. Roll up to a stop just ahead and
+      // wait there; otherwise creep on at a quarter speed (like traffic) so
+      // the gap closes gently instead of the bus freezing mid-road.
+      const next = (b.path.stopsS || []).filter((x) => x < b.sDisp - 0.5).pop();
+      if (next != null && b.sDisp - next < 40) b.sDisp = Math.max(next, b.sDisp - Math.max(0.6 * b.v, 3) * dt);
+      else if (next == null || b.sDisp - next >= 40) b.sDisp = Math.max(next ?? 0, b.sDisp - 0.25 * b.v * dt);
+    }
+    // Just reached a stop: it's there for DWELL s (survives a re-time).
+    if ((b.path.stopsS || []).some((x) => x <= before + 0.01 && x >= b.sDisp - 0.01 && x < before - 0.01 || (x === b.sDisp && before > x)))
+      b.dwellUntil = now + DWELL * 1000;
   }
 
   async function update(stop, data) {
@@ -163,7 +223,7 @@
     wanted.forEach((w, n) => {
       const p = paths[n];
       if (!p) return;
-      let s0 = Math.min(p.len, Math.max(0, w.eta) * EST_SPEED), gps = false;
+      let s0 = estimateS(p, w.eta), gps = false;
       if (w.bus.lat != null && w.bus.lng != null) {
         const [x, y] = toXY(w.bus.lat, w.bus.lng, ref);
         const pr = project(p, x, y);
@@ -171,13 +231,19 @@
       }
       // Same physical bus as last refresh: same service, ETA within 2.5 min.
       let b = LB.buses.find((o) => o.svc === w.svc && !keep.has(o) && Math.abs(o.eta - w.eta) < 150);
-      if (b) { b.twFrom = sNow(b, now); b.tw0 = now; }
-      else { b = { id: ++_uid, svc: w.svc, born: now }; LB.buses.push(b); }
+      if (!b) { b = { id: ++_uid, svc: w.svc, born: now }; LB.buses.push(b); }
+      // Without GPS there's nothing new to learn about *where* a bus we're
+      // already showing is — only when it'll arrive — so keep it where it's
+      // drawn and re-time the rest of its trip (no correction, no jump).
+      if (!gps && b.sDisp != null && b.path === p) s0 = b.sDisp;
+      // A path change (straight → road shape) or a big correction (LTA GPS
+      // was way off): jump instead of chasing it across the map.
+      if (b.path !== p || (b.sDisp != null && Math.abs(b.sDisp - s0) > 800)) b.sDisp = null;
       Object.assign(b, {
         path: p, s0, t0: now, eta: w.eta, gps,
-        v: Math.min(15, Math.max(1.5, s0 / Math.max(w.eta, 20))),
         type: w.bus.type === "DD" ? "DD" : w.bus.type === "BD" ? "BD" : "SD",
       });
+      plan(b);
       keep.add(b);
     });
     LB.buses.filter((b) => !keep.has(b)).forEach(dropBus);
@@ -226,7 +292,8 @@
     if (!_arrMap || !LB.buses.length || document.hidden || S.view !== "arrivals") return;
     const now = Date.now();
     LB.buses.forEach((b) => {
-      const pt = pointAt(b.path, sNow(b, now));
+      step(b, now);
+      const pt = pointAt(b.path, b.sDisp);
       b.pos = pt;
       const ll = fromXY(pt.x, pt.y, LB.ref);
       b.chip?.setLatLng([ll.lat, ll.lng]);
@@ -502,5 +569,5 @@
     else toast(`Bus ${p.dataset.lbSvc} isn't on the map yet`);
   });
 
-  window.LiveBuses = { update, clear, focusBus, _state: LB, _buildBus: buildBus, _signTexture: signTexture };
+  window.LiveBuses = { update, clear, focusBus, _state: LB, _buildBus: buildBus, _signTexture: signTexture, _motion: { plan, sModel, step, estimateS } };
 })();
