@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.56";
+const APP_VERSION = "1.2.57";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -5248,26 +5248,41 @@ function _sgTuneStyle(base, dark, { buildings3d = false } = {}) {
   const s = JSON.parse(JSON.stringify(base));
   delete s.sources.ne2_shaded;
   s.layers = s.layers.filter((l) => !_SG_DROP.test(l.id) || (buildings3d && l.id === "building-3d"));
+  // Natural, Apple-Maps-like palette: warm land, layered greens (grass <
+  // park < wood), real-water blue, tinted school / hospital / sports grounds,
+  // and buildings shaded by height. Dark mode is the same map at night.
   const P = dark
-    ? { bg: "#1c1d20", building: "#2a2c31", bOutline: "#34373d", minor: "#33363c", major: "#41444b", motorway: "#4d4a43",
-        casing: "#1c1d20", rail: "#8a93a6", railTunnel: "#5d6372", label: "#c9ccd2", halo: "#1c1d20", station: "#e8ebf0",
-        water: "#1f3448", green: "#20302a", special: "#2b2a30" }
-    : { bg: "#f4f3f0", building: "#e6e4df", bOutline: "#dbd8d2", minor: "#ffffff", major: "#ffffff", motorway: "#fde3a7",
-        casing: "#dcd9d3", rail: "#5f6b7e", railTunnel: "#9aa3b2", label: "#4a4f58", halo: "#ffffff", station: "#2b3240",
-        water: "#aad3ee", green: "#d8ecd2", special: null };
+    ? { bg: "#1b1d21", building: "#2b2e35", bOutline: "#353943", minor: "#30333a", major: "#3c4049", motorway: "#5a4f3c",
+        casing: "#16181b", rail: "#8a93a6", railTunnel: "#5d6372", label: "#c9ccd2", halo: "#16181b", station: "#e8ebf0",
+        water: "#16324d", green: "#1d3324", grass: "#1b2f22", wood: "#183a26", pitch: "#1f3d2b",
+        school: "#2c2a22", hospital: "#33252a", residential: "#1e2024", sand: "#2e2b23",
+        b3d: ["#2c3038", "#333845", "#3b4252"] }
+    : { bg: "#f3efe6", building: "#e4ded3", bOutline: "#d8d1c4", minor: "#ffffff", major: "#ffffff", motorway: "#ffd58a",
+        casing: "#d9d2c5", rail: "#5f6b7e", railTunnel: "#9aa3b2", label: "#454b55", halo: "#ffffff", station: "#2b3240",
+        water: "#86c5ec", green: "#c4e5ae", grass: "#d3ebbf", wood: "#a9d48f", pitch: "#b5e0a0",
+        school: "#f5ead0", hospital: "#f8dcdc", residential: "#eee9df", sand: "#f2e6c4",
+        b3d: ["#efe8dc", "#e3dccf", "#d5dce6"] };
   for (const l of s.layers) {
     const p = (l.paint = l.paint || {});
     const id = l.id;
     if (dark) for (const k of Object.keys(p)) if (/color$/.test(k)) p[k] = _sgMapColors(p[k], _sgDarkColor);
     if (id === "background") p["background-color"] = P.bg;
     else if (id === "water") p["fill-color"] = P.water;
-    else if (/^(park|landcover_(grass|wood)|landuse_pitch)$/.test(id)) { p["fill-color"] = P.green; p["fill-opacity"] = 0.9; }
-    else if (dark && /^landuse_(hospital|school|cemetery|track|residential)$/.test(id)) { p["fill-color"] = P.special; p["fill-opacity"] = 0.6; }
+    else if (id === "park") { p["fill-color"] = P.green; p["fill-opacity"] = 0.95; }
+    else if (id === "landcover_grass") { p["fill-color"] = P.grass; p["fill-opacity"] = 0.95; }
+    else if (id === "landcover_wood") { p["fill-color"] = P.wood; p["fill-opacity"] = 0.95; }
+    else if (id === "landuse_pitch" || id === "landuse_track") { p["fill-color"] = P.pitch; p["fill-opacity"] = 0.9; }
+    else if (id === "landuse_school") { p["fill-color"] = P.school; p["fill-opacity"] = 1; }
+    else if (id === "landuse_hospital") { p["fill-color"] = P.hospital; p["fill-opacity"] = 1; }
+    else if (id === "landuse_cemetery") { p["fill-color"] = P.grass; p["fill-opacity"] = 0.8; }
+    else if (id === "landuse_residential") { p["fill-color"] = P.residential; p["fill-opacity"] = 0.7; }
+    else if (id === "landcover_sand") { p["fill-color"] = P.sand; }
     else if (id === "building") { p["fill-color"] = P.building; p["fill-outline-color"] = P.bOutline; p["fill-opacity"] = 1; }
     else if (id === "building-3d") {
       // Soft, matte blocks so HDB estates read as 3D without stealing focus.
-      p["fill-extrusion-color"] = dark ? "#2d3036" : "#e4e1db";
-      p["fill-extrusion-opacity"] = dark ? 0.62 : 0.55;   // see-through enough that buses and trees read behind them
+      // Shaded by height: low-rise warm, HDB mid-rise sand, towers cooler.
+      p["fill-extrusion-color"] = ["interpolate", ["linear"], ["coalesce", ["get", "render_height"], 10], 0, P.b3d[0], 30, P.b3d[1], 90, P.b3d[2]];
+      p["fill-extrusion-opacity"] = dark ? 0.66 : 0.6;   // see-through enough that buses and trees read behind them
       p["fill-extrusion-vertical-gradient"] = true;
       l.minzoom = 14;
     }
@@ -5307,6 +5322,12 @@ function _sgTuneStyle(base, dark, { buildings3d = false } = {}) {
       paint: { "text-color": P.station, "text-halo-color": P.halo, "text-halo-width": 1.4 },
     });
   }
+  // Sun from the south-west lights building sides unevenly (more depth), and
+  // a sky with haze on the horizon when the map is tilted.
+  s.light = { anchor: "viewport", color: "#ffffff", intensity: dark ? 0.25 : 0.42, position: [1.4, 210, 35] };
+  s.sky = dark
+    ? { "sky-color": "#0b1320", "horizon-color": "#1f2b3d", "fog-color": "#1b1d21", "sky-horizon-blend": 0.5, "horizon-fog-blend": 0.6, "fog-ground-blend": 0.9 }
+    : { "sky-color": "#8fc7f0", "horizon-color": "#e4f1fa", "fog-color": "#f3efe6", "sky-horizon-blend": 0.55, "horizon-fog-blend": 0.6, "fog-ground-blend": 0.9 };
   return s;
 }
 

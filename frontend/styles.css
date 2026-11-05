@@ -3176,3 +3176,6 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
 .rain-badge.hidden { display: none; }
 .follow-chip .route-chip-badge { background: #1f6f3a; }
 @media (min-width: 720px) and (orientation: landscape) { .rain-badge { top: calc(env(safe-area-inset-top) + 14px); } }
+
+.lb-chip:not(:has(span:last-child:not(.lb-ico))) { padding-right: .2rem; }
+.leaflet-container.sg-vector, .sg-gl { background: #f3efe6; }

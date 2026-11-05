@@ -382,11 +382,15 @@
   }
 
   function chipIcon(b, eta = b.eta) {
-    const when = eta === -999 ? "Left" : eta < 60 ? "Arr" : `${Math.round(eta / 60)} min`;
+    // No stop open: a bus could be heading to any of the stops around you, so
+    // an ETA would be misleading — show just its number.
+    const noTime = LB.mode === "nearby";
+    if (noTime && eta !== -999) eta = 9e9;
+    const when = eta === -999 ? "Left" : noTime ? "" : eta < 60 ? "Arr" : `${Math.round(eta / 60)} min`;
     const flat = !(_arrMap instanceof GLMap) || !LB.three;
     return SGL.divIcon({
       className: "lb-chip-wrap",
-      html: `<div class="lb-chip${eta < 60 ? " arr" : ""}${LB.sel === b.id ? " sel" : ""}${flat ? " flat" : ""}">${flat ? '<span class="lb-ico">🚌</span>' : ""}<b>${esc(b.svc)}</b><span>${when}</span></div>`,
+      html: `<div class="lb-chip${eta < 60 ? " arr" : ""}${LB.sel === b.id ? " sel" : ""}${flat ? " flat" : ""}">${flat ? '<span class="lb-ico">🚌</span>' : ""}<b>${esc(b.svc)}</b>${when ? `<span>${when}</span>` : ""}</div>`,
       iconSize: [0, 0], iconAnchor: [0, 0],
     });
   }
@@ -414,7 +418,7 @@
       b.chip?.setLatLng([ll.lat, ll.lng]);
       // ETA counts down between refreshes
       const eta = b.eta - (now - b.t0) / 1000;
-      const label = b.leaving ? "Left" : eta < 60 ? "Arr" : `${Math.round(eta / 60)} min`;
+      const label = b.leaving ? "Left" : LB.mode === "nearby" ? "-" : eta < 60 ? "Arr" : `${Math.round(eta / 60)} min`;
       if (b._label !== label) { b._label = label; b.chip?.setIcon(chipIcon(b, b.leaving ? -999 : eta)); }
       if (b.leaving) { const el = b.chip?._el; if (el) el.style.opacity = String(Math.max(0, 1 - (now - b.leaving) / LEAVE_MS)); }
     });
