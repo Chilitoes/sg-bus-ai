@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://c.basemaps.cartocdn.com" />
   <link rel="preconnect" href="https://d.basemaps.cartocdn.com" />
-  <link rel="stylesheet" href="styles.css?v=1.2.43" />
+  <link rel="stylesheet" href="styles.css?v=1.2.44" />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" />
@@ -154,51 +154,38 @@
 
       <!-- Stop arrival detail (shown after a stop is selected) -->
       <div id="arr-detail" class="hidden">
-        <div class="arr-detail-bar">
-          <button id="arr-back-btn" class="arr-back-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
-            Back
+        <!-- One-row header: back · name · save · refresh · share -->
+        <div id="stop-card" class="stop-head hidden">
+          <button id="arr-back-btn" class="sh-btn" type="button" aria-label="Back to nearby stops">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <div class="stop-id">
+            <div id="stop-name" class="stop-name"></div>
+            <div class="stop-meta"><span id="stop-code" class="stop-code"></span><span id="stop-road"></span></div>
+          </div>
+          <button id="save-btn" class="sh-btn" type="button" aria-label="Save this stop">
+            <svg id="save-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            <span id="save-label" class="sr-only">Save</span>
+          </button>
+          <button id="refresh-btn" class="sh-btn" type="button" aria-label="Refresh arrivals">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+          </button>
+          <button id="share-stop-btn" class="sh-btn" type="button" aria-label="Share this stop" title="Copy a link to this stop">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="m8 7 4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>
           </button>
         </div>
-
-        <div id="stop-card" class="stop-card hidden">
-          <div class="stop-card-top">
-            <div class="stop-id">
-              <div id="stop-name" class="stop-name"></div>
-              <div class="stop-meta"><span id="stop-road"></span> <span id="stop-code" class="stop-code"></span></div>
-            </div>
-            <div class="stop-actions">
-              <button id="save-btn" class="pillbtn">
-                <svg id="save-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-                <span id="save-label">Save</span>
-              </button>
-              <button id="share-stop-btn" class="iconbtn" aria-label="Share this stop" title="Copy a link to this stop">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-              </button>
-              <button id="refresh-btn" class="iconbtn" aria-label="Refresh">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
-              </button>
-            </div>
-          </div>
-          <div class="stop-card-foot">
-            <span id="updated-at"></span>
-            <span class="foot-sep">·</span>
-            <span>auto-refresh 30s</span>
-            <span class="foot-sep">·</span>
-            <span class="ai-note">official LTA times, AI estimate below</span>
-          </div>
-        </div>
+        <div class="stop-live"><i aria-hidden="true"></i><span id="updated-at"></span></div>
 
         <div id="arrivals-error" class="error-note hidden"></div>
         <div id="live-strip" class="live-strip hidden" aria-label="Buses coming up, by arrival time"></div>
-        <div id="rows" class="rows"></div>
+        <div id="rows" class="rows svc-list"></div>
         <p id="no-services" class="empty hidden">No buses serving this stop right now.</p>
 
         <!-- Stats / About / Legend — grouped accordion -->
         <div class="panel-group">
         <details id="stats-details" class="panel hidden">
           <summary>
-            <span>Punctuality stats</span>
+            <span>Punctuality at this stop</span>
             <span id="stats-badge" class="panel-badge">last 30 days</span>
             <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </summary>
@@ -247,56 +234,6 @@
           </div>
         </details>
 
-        <!-- About -->
-        <details id="about-details" class="panel hidden">
-          <summary>
-            <span>How predictions work</span>
-            <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </summary>
-          <div class="panel-body about-body">
-            <p>The big number is the official LTA estimate. Underneath it, the AI
-            estimate shows when the bus will <em>actually</em> arrive based on how
-            this exact route at this exact stop has behaved historically.</p>
-            <p>Two prediction layers work together: a gradient-boosting model that
-            generalises across hour, day, crowding and bus type — and a per-route
-            memory of real measured delays from the last 30 days. Routes with more
-            history lean on real measurements; the correction also shrinks as a bus
-            gets close, since live GPS estimates are most accurate then.</p>
-            <p>Ground truth comes from tracking each bus across successive polls
-            until it arrives. The model retrains itself hourly.</p>
-            <div id="model-info" class="model-info"></div>
-          </div>
-        </details>
-
-        <!-- Legend -->
-        <details id="legend-details" class="panel hidden">
-          <summary>
-            <span>What the labels mean</span>
-            <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </summary>
-          <div class="panel-body arr-legend">
-            <div class="stg-legend-group">
-              <div class="stg-legend-head">Bus type</div>
-              <div class="stg-legend-row"><span class="tag">DD</span><span class="stg-legend-txt">Double-deck bus</span></div>
-              <div class="stg-legend-row"><span class="tag">BD</span><span class="stg-legend-txt">Bendy (articulated) bus</span></div>
-              <div class="stg-legend-row"><span class="stg-legend-na">SD</span><span class="stg-legend-txt">Single-deck bus — the default, shown without a tag</span></div>
-            </div>
-            <div class="stg-legend-group">
-              <div class="stg-legend-head">Accessibility</div>
-              <div class="stg-legend-row"><span class="tag wab">♿</span><span class="stg-legend-txt">Wheelchair-accessible bus</span></div>
-            </div>
-            <div class="stg-legend-group">
-              <div class="stg-legend-head">Crowding</div>
-              <div class="stg-legend-row"><span class="load-pill SEA">Seats</span><span class="stg-legend-txt">Seats available</span></div>
-              <div class="stg-legend-row"><span class="load-pill SDA">Standing</span><span class="stg-legend-txt">Standing only</span></div>
-              <div class="stg-legend-row"><span class="load-pill LSD">Crowded</span><span class="stg-legend-txt">Limited standing — packed</span></div>
-            </div>
-            <div class="stg-legend-group">
-              <div class="stg-legend-head">Timing</div>
-              <div class="stg-legend-row"><span class="stg-legend-ai">AI</span><span class="stg-legend-txt">Machine-learning adjusted arrival, refining the raw LTA estimate</span></div>
-            </div>
-          </div>
-        </details>
         </div><!-- .panel-group -->
 
       </div><!-- #arr-detail -->
@@ -869,6 +806,25 @@
       <!-- About -->
       <div class="stg-section">
         <div class="stg-section-title">About</div>
+        <details id="about-details" class="panel stg-about-panel">
+          <summary>
+            <span>How predictions work</span>
+            <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="panel-body about-body">
+            <p>The big number is the official LTA estimate. Underneath it, the AI
+            estimate shows when the bus will <em>actually</em> arrive based on how
+            this exact route at this exact stop has behaved historically.</p>
+            <p>Two prediction layers work together: a gradient-boosting model that
+            generalises across hour, day, crowding and bus type — and a per-route
+            memory of real measured delays from the last 30 days. Routes with more
+            history lean on real measurements; the correction also shrinks as a bus
+            gets close, since live GPS estimates are most accurate then.</p>
+            <p>Ground truth comes from tracking each bus across successive polls
+            until it arrives. The model retrains itself hourly.</p>
+            <div id="model-info" class="model-info"></div>
+          </div>
+        </details>
         <div class="stg-card">
           <button id="stg-install-btn" class="stg-row stg-row-btn" type="button">
             <span class="stg-row-label">Add to Home Screen</span>
@@ -876,7 +832,7 @@
           </button>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Version</span>
-            <span class="stg-row-val" id="stg-version-val">1.2.43</span>
+            <span class="stg-row-val" id="stg-version-val">1.2.44</span>
           </div>
           <div class="stg-row stg-row-sep">
             <span class="stg-row-label">Data</span>
@@ -1184,7 +1140,7 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"></script>
-<script src="app.js?v=1.2.43"></script>
-<script src="live-buses.js?v=1.2.43"></script>
+<script src="app.js?v=1.2.44"></script>
+<script src="live-buses.js?v=1.2.44"></script>
 </body>
 </html>

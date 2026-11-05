@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.43";
+const APP_VERSION = "1.2.44";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -921,6 +921,8 @@ function syncSaveBtn() {
   if (!S.stop) return;
   const saved = isFav(S.stop);
   $("save-btn").classList.toggle("saved", saved);
+  $("save-btn").setAttribute("aria-pressed", saved);
+  $("save-btn").setAttribute("aria-label", saved ? "Saved — tap to remove" : "Save this stop");
   $("save-label").textContent = saved ? "Saved" : "Save";
 }
 
@@ -1509,6 +1511,16 @@ function aiText(aiSecs, adj) {
   return `AI ${fmtMin(aiSecs)}${aiSecs < DUE_SECS ? "" : " min"} (${sign}${diff})`;
 }
 
+// "then 4 · 10 min": a following bus that's also due reads "now", not "Arr".
+function _laterMin(secs) { const t = fmtMin(secs); return t === "Arr" ? "now" : t; }
+
+// Quiet AI note for the bus list: nothing when the AI agrees with LTA (most of
+// the time), "AI: likely 7 min" when it doesn't.
+function aiNote(aiSecs, adj) {
+  if (aiSecs === null || Math.abs(adj) < 30) return "";
+  return aiSecs < DUE_SECS ? "AI: likely arriving now" : `AI: likely ${fmtMin(aiSecs)} min`;
+}
+
 function busLine(bus) {
   const lta = parseUTC(bus.api_arrival);
   const ai = parseUTC(bus.ai_arrival);
@@ -1533,35 +1545,24 @@ function svcCard(svc) {
   const aiSecs = secsUntil(parseUTC(next.ai_arrival));
   const later = svc.buses.slice(1);
   const laterIsos = later.map((b) => b.api_arrival).join(",");
-  const laterTxt = later.map((b) => fmtMin(secsUntil(parseUTC(b.api_arrival)))).join(" · ");
-  const TYPE_LABEL = { SD: "Single deck", DD: "Double deck", BD: "Bendy" };
-  // Crowding, as the same labelled pill the legend explains ("Seats" /
-  // "Standing" / "Crowded") — a bare coloured dot didn't say what it meant.
-  const crowdPill = next.load
-    ? `<span class="load-pill card ${esc(next.load)}" title="${esc(LOAD_FULL[next.load] || "")}">${LOAD_LABEL[next.load] || esc(next.load)}</span>` : "";
-  const tags = [
-    next.type && next.type !== "SD" ? `<span class="tag" title="${TYPE_LABEL[next.type] || next.type}">${esc(next.type)}</span>` : "",
-    next.feature === "WAB" ? `<span class="tag wab" title="Wheelchair accessible">♿</span>` : "",
-  ].join("");
-  // Live per-route accuracy badge from 30 days of measured delay (MAE).
-  const rel = svc.reliability;
-  const accChip = (rel && rel.mae_sec != null)
-    ? `<span class="svc-acc" title="From ${rel.samples} tracked arrivals — actual times land within this band of the prediction on average">${esc(accBand(rel.mae_sec))}</span>`
-    : "";
+  const laterTxt = later.map((b) => _laterMin(secsUntil(parseUTC(b.api_arrival)))).join(" · ");
+  const TYPE_LABEL = { DD: "Double-decker", BD: "Bendy" };
+  // One quiet line: crowding (dot colour + word) · bus type · ♿ · next buses.
+  const bits = [
+    next.load ? `<span class="crowd ${esc(next.load)}" title="${esc(LOAD_FULL[next.load] || "")}"><i></i>${LOAD_LABEL[next.load] || esc(next.load)}</span>` : "",
+    TYPE_LABEL[next.type] || "",
+    next.feature === "WAB" ? `<span title="Wheelchair accessible" aria-label="Wheelchair accessible">♿</span>` : "",
+  ].filter(Boolean).join(`<span class="dotsep">·</span>`);
+  const note = aiNote(aiSecs, adj);
   return `
     <div class="svc" data-svc="${esc(svc.service_no)}">
       <button class="svc-head">
         <span class="route-badge">${esc(svc.service_no)}</span>
-        <span class="svc-mid">
-          ${crowdPill}
-          <span class="svc-tags">${tags}${accChip}</span>
-        </span>
-        <span class="svc-eta">
+        <span class="svc-main">
           <span class="eta-now ${due ? "due" : ""}" data-eta-iso="${esc(next.api_arrival || "")}">${fmtMin(secs)}${due ? "" : `<span class="eta-unit">min</span>`}</span>
-          <span class="eta-ai" data-ai-iso="${esc(next.ai_arrival || "")}" data-adj="${Math.round(adj)}">${aiText(aiSecs, adj)}</span>
-          ${laterTxt ? `<span class="eta-next" data-next-isos="${esc(laterIsos)}">then ${laterTxt} min</span>` : `<span class="eta-next">last bus</span>`}
+          <span class="eta-ai${note ? "" : " hidden"}" data-ai-iso="${esc(next.ai_arrival || "")}" data-adj="${Math.round(adj)}">${note}</span>
+          <span class="svc-sub">${bits}${bits ? `<span class="dotsep">·</span>` : ""}${laterTxt ? `<span class="eta-next" data-next-isos="${esc(laterIsos)}">then ${laterTxt} min</span>` : `<span class="eta-next">last bus</span>`}</span>
         </span>
-        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
       ${_bellBtn(svc.service_no)}
     </div>`;
@@ -1622,7 +1623,9 @@ function renderArrivals(data) {
   hide($("no-services"));
   S.lastArrivals = { stop: S.stop, data };
   window.LiveBuses?.update(S.stop, data);   // 3D buses on the map + timeline strip
-  $("rows").innerHTML = data.services.map(svcCard).join("");
+  // Soonest first: what matters now is at the top.
+  const soon = (x) => parseUTC(x.buses?.[0]?.api_arrival)?.getTime() ?? Infinity;
+  $("rows").innerHTML = [...data.services].sort((a, b) => soon(a) - soon(b)).map(svcCard).join("");
   // Keep the alert watcher's ETA store fresh from every render, so armed
   // alerts keep tracking even after the user navigates away from this stop.
   if (S.stop && S.alerts[S.stop]) {
@@ -1635,7 +1638,7 @@ function renderArrivals(data) {
   document.querySelectorAll(".svc").forEach((c) => {
     if (open.has(c.dataset.svc)) c.classList.add("open");
   });
-  $("updated-at").textContent = `Updated ${new Date().toLocaleTimeString("en-SG",
+  $("updated-at").textContent = `Live · updated ${new Date().toLocaleTimeString("en-SG",
     { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore" })}`;
   startTicker();
 }
@@ -1675,14 +1678,14 @@ function startTicker() {
       });
       rows.querySelectorAll("[data-ai-iso]").forEach((node) => {
         if (!node.dataset.aiIso) return;
-        const txt = aiText(
+        const txt = aiNote(
           secsUntil(parseUTC(node.dataset.aiIso)),
           Number(node.dataset.adj || 0));
-        if (node.textContent !== txt) node.textContent = txt;
+        if (node.textContent !== txt) { node.textContent = txt; node.classList.toggle("hidden", !txt); }
       });
       rows.querySelectorAll("[data-next-isos]").forEach((node) => {
         const txt = node.dataset.nextIsos.split(",").filter(Boolean)
-          .map((iso) => fmtMin(secsUntil(parseUTC(iso)))).join(" · ");
+          .map((iso) => _laterMin(secsUntil(parseUTC(iso)))).join(" · ");
         if (txt && node.textContent !== `then ${txt} min`) node.textContent = `then ${txt} min`;
       });
     }
@@ -2716,8 +2719,6 @@ async function loadStop(code) {
     $("stop-road").textContent = info?.road_name || "";
     renderArrivals(arrivals);
     show($("stats-details"));
-    show($("about-details"));
-    show($("legend-details"));
     prepareStats(stats);
     syncSaveBtn();
     pushRecent(code, info);
@@ -4759,12 +4760,6 @@ function _renderArrNearbyList(stops) {
 $("arr-stops-list").addEventListener("click", (e) => {
   const btn = e.target.closest(".arr-stop-item");
   if (btn) loadStop(btn.dataset.code);
-});
-
-// Tap the stop-card header to collapse back to nearby list.
-$("stop-card").addEventListener("click", () => {
-  if ($("arr-detail").classList.contains("hidden")) return;
-  $("arr-back-btn").click();
 });
 
 $("arr-back-btn").addEventListener("click", () => {

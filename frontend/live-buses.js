@@ -448,7 +448,8 @@
     const now = Date.now();
     const items = [];
     for (const svc of data?.services || []) {
-      (svc.buses || []).slice(0, PER_SVC).forEach((bus, n) => {
+      // One plate per service (its next bus): the list below has the rest.
+      (svc.buses || []).slice(0, 1).forEach((bus, n) => {
         const at = parseUTC(bus.ai_arrival || bus.api_arrival);
         const eta = at ? (at - now) / 1000 : null;
         if (eta == null || eta > SPAN || eta < -60) return;
@@ -458,22 +459,23 @@
     }
     if (!items.length) { el.classList.add("hidden"); el.innerHTML = ""; return; }
     items.sort((a, b) => a.eta - b.eta);
-    // Plate widths in track fractions, from the label length (≈ what CSS draws).
-    const trackPx = Math.max(200, (el.clientWidth || 330) - 70);
-    const rowsEnd = [];   // fraction where each row's last plate ends
-    const plates = items.map((it) => {
-      const x = xAt(it.eta), w = (20 + 9.5 * it.svc.length + (it.type === "DD" ? 16 : 0) + 6) / trackPx;
-      let row = rowsEnd.findIndex((end) => end <= x - w * 0.12);
-      if (row < 0) { row = rowsEnd.length; rowsEnd.push(0); }
-      if (row > 2) return "";
-      rowsEnd[row] = x + w * 0.88;
-      return `<button type="button" class="lb-plate${it.eta < 60 ? " arr" : ""}${it.id && it.id === LB.sel ? " sel" : ""}" style="--x:${x};--row:${row}"
-        data-lb-id="${it.id ?? ""}" data-lb-svc="${esc(it.svc)}" title="${esc(it.svc)}: ${it.eta < 60 ? "arriving" : Math.round(it.eta / 60) + " min"}${it.gps ? " (live position)" : ""}">${esc(it.svc)}${it.type === "DD" ? '<i aria-hidden="true">DD</i>' : ""}</button>`;
-    }).join("");
-    const rows = Math.min(3, rowsEnd.length);
+    // One row, strictly left to right (soonest first). A plate that would
+    // overlap the previous one slides right; whatever doesn't fit becomes "+N".
+    const trackPx = Math.max(200, (el.clientWidth || 330) - 40);
+    const gap = 4 / trackPx, plusW = 34 / trackPx;
+    let end = -1, shown = 0, html = "";
+    for (const it of items) {
+      const w = (18 + 9 * it.svc.length) / trackPx;
+      const x = Math.max(xAt(it.eta), end + gap);
+      const room = shown < items.length - 1 ? 1 - plusW - gap : 1;
+      if (x + w > room) break;
+      end = x + w; shown++;
+      html += `<button type="button" class="lb-plate${it.eta < 60 ? " arr" : ""}${it.id && it.id === LB.sel ? " sel" : ""}" style="--x:${x}"
+        data-lb-id="${it.id ?? ""}" data-lb-svc="${esc(it.svc)}" aria-label="Bus ${esc(it.svc)}, ${it.eta < 60 ? "arriving" : Math.round(it.eta / 60) + " min"}${it.gps ? ", live position" : ""}. Show on map">${esc(it.svc)}</button>`;
+    }
+    if (shown < items.length) html += `<span class="lb-more" style="--x:${1 - plusW}" title="More buses in the list below">+${items.length - shown}</span>`;
     el.innerHTML = `
-      <div class="lb-head"><span>Coming up</span><span class="lb-hint">Tap a bus to see it on the map</span></div>
-      <div class="lb-track" style="--rows:${rows}"><span class="lb-now"></span>${plates}</div>
+      <div class="lb-track"><span class="lb-now"></span>${html}</div>
       <div class="lb-ticks"><span style="--x:0">Now</span><span style="--x:${xAt(300)}">5</span><span style="--x:${xAt(600)}">10</span><span style="--x:1">20 min</span></div>`;
     el.classList.remove("hidden");
   }
