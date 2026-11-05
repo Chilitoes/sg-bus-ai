@@ -735,7 +735,15 @@
 
   function focusBus(id, fromStrip) {
     const b = LB.buses.find((x) => x.id === id);
-    if (b?.hidden) { toast(`Bus ${b.svc} hasn't left ${b.path.startName} yet`); return; }
+    if (b?.hidden) {
+      // Still at its first stop (interchange / terminal): say when it's due
+      // to set off, so "hasn't left" next to "6 min" doesn't look wrong.
+      const left = Math.round(((b.wait0 || 0) - (Date.now() - b.t0) / 1000) / 60);
+      toast(left >= 1
+        ? `Bus ${b.svc} is still at ${b.path.startName}. It leaves in about ${left} min, then shows on the map`
+        : `Bus ${b.svc} is leaving ${b.path.startName} now. It'll show on the map in a moment`);
+      return;
+    }
     if (!b || !b.pos || !_arrMap) return;
     LB.sel = id; LB.focusAt = Date.now();
     const now = Date.now();
