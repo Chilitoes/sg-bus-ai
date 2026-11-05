@@ -61,28 +61,48 @@
     return s && s.latitude != null ? { lat: s.latitude, lng: s.longitude } : null;
   }
 
-  // Path of the stops leading to `stop` on service `svc`, from the stop
-  // backwards: pts[0] = the stop, cum[k] = metres along the road to pts[k].
+  // Road shape of a service (server-side, from OSRM; see route_shapes.py).
+  // null while the server is still preparing it — asked again after 25 s.
+  const shapeCache = new Map();   // svc → { data, at }
+  async function shapeFor(svc) {
+    const c = shapeCache.get(svc);
+    if (c && (c.data || Date.now() - c.at < 25000)) return c.data;
+    let data = null;
+    try { const r = await api(`/api/routes/${encodeURIComponent(svc)}/shape`); data = r.pending ? null : r; } catch { /* older backend */ }
+    shapeCache.set(svc, { data, at: Date.now() });
+    return data;
+  }
+
+  // Path leading to `stop` on service `svc`, from the stop backwards:
+  // pts[0] = the stop, cum[k] = metres along the road to pts[k]. Follows the
+  // roads when the server has the route's shape; until then, straight lines
+  // between stops (`road: false`, rebuilt on a later refresh).
   const pathCache = new Map();
   function pathFor(svc, stop, ref) {
     const key = `${svc}|${stop}`;
-    if (!pathCache.has(key)) {
-      pathCache.set(key, _routeData(svc).then((data) => {
-        const { d, i } = _routeDirFor(data, stop);
-        if (i < 1) return null;
-        const pts = [];
-        for (let k = i; k >= 0; k--) {
-          const ll = stopLL(d.stops[k].code);
-          if (ll) pts.push(toXY(ll.lat, ll.lng, ref));
-        }
-        if (pts.length < 2) return null;
-        const cum = [0];
-        for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
-        return { pts, cum, len: cum[cum.length - 1] };
-      }).catch(() => null));
-    }
-    return pathCache.get(key);
+    const hit = pathCache.get(key);
+    if (hit && !(hit.road === false && Date.now() - hit.at > 25000)) return hit.p;
+    const p = Promise.all([_routeData(svc), shapeFor(svc)]).then(([data, shape]) => {
+      const { d, i } = _routeDirFor(data, stop);
+      if (i < 1) return null;
+      let lls = null;
+      const sh = shape?.directions?.find((x) => x.direction === d.direction);
+      if (sh && sh.stop_index.length === d.stops.length && sh.stop_index[i] > 0) {
+        lls = sh.coords.slice(0, sh.stop_index[i] + 1).reverse().map(([lat, lng]) => ({ lat, lng }));
+      }
+      const road = !!lls;
+      if (!lls) lls = d.stops.slice(0, i + 1).reverse().map((x) => stopLL(x.code)).filter(Boolean);
+      if (lls.length < 2) return null;
+      const pts = lls.map((ll) => toXY(ll.lat, ll.lng, ref));
+      const cum = [0];
+      for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+      pathCache.set(key, { p: Promise.resolve({ pts, cum, len: cum[cum.length - 1], road }), road, at: Date.now() });
+      return { pts, cum, len: cum[cum.length - 1], road };
+    }).catch(() => null);
+    pathCache.set(key, { p, road: null, at: Date.now() });
+    return p;
   }
+
   // Position and heading (bearing, radians clockwise from north, direction of
   // travel = towards the stop) at `s` metres before the stop.
   function pointAt(p, s) {

@@ -14,6 +14,7 @@ bus_stops            – full Singapore bus stop directory (synced from LTA)
 from datetime import datetime
 
 from sqlalchemy import (
+    Text,
     Boolean,
     Column,
     DateTime,
@@ -230,6 +231,24 @@ class SavedCarpark(Base):
     carpark_id = Column(String(20), nullable=False)
     name       = Column(String(200), nullable=True)
     added_at   = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class RouteShape(Base):
+    """Road-following geometry for one direction of a bus service, derived
+    once from OSRM (see route_shapes.py). coords: JSON [[lat, lng], …];
+    stop_index: JSON list, the coords index of each stop in sequence."""
+    __tablename__ = "route_shapes"
+    __table_args__ = (
+        UniqueConstraint("service_no", "direction", name="uq_route_shape"),
+    )
+
+    id            = Column(Integer, primary_key=True)
+    service_no    = Column(String(10), nullable=False, index=True)
+    direction     = Column(Integer, nullable=False)
+    coords        = Column(Text, nullable=False)
+    stop_index    = Column(Text, nullable=False)
+    straight_legs = Column(Integer, default=0, nullable=False)
+    created_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class PushAlert(Base):
