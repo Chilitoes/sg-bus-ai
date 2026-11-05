@@ -101,7 +101,7 @@
       for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
       // Distances (m before our stop) of the stops the bus pauses at on the way.
       const stopsS = stopPts.filter((k) => k > 0 && k < cum.length).map((k) => cum[k]).sort((a, b) => a - b);
-      const path = { pts, cum, len: cum[cum.length - 1], road, stopsS };
+      const path = { pts, cum, len: cum[cum.length - 1], road, stopsS, startName: d.stops[0]?.name || "the interchange" };
       pathCache.set(key, { p: Promise.resolve(path), road, at: Date.now() });
       return path;
     }).catch(() => null);
@@ -146,11 +146,20 @@
   // up; when it puts it ahead, the bus speeds up a little to close the gap.
   // Buses without GPS are only placed once; later refreshes just re-time them.
   const DWELL = 5;              // seconds at each bus stop
+  const START_M = 40;           // within this of the route's first stop = still at the interchange
   function plan(b) {
     const stops = (b.path.stopsS || []).filter((x) => x < b.s0 - 15).sort((x, y) => y - x);   // in the order it meets them
     // Still part-way through a stop when re-timed: finish that pause first.
     b.wait0 = b.dwellUntil > b.t0 ? (b.dwellUntil - b.t0) / 1000 : 0;
-    const drive = Math.max(b.eta - b.wait0 - DWELL * stops.length, b.eta * 0.5, 10);
+    // At the start of its route (still in the interchange / terminal, which
+    // is where a bus that's many minutes away often is): it waits there and
+    // leaves when a normal run gets it here on time, rather than crawling
+    // out early to stretch the trip over the whole ETA.
+    if (b.s0 >= b.path.len - START_M) {
+      const run = b.s0 / EST_SPEED + DWELL * stops.length;
+      b.wait0 = Math.max(b.wait0, b.eta - run);
+    }
+    const drive = Math.max(b.eta - b.wait0 - DWELL * stops.length, Math.min(b.eta * 0.5, b.eta - b.wait0), 10);
     b.v = Math.min(16, Math.max(1.5, b.s0 / drive));
     b.stopsAhead = stops;
   }
@@ -291,9 +300,16 @@
   function tick() {
     if (!_arrMap || !LB.buses.length || document.hidden || S.view !== "arrivals") return;
     const now = Date.now();
-    LB.buses.forEach((b) => step(b, now));
+    LB.buses.forEach((b) => {
+      step(b, now);
+      // Not left the interchange yet: don't draw it (it'd only pile up with
+      // the other waiting buses). It appears the moment it sets off.
+      b.hidden = b.sDisp >= b.path.len - START_M && sModel(b, now) >= b.path.len - START_M;
+      setChipVisible(b, !b.hidden);
+    });
     queue(now);
     LB.buses.forEach((b) => {
+      if (b.hidden) return;
       const pt = b.pos;
       const ll = fromXY(pt.x, pt.y, LB.ref);
       b.chip?.setLatLng([ll.lat, ll.lng]);
@@ -318,12 +334,13 @@
     const z = _arrMap?.getZoom?.() ?? 16;
     return (44 * 156543 * Math.cos((LB.ref?.lat || 1.35) * RAD) / Math.pow(2, z)) / 14;
   }
+  const QUEUE_M = 250;          // only queue up near our stop
   function queue(now) {
     const k = drawScale();
     const placed = [];
-    [...LB.buses].sort((a, b) => a.sDisp - b.sDisp).forEach((b) => {
+    [...LB.buses].filter((b) => !b.hidden).sort((a, b) => a.sDisp - b.sDisp).forEach((b) => {
       let sq = b.sDisp, pt = pointAt(b.path, sq);
-      for (let n = 0; n < 40; n++) {
+      for (let n = 0; n < 40 && b.sDisp < QUEUE_M; n++) {
         const hit = placed.find((q) => Math.hypot(pt.x - q.pt.x, pt.y - q.pt.y) < ((LEN[b.type] + LEN[q.type]) / 2 + 3) * k);
         if (!hit || sq >= b.path.len) break;
         sq = Math.min(b.path.len, sq + ((LEN[b.type] + LEN[hit.type]) / 6 + 1) * k);
@@ -518,8 +535,9 @@
         // growing as you zoom out (about ×6 at the usual stop view, up to ×12).
         const k = Math.min(12, Math.max(2.4, Math.pow(2, 17.6 - map.getZoom())));
         for (const b of LB.buses) {
-          if (!b.pos) continue;
+          if (!b.pos || b.hidden) { if (b.obj) b.obj.visible = false; continue; }
           if (!b.obj || b.obj.userData.type !== b.type) { if (b.obj) T.scene.remove(b.obj); b.obj = busObject(b); }
+          b.obj.visible = true;
           b.obj.position.set(b.pos.x, b.pos.y, 0);
           b.obj.rotation.z = Math.PI / 2 - b.pos.heading;
           b.obj.scale.setScalar(LB.sel === b.id ? k * 1.25 : k);
@@ -586,8 +604,14 @@
     el.classList.remove("hidden");
   }
 
+  function setChipVisible(b, vis) {
+    const el = b.chip?._el || b.chip?.getElement?.();
+    if (el) el.style.display = vis ? "" : "none";
+  }
+
   function focusBus(id, fromStrip) {
     const b = LB.buses.find((x) => x.id === id);
+    if (b?.hidden) { toast(`Bus ${b.svc} hasn't left ${b.path.startName} yet`); return; }
     if (!b || !b.pos || !_arrMap) return;
     LB.sel = id;
     const now = Date.now();
