@@ -12,15 +12,18 @@
 
 (() => {
   const MIN_ZOOM = 14.6;          // MapLibre zoom (Leaflet 15.6)
-  const MAX_TREES = 4000;
+  const MAX_TREES = 1600;
+  const MAX_LAMPS = 500;
+  const LAMP_SP = 38;            // m between street lights on each side of a main road
   // Roadside trees: half-width of the road (m) by class; both sides on
   // main roads, one side (alternating) on small streets.
-  const ROAD = { trunk: [12, 13, 2], primary: [10, 13, 2], secondary: [8, 14, 2], tertiary: [7, 15, 2], minor: [5, 19, 1] };
+  const ROAD = { trunk: [12, 26, 2], primary: [10, 26, 2], secondary: [8, 28, 2], tertiary: [7, 30, 2], minor: [5, 42, 1] };
+  const LIT = new Set(["trunk", "primary", "secondary", "tertiary"]);
   const ORIGIN = { lat: 1.3521, lng: 103.8198 };
   const R = 6371000, RAD = Math.PI / 180, COS = Math.cos(ORIGIN.lat * RAD);
   const toXY = (lng, lat) => [(lng - ORIGIN.lng) * RAD * R * COS, (lat - ORIGIN.lat) * RAD * R];
   // spacing (m) by landcover class/subclass
-  const SPACING = (p) => p.class === "wood" ? 11 : ({ park: 20, garden: 18, recreation_ground: 26, golf_course: 34, grass: 30, meadow: 34 })[p.subclass] || 0;
+  const SPACING = (p) => p.class === "wood" ? 22 : ({ park: 34, garden: 30, recreation_ground: 44, golf_course: 55, grass: 50, meadow: 55 })[p.subclass] || 0;
 
   const hash = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 
@@ -34,11 +37,12 @@
   }
 
   function scatter(map) {
-    if (map.getZoom() < MIN_ZOOM) return [];
+    if (map.getZoom() < MIN_ZOOM) { const e = []; e.lamps = []; return e; }
     const feats = map.querySourceFeatures("openmaptiles", { sourceLayer: "landcover" });
     const b = map.getBounds();
     const [x0, y0] = toXY(b.getWest(), b.getSouth()), [x1, y1] = toXY(b.getEast(), b.getNorth());
-    const out = [], seen = new Set();
+    const out = [], seen = new Set(), lamps = [];
+    out.lamps = lamps;
     // Parks often include their ponds: no trees in water.
     const water = [];
     for (const w of map.querySourceFeatures("openmaptiles", { sourceLayer: "water" })) {
@@ -66,6 +70,22 @@
           const L = Math.hypot(bx - ax, by - ay);
           if (L < 1) continue;
           const ux = (bx - ax) / L, uy = (by - ay) / L;
+          // Street lights: both sides, staggered, poles at the kerb with the
+          // arm reaching over the road.
+          if (LIT.has(f.properties.class)) {
+            for (const side of [1, -1]) {
+              const off = side === 1 ? 0 : LAMP_SP / 2;
+              for (let t = (LAMP_SP - ((ax * ux + ay * uy - off) % LAMP_SP + LAMP_SP) % LAMP_SP); t < L; t += LAMP_SP) {
+                const cx = ax + ux * t, cy = ay + uy * t;
+                if (!inView(cx, cy)) continue;
+                const x = cx - uy * side * (half + 0.8), y = cy + ux * side * (half + 0.8);
+                const key = `l:${Math.round(x / 12)}:${Math.round(y / 12)}`;
+                if (seen.has(key) || lamps.length >= MAX_LAMPS) continue;
+                seen.add(key);
+                lamps.push({ x, y, r: Math.atan2(-ux * side, uy * side), arm: Math.min(2.6, half * 0.45) });
+              }
+            }
+          }
           // world-anchored stations along the road so trees don't slide as tiles change
           for (let t = (sp - ((ax * ux + ay * uy) % sp + sp) % sp); t < L; t += sp) {
             const cx = ax + ux * t, cy = ay + uy * t;
@@ -75,7 +95,7 @@
               const key = `r:${Math.round(x / 7)}:${Math.round(y / 7)}`;
               if (seen.has(key)) continue;
               const r1 = hash(Math.round(x), Math.round(y));
-              if (r1 < 0.18 || wet(x, y)) continue;   // gaps (driveways, bus stops)
+              if (r1 < 0.35 || wet(x, y)) continue;   // gaps (driveways, bus stops)
               seen.add(key);
               out.push({ x, y, s: 0.8 + 0.5 * hash(Math.round(y), Math.round(x)), r: r1 * Math.PI * 2, c: hash(Math.round(x) + 5, Math.round(y) - 9) });
               if (out.length >= MAX_TREES * 0.6) break;
@@ -98,7 +118,7 @@
             const key = `${sp}:${gx}:${gy}`;
             if (seen.has(key)) continue;   // polygons are split across tiles
             const r1 = hash(gx, gy), r2 = hash(gy * 7 + 3, gx * 13 + 1);
-            if (sp > 15 && r1 < 0.25) continue;            // gaps in parks
+            if (r1 < (sp > 25 ? 0.4 : 0.2)) continue;      // clumps and clearings
             const x = (gx + 0.15 + 0.7 * r1) * sp, y = (gy + 0.15 + 0.7 * r2) * sp;
             if (!inRing(x, y, rings[0]) || rings.slice(1).some((h) => inRing(x, y, h)) || wet(x, y)) continue;
             seen.add(key);
@@ -134,6 +154,36 @@
     return geo;
   }
 
+  // Singapore-style street light: tall grey pole, a slim arm out over the
+  // road (+x), a flat lamp head. Head and night-time glow are separate
+  // instanced meshes sharing the same per-lamp transform.
+  function lampGeometries(THREE) {
+    const pole = new THREE.CylinderGeometry(0.11, 0.16, 9, 6); pole.rotateX(Math.PI / 2); pole.translate(0, 0, 4.5);
+    const arm = new THREE.BoxGeometry(2.4, 0.12, 0.12); arm.translate(1.2, 0, 8.9);
+    const base = new THREE.CylinderGeometry(0.28, 0.32, 0.6, 6); base.rotateX(Math.PI / 2); base.translate(0, 0, 0.3);
+    const merge = (list) => {
+      const pos = [], nrm = [];
+      for (const g0 of list) { const g = g0.index ? g0.toNonIndexed() : g0; g.computeVertexNormals();
+        pos.push(...g.attributes.position.array); nrm.push(...g.attributes.normal.array); }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+      return geo;
+    };
+    const head = new THREE.BoxGeometry(0.9, 0.38, 0.16); head.translate(2.35, 0, 8.82);
+    const glow = new THREE.PlaneGeometry(9, 9); glow.translate(2.35, 0, 0.08);
+    return { body: merge([pole, arm, base]), head, glow };
+  }
+  let _glowTex = null;
+  function glowTexture(THREE) {
+    if (_glowTex) return _glowTex;
+    const cv = document.createElement("canvas"); cv.width = cv.height = 64;
+    const x = cv.getContext("2d"), g = x.createRadialGradient(32, 32, 2, 32, 32, 32);
+    g.addColorStop(0, "rgba(255,214,140,.75)"); g.addColorStop(0.5, "rgba(255,190,110,.25)"); g.addColorStop(1, "rgba(255,180,100,0)");
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+    return (_glowTex = new THREE.CanvasTexture(cv));
+  }
+
   function attach(glm) {
     const map = glm._gl;
     const T = { THREE: null, scene: null, camera: null, renderer: null, mesh: null, geo: null, mat: null, dark: null };
@@ -141,6 +191,7 @@
 
     async function rebuild() {
       if (map.getZoom() < MIN_ZOOM) { if (T.mesh) T.mesh.visible = false; map.triggerRepaint(); return; }
+      if (T.mesh) T.mesh.visible = true;
       if (!T.THREE) {
         try { T.THREE = await window.SGLoadThree(); } catch { return; }
         const THREE = T.THREE;
@@ -150,6 +201,10 @@
         T.camera = new THREE.Camera();
         T.geo = treeGeometry(THREE);
         T.mat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.92 });
+        T.lampGeo = lampGeometries(THREE);
+        T.lampMat = new THREE.MeshLambertMaterial({ color: 0x8b9199 });
+        T.headMat = new THREE.MeshBasicMaterial({ color: 0xdfe3e8 });
+        T.glowMat = new THREE.MeshBasicMaterial({ map: glowTexture(THREE), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
         addLayer();
       }
       const THREE = T.THREE, trees = scatter(map);
@@ -169,6 +224,21 @@
       T.mesh.instanceMatrix.needsUpdate = true;
       if (T.mesh.instanceColor) T.mesh.instanceColor.needsUpdate = true;
       T.scene.add(T.mesh);
+      // Street lights (+ lit heads and a pool of light on the road at night).
+      for (const k of ["lamps", "heads", "glows"]) if (T[k]) { T.scene.remove(T[k]); T[k].dispose?.(); }
+      const L = trees.lamps || [], n = Math.max(1, L.length);
+      T.lamps = new THREE.InstancedMesh(T.lampGeo.body, T.lampMat, n);
+      T.heads = new THREE.InstancedMesh(T.lampGeo.head, T.headMat, n);
+      T.glows = new THREE.InstancedMesh(T.lampGeo.glow, T.glowMat, n);
+      T.lampMat.color.setHex(dark ? 0x5a6069 : 0x8b9199);
+      T.headMat.color.setHex(dark ? 0xffe6a8 : 0xdfe3e8);
+      L.forEach((l, i) => {
+        q.setFromAxisAngle(z, l.r);
+        m.compose(new THREE.Vector3(l.x, l.y, 0), q, new THREE.Vector3(1, 1, 1));
+        T.lamps.setMatrixAt(i, m); T.heads.setMatrixAt(i, m); T.glows.setMatrixAt(i, m);
+      });
+      for (const k of ["lamps", "heads", "glows"]) { T[k].count = L.length; T[k].instanceMatrix.needsUpdate = true; T.scene.add(T[k]); }
+      T.glows.visible = !!dark;
       map.triggerRepaint();
     }
 
@@ -180,7 +250,7 @@
           if (!T.renderer) { T.renderer = new T.THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true }); T.renderer.autoClear = false; }
         },
         render(gl, args) {
-          if (!T.mesh || !T.mesh.visible || !T.mesh.count) return;
+          if (!T.mesh || !T.mesh.visible || (!T.mesh.count && !T.lamps?.count)) return;
           const THREE = T.THREE;
           const mc = maplibregl.MercatorCoordinate.fromLngLat([ORIGIN.lng, ORIGIN.lat], 0);
           const u = mc.meterInMercatorCoordinateUnits();
