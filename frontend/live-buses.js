@@ -768,5 +768,6 @@
     if (LB.mode === "stop" && LB.lastData && !document.hidden && S.view === "arrivals" && !$("live-strip")?.classList.contains("hidden")) renderStrip();
   }, 2000);
 
+  window.SGLoadThree = loadThree;   // shared with trees.js
   window.LiveBuses = { update, nearby, clear, focusBus, focusSvc, _state: LB, _buildBus: buildBus, _signTexture: signTexture, _motion: { plan, sModel, step, estimateS } };
 })();

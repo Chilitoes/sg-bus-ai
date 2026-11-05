@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.54";
+const APP_VERSION = "1.2.55";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -5267,7 +5267,7 @@ function _sgTuneStyle(base, dark, { buildings3d = false } = {}) {
     else if (id === "building-3d") {
       // Soft, matte blocks so HDB estates read as 3D without stealing focus.
       p["fill-extrusion-color"] = dark ? "#2d3036" : "#e4e1db";
-      p["fill-extrusion-opacity"] = dark ? 0.9 : 0.85;
+      p["fill-extrusion-opacity"] = dark ? 0.62 : 0.55;   // see-through enough that buses and trees read behind them
       p["fill-extrusion-vertical-gradient"] = true;
       l.minzoom = 14;
     }
