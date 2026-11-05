@@ -117,7 +117,14 @@
   // Position and heading (bearing, radians clockwise from north, direction of
   // travel = towards the stop) at `s` metres before the stop.
   function pointAt(p, s) {
-    s = Math.max(0, Math.min(p.len, s));
+    if (s < 0) {
+      // Past our stop (a departing bus): carry on in the direction it was
+      // travelling when it reached the stop.
+      const a = p.pts[0], b = p.pts[1], d = Math.hypot(a[0] - b[0], a[1] - b[1]) || 1;
+      const ux = (a[0] - b[0]) / d, uy = (a[1] - b[1]) / d;
+      return { x: a[0] - ux * s, y: a[1] - uy * s, heading: Math.atan2(ux, uy) };
+    }
+    s = Math.min(p.len, s);
     let k = 1;
     while (k < p.cum.length - 1 && p.cum[k] < s) k++;
     const a = p.pts[k - 1], b = p.pts[k], seg = p.cum[k] - p.cum[k - 1] || 1;
@@ -154,6 +161,8 @@
   // up; when it puts it ahead, the bus speeds up a little to close the gap.
   // Buses without GPS are only placed once; later refreshes just re-time them.
   const DWELL = 5;              // seconds at each bus stop
+  const PASSED_S = 20;          // arrival this long ago = it has left (LTA lists buses ~1 min after)
+  const LEAVE_MS = 4000;        // drive-off animation
   const START_M = 40;           // within this of the route's first stop = still at the interchange
   function plan(b) {
     const stops = (b.path.stopsS || []).filter((x) => x < b.s0 - 15).sort((x, y) => y - x);   // in the order it meets them
@@ -195,6 +204,12 @@
     return Math.max(0, s - b.v * t);
   }
   function step(b, now) {
+    if (b.leaving) {
+      // From wherever it is, on through the stop at ~9 m/s.
+      b.leaveFrom ??= b.sDisp ?? 0;
+      b.sDisp = Math.min(b.leaveFrom, 0) - 9 * (now - b.leaving) / 1000 + Math.max(b.leaveFrom, 0) * Math.max(0, 1 - (now - b.leaving) / 1500);
+      return;
+    }
     const target = sModel(b, now);
     const dt = Math.min(0.25, (now - (b.lastStep || now)) / 1000);
     b.lastStep = now;
@@ -223,7 +238,7 @@
       (svc.buses || []).slice(0, PER_SVC).forEach((bus) => {
         const at = parseUTC(bus.ai_arrival || bus.api_arrival);
         const eta = at ? (at - now) / 1000 : null;
-        if (eta == null || eta > MAX_ETA || eta < -60) return;
+        if (eta == null || eta > MAX_ETA || eta < -90) return;
         out.push({ stop, svc: svc.service_no, bus, eta });
       });
     }
@@ -273,14 +288,20 @@
     let cands = entries.map((w, n) => {
       const p = paths[n];
       if (!p) return null;
-      let s0 = estimateS(p, w.eta), gps = false;
+      let s0 = estimateS(p, w.eta), gps = false, passed = w.eta < -PASSED_S;
       if (w.bus.lat != null && w.bus.lng != null) {
         const [x, y] = toXY(w.bus.lat, w.bus.lng, ref);
         const pr = project(p, x, y);
         if (pr.dist < 350) { s0 = pr.s; gps = true; }
+        // GPS beyond the end of the path (= past our stop): it's left.
+        if (pr.s < 8 && pr.dist > 40 && pr.dist < 600) passed = true;
       }
-      return { ...w, p, s0, gps, pt: pointAt(p, s0) };
+      return { ...w, p, s0, gps, passed, pt: pointAt(p, s0) };
     }).filter(Boolean);
+    // Buses LTA still lists although they've passed the stop: let the one
+    // we're drawing drive off; never start drawing a new one.
+    const passedC = cands.filter((c) => c.passed);
+    cands = cands.filter((c) => !c.passed);
     if (dedupe) {
       // The same bus shows up in the lists of every nearby stop it'll pass:
       // same service and (nearly) the same place = one bus, kept for the
@@ -316,6 +337,17 @@
       plan(b);
       keep.add(b);
     }
+    // Drawn buses that are gone from the feed (or listed as passed): if one
+    // was at or near the stop, it drives off past it and fades instead of
+    // vanishing — or being left stuck at the stop saying "Arr".
+    for (const b of LB.buses) {
+      if (keep.has(b)) continue;
+      const wasPassed = passedC.some((c) => c.svc === b.svc && c.stop === b.stop);
+      if (b.leaving || (!b.hidden && b.sDisp != null && b.sDisp < 60 && (wasPassed || b.eta - (now - b.t0) / 1000 < 30))) {
+        b.leaving ||= now;
+        keep.add(b);
+      }
+    }
     LB.buses.filter((b) => !keep.has(b)).forEach(dropBus);
     LB.buses = LB.buses.filter((b) => keep.has(b));
     await ensureDrawing();
@@ -349,7 +381,7 @@
   }
 
   function chipIcon(b, eta = b.eta) {
-    const when = eta < 60 ? "Arr" : `${Math.round(eta / 60)} min`;
+    const when = eta === -999 ? "Left" : eta < 60 ? "Arr" : `${Math.round(eta / 60)} min`;
     const flat = !(_arrMap instanceof GLMap) || !LB.three;
     return SGL.divIcon({
       className: "lb-chip-wrap",
@@ -362,7 +394,11 @@
     if (!_arrMap || !LB.buses.length || document.hidden || S.view !== "arrivals") return;
     if (LB.mode === "nearby" && S.stop) return;
     const now = Date.now();
+    for (const b of LB.buses.filter((x) => x.leaving && now - x.leaving > LEAVE_MS)) dropBus(b);
+    LB.buses = LB.buses.filter((x) => !(x.leaving && now - x.leaving > LEAVE_MS));
     LB.buses.forEach((b) => {
+      // Overdue at the stop between refreshes: it's left.
+      if (!b.leaving && !b.hidden && b.sDisp != null && b.sDisp < 60 && b.eta - (now - b.t0) / 1000 < -PASSED_S) b.leaving = now;
       step(b, now);
       // Not left the interchange yet: don't draw it (it'd only pile up with
       // the other waiting buses). It appears the moment it sets off.
@@ -377,8 +413,9 @@
       b.chip?.setLatLng([ll.lat, ll.lng]);
       // ETA counts down between refreshes
       const eta = b.eta - (now - b.t0) / 1000;
-      const label = eta < 60 ? "Arr" : `${Math.round(eta / 60)} min`;
-      if (b._label !== label) { b._label = label; b.chip?.setIcon(chipIcon(b, eta)); }
+      const label = b.leaving ? "Left" : eta < 60 ? "Arr" : `${Math.round(eta / 60)} min`;
+      if (b._label !== label) { b._label = label; b.chip?.setIcon(chipIcon(b, b.leaving ? -999 : eta)); }
+      if (b.leaving) { const el = b.chip?._el; if (el) el.style.opacity = String(Math.max(0, 1 - (now - b.leaving) / LEAVE_MS)); }
     });
     if (LB.layer && _arrMap._gl) _arrMap._gl.triggerRepaint();
   }
@@ -397,7 +434,8 @@
     // never shuffles buses along the road.
     const k = QUEUE_K;
     const placed = [];
-    [...LB.buses].filter((b) => !b.hidden).sort((a, b) => a.sDisp - b.sDisp).forEach((b) => {
+    LB.buses.filter((b) => b.leaving).forEach((b) => { b.pos = pointAt(b.path, b.sDisp); });
+    [...LB.buses].filter((b) => !b.hidden && !b.leaving).sort((a, b) => a.sDisp - b.sDisp).forEach((b) => {
       let sq = b.sDisp, pt = pointAt(b.path, sq);
       for (let n = 0; n < 40 && b.sDisp < QUEUE_M; n++) {
         const hit = placed.find((q) => Math.hypot(pt.x - q.pt.x, pt.y - q.pt.y) < ((LEN[b.type] + LEN[q.type]) / 2 + 3) * k);
@@ -599,7 +637,8 @@
           b.obj.visible = true;
           b.obj.position.set(b.pos.x, b.pos.y, 0);
           b.obj.rotation.z = Math.PI / 2 - b.pos.heading;
-          b.obj.scale.setScalar(LB.sel === b.id ? k * 1.25 : k);
+          const fade = b.leaving ? Math.max(0.05, 1 - (Date.now() - b.leaving) / LEAVE_MS) : 1;
+          b.obj.scale.setScalar((LB.sel === b.id ? k * 1.25 : k) * fade);
         }
         T.renderer.resetState();
         // Buses are drawn over the buildings (depth cleared first) so a bus
@@ -624,10 +663,12 @@
     const items = [];
     for (const svc of data?.services || []) {
       // One plate per service (its next bus): the list below has the rest.
-      (svc.buses || []).slice(0, 1).forEach((bus, n) => {
+      // Its next bus that hasn't gone past yet.
+      const nextBus = (svc.buses || []).find((x) => { const t = parseUTC(x.api_arrival); return !t || (t - now) / 1000 >= -PASSED_S; });
+      [nextBus].filter(Boolean).forEach((bus, n) => {
         const at = parseUTC(bus.ai_arrival || bus.api_arrival);
         const eta = at ? (at - now) / 1000 : null;
-        if (eta == null || eta > SPAN || eta < -60) return;
+        if (eta == null || eta > SPAN || eta < -PASSED_S) return;   // gone past: not "coming up"
         const live = LB.buses.find((b) => b.svc === svc.service_no && Math.abs(b.eta - eta) < 150);
         items.push({ svc: svc.service_no, eta, id: live?.id, gps: live?.gps, type: bus.type });
       });
@@ -707,7 +748,7 @@
   function focusSvc(svc, iso) {
     const at = parseUTC(iso)?.getTime();
     const now = Date.now();
-    const cands = LB.buses.filter((b) => b.svc === svc && b.pos);
+    const cands = LB.buses.filter((b) => b.svc === svc && b.pos && !b.leaving);
     if (!cands.length) return false;
     const etaOf = (b) => b.eta - (now - b.t0) / 1000;
     const b = at ? cands.sort((x, y) => Math.abs(now + etaOf(x) * 1000 - at) - Math.abs(now + etaOf(y) * 1000 - at))[0] : cands[0];

@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.53";
+const APP_VERSION = "1.2.54";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1669,8 +1669,21 @@ function delayHabit(secs) {
   return `usually ${m} min ${s ? s + "s " : ""}${dir}`;
 }
 
+// LTA keeps listing a bus for up to ~1 min after it reaches the stop. Once
+// its arrival is 20 s gone, it's left: show that service's next bus instead.
+function _dropPassed(data) {
+  const now = Date.now();
+  for (const svc of data.services || []) {
+    svc.buses = (svc.buses || []).filter((b) => { const t = parseUTC(b.api_arrival); return !t || t - now > -20e3; });
+  }
+  data.services = (data.services || []).filter((s) => s.buses.length);
+  return data;
+}
+
 function renderArrivals(data) {
+  S._rawArrivals = data;
   hide($("arrivals-error"));
+  data = _dropPassed({ ...data, services: (data.services || []).map((s) => ({ ...s, buses: [...(s.buses || [])] })) });
   const open = new Set([...document.querySelectorAll(".svc.open")].map((c) => c.dataset.svc));
   if (!data.services?.length) {
     $("rows").innerHTML = "";
@@ -1679,7 +1692,7 @@ function renderArrivals(data) {
   }
   hide($("no-services"));
   S.lastArrivals = { stop: S.stop, data };
-  window.LiveBuses?.update(S.stop, data);   // 3D buses on the map + timeline strip
+  window.LiveBuses?.update(S.stop, S._rawArrivals || data);   // 3D buses on the map + timeline strip
   // Soonest first: what matters now is at the top.
   const soon = (x) => parseUTC(x.buses?.[0]?.api_arrival)?.getTime() ?? Infinity;
   $("rows").innerHTML = [...data.services].sort((a, b) => soon(a) - soon(b)).map(svcCard).join("");
@@ -1727,7 +1740,20 @@ function startTicker() {
       // minute granularity, so most 1 s ticks would otherwise force layout
       // work on every card for nothing.
       rows.querySelectorAll("[data-eta-iso]").forEach((node) => {
-        const s = secsUntil(parseUTC(node.dataset.etaIso));
+        let s = secsUntil(parseUTC(node.dataset.etaIso));
+        // Passed (see _dropPassed): move up to the next bus until the refresh.
+        if (s !== null && s < -20) {
+          const nx = node.closest(".svc")?.querySelector("[data-next-isos]");
+          const rest = (nx?.dataset.nextIsos || "").split(",").filter(Boolean);
+          if (rest.length) {
+            node.dataset.etaIso = rest.shift();
+            nx.dataset.nextIsos = rest.join(",");
+            if (!rest.length) nx.textContent = "last bus";
+            const ai = node.closest(".svc").querySelector("[data-ai-iso]");
+            if (ai) { ai.dataset.aiIso = ""; ai.textContent = ""; ai.classList.add("hidden"); }
+            s = secsUntil(parseUTC(node.dataset.etaIso));
+          }
+        }
         const due = s !== null && s < DUE_SECS;
         const html = `${fmtMin(s)}${due ? "" : `<span class="eta-unit">min</span>`}`;
         node.classList.toggle("due", due);

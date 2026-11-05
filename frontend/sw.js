@@ -6,7 +6,7 @@
    3 s on a slow connection. (An old cache-first strategy for unversioned
    files served stale app.js after a version bump — don't do that.) */
 
-const CACHE = "sgbus-shell-v1.2.53";
+const CACHE = "sgbus-shell-v1.2.54";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
