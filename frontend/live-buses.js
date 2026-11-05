@@ -357,6 +357,7 @@
 
   function clear(keepStrip = false) {
     stopNearby();
+    stopFollow();
     LB.buses.forEach(dropBus);
     LB.buses = []; LB.stop = null; LB.mode = null; LB.sel = null; LB.expanded = false;
     clearInterval(LB.timer); LB.timer = null;
@@ -417,6 +418,7 @@
       if (b._label !== label) { b._label = label; b.chip?.setIcon(chipIcon(b, b.leaving ? -999 : eta)); }
       if (b.leaving) { const el = b.chip?._el; if (el) el.style.opacity = String(Math.max(0, 1 - (now - b.leaving) / LEAVE_MS)); }
     });
+    followFrame(now);
     if (LB.layer && _arrMap._gl) _arrMap._gl.triggerRepaint();
   }
 
@@ -731,16 +733,91 @@
     const b = LB.buses.find((x) => x.id === id);
     if (b?.hidden) { toast(`Bus ${b.svc} hasn't left ${b.path.startName} yet`); return; }
     if (!b || !b.pos || !_arrMap) return;
-    LB.sel = id;
+    LB.sel = id; LB.focusAt = Date.now();
     const now = Date.now();
     LB.buses.forEach((x) => { x.chip?.setIcon(chipIcon(x, x.eta - (now - x.t0) / 1000)); x.chip?.setZIndexOffset(x.id === id ? 1000 : 1); });
-    const ll = fromXY(b.pos.x, b.pos.y, LB.ref);
-    if (fromStrip) _snapSheet("min");
-    setTimeout(() => {
-      if (_arrMap.getZoom() < 16.8) _arrMap.setView([ll.lat, ll.lng], 17.2);
-      _mapFocus(_arrMap, "view-arrivals", SGL.latLng(ll.lat, ll.lng));
-    }, fromStrip ? 300 : 0);
     document.querySelectorAll(".lb-plate").forEach((p) => p.classList.toggle("sel", +p.dataset.lbId === id));
+    _snapSheet("min");
+    setTimeout(() => startFollow(b), 300);
+  }
+
+  // ── Follow cam ──
+  // Third-person view behind the selected bus: tilted, turned to face where
+  // it's heading, a little ahead of it, kept up every frame as it drives.
+  // Any drag / pinch / rotate by the user, the chip's ×, Back, or the bus
+  // leaving ends it. (Flat Leaflet fallback: just keeps it centred.)
+  const FOLLOW_ZOOM = 18, FOLLOW_PITCH = 62, AHEAD_M = 30;
+  function startFollow(b) {
+    if (!_arrMap || !b?.pos) return;
+    LB.follow = b.id; LB.followBear = null;
+    const gl = _arrMap instanceof GLMap ? _arrMap._gl : null;
+    if (gl) {
+      if (!LB._gestureHook) {
+        LB._gestureHook = true;
+        // Any touch, click-drag or wheel on the map takes the camera back.
+        // (Listened for on the canvas itself: the per-frame camera updates
+        // can swallow the map's own dragstart.)
+        const cv = gl.getCanvasContainer();
+        const stopIfUser = () => { if (LB.follow && Date.now() > (LB.followAnimUntil || 0) - 600) stopFollow(); };
+        ["pointerdown", "touchstart", "wheel"].forEach((ev) => cv.addEventListener(ev, stopIfUser, { passive: true }));
+      }
+      const c = followCentre(b);
+      LB.followAnimUntil = Date.now() + 900;
+      LB.followBear = b.pos.heading * 180 / Math.PI;
+      gl.easeTo({ center: [c.lng, c.lat], zoom: Math.max(gl.getZoom(), FOLLOW_ZOOM), pitch: FOLLOW_PITCH, bearing: LB.followBear,
+                  padding: followPadding(), duration: 850 });
+    }
+    renderFollowChip(b);
+  }
+  function followPadding() {
+    // Bus in the part of the map that's visible above the bottom sheet.
+    const sheetH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sheet-h")) || 0;
+    const side = document.querySelector("#view-arrivals .arr-sheet")?.getBoundingClientRect();
+    const sideBySide = side && side.right <= (_arrMap.getContainer().getBoundingClientRect().left + 4);
+    return { top: 80, bottom: sideBySide ? 0 : Math.min(innerHeight * 0.5, sheetH), left: 0, right: 0 };
+  }
+  function followCentre(b) {
+    const h = b.pos.heading;
+    return fromXY(b.pos.x + Math.sin(h) * AHEAD_M, b.pos.y + Math.cos(h) * AHEAD_M, LB.ref);
+  }
+  function followFrame(now) {
+    if (!LB.follow) return;
+    const b = LB.buses.find((x) => x.id === LB.follow);
+    if (!b || b.hidden || !b.pos) { stopFollow(); return; }
+    if (b.leaving && now - b.leaving > LEAVE_MS - 400) { stopFollow(); toast(`Bus ${b.svc} has left the stop`); return; }
+    if (now < (LB.followAnimUntil || 0)) return;
+    const c = followCentre(b);
+    if (!(_arrMap instanceof GLMap)) {
+      if (!LB._flatAt || now - LB._flatAt > 1000) { LB._flatAt = now; _arrMap.panTo([c.lat, c.lng], { duration: 0.8 }); }
+      return;
+    }
+    // Turn smoothly (shortest way round) rather than snapping at corners.
+    const want = b.pos.heading * 180 / Math.PI;
+    let cur = LB.followBear ?? want;
+    let d = ((want - cur + 540) % 360) - 180;
+    cur += d * 0.08;
+    LB.followBear = cur;
+    _arrMap._gl.jumpTo({ center: [c.lng, c.lat], bearing: cur });
+  }
+  function stopFollow() {
+    if (!LB.follow) return;
+    LB.follow = null;
+    $("follow-chip")?.classList.add("hidden");
+    if (_arrMap instanceof GLMap) _arrMap._gl.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
+  }
+  function renderFollowChip(b) {
+    const wrap = $("view-arrivals").querySelector(".arr-search-wrap");
+    let chip = $("follow-chip");
+    if (!chip) {
+      chip = document.createElement("div");
+      chip.id = "follow-chip"; chip.className = "route-chip follow-chip";
+      wrap.appendChild(chip);
+      chip.addEventListener("click", (e) => { if (e.target.closest("[data-follow-stop]")) stopFollow(); });
+    }
+    chip.innerHTML = `<span class="route-chip-badge">${esc(b.svc)}</span><span class="route-chip-txt">Following this bus</span>
+      <button type="button" class="route-chip-x" data-follow-stop aria-label="Stop following">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>`;
+    chip.classList.remove("hidden");
   }
 
   // Show where a given bus is — from the "Can I make it?" sheet. Picks the
@@ -769,5 +846,5 @@
   }, 2000);
 
   window.SGLoadThree = loadThree;   // shared with trees.js
-  window.LiveBuses = { update, nearby, clear, focusBus, focusSvc, _state: LB, _buildBus: buildBus, _signTexture: signTexture, _motion: { plan, sModel, step, estimateS } };
+  window.LiveBuses = { update, nearby, clear, focusBus, focusSvc, stopFollow, _state: LB, _buildBus: buildBus, _signTexture: signTexture, _motion: { plan, sModel, step, estimateS } };
 })();
