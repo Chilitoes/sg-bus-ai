@@ -104,7 +104,12 @@
       const path = { pts, cum, len: cum[cum.length - 1], road, stopsS, startName: d.stops[0]?.name || "the interchange" };
       pathCache.set(key, { p: Promise.resolve(path), road, at: Date.now() });
       return path;
-    }).catch(() => null);
+    }).catch(() => {
+      // A failed download (network blip) mustn't hide this bus for good:
+      // forget it so the next refresh tries again.
+      pathCache.delete(key);
+      return null;
+    });
     pathCache.set(key, { p, road: null, at: Date.now() });
     return p;
   }

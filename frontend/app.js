@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.51";
+const APP_VERSION = "1.2.52";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -140,13 +140,21 @@ async function api(path, opts = {}) {
   }
   if (S.token) opts.headers["Authorization"] = `Bearer ${S.token}`;
   let r;
-  try {
-    r = await fetch(API_BASE + path, opts);
-  } catch (e) {
-    // Network-level failure (server / tunnel down): confirm with a health probe,
-    // which raises the maintenance page if the backend really is unreachable.
-    checkBackend();
-    throw e;
+  // Reads are retried once after a short pause: a dropped connection through
+  // the tunnel ("NetworkError when attempting to fetch resource" in Firefox)
+  // is usually a blip, not an outage. Writes are never retried.
+  const idempotent = !opts.method || opts.method === "GET";
+  for (let attempt = 0; ; attempt++) {
+    try {
+      r = await fetch(API_BASE + path, opts);
+      break;
+    } catch (e) {
+      if (idempotent && attempt === 0) { await new Promise((res) => setTimeout(res, 900)); continue; }
+      // Network-level failure (server / tunnel down): confirm with a health probe,
+      // which raises the maintenance page if the backend really is unreachable.
+      checkBackend();
+      throw new Error("Couldn't reach the server — check your connection and try again");
+    }
   }
   if (!r.ok) {
     // Any 401 while holding a token means the session is dead — except a
