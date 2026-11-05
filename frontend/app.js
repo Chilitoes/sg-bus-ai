@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.50";
+const APP_VERSION = "1.2.51";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -729,7 +729,7 @@ function _renderNotifPopup(fresh, maxId, promoteTs) {
   // the app was still waking in the background (never actually seen) must come
   // back next time. Auto-popups advance the id watermark; promoted popups the
   // promo timestamp (leaving the id watermark so genuinely-new notices pop).
-  _pendingPopupSeen = { maxId, promoteTs };
+  _pendingPopupSeen = { maxId, promoteTs, noticeId: Number(n.id) };
   show(el);
   requestAnimationFrame(() => {
     el.classList.add("show");
@@ -745,12 +745,13 @@ function dismissNotifPopup() {
   const el = $("notif-popup");
   if (!el) return;
   if (_pendingPopupSeen) {
-    const { maxId, promoteTs } = _pendingPopupSeen;
+    const { maxId, promoteTs, noticeId } = _pendingPopupSeen;
     try {
       if (maxId) localStorage.setItem(NOTIF_POPUP_KEY, String(maxId));
       if (promoteTs) localStorage.setItem(NOTIF_PROMOTE_KEY, String(promoteTs));
     } catch {}
     _pendingPopupSeen = null;
+    _markNoticeRead(noticeId);
   }
   el.classList.remove("show");
   setTimeout(() => { hide(el); maybeShowFeedbackPopup(); }, 280);
@@ -858,6 +859,24 @@ document.addEventListener("keydown", (e) => {
   else return;
   e.preventDefault();
 });
+
+// Dismissing the popup ("Got it") marks that notice read, so the bell's red
+// dot clears. Read state is "everything up to …": guests store the highest
+// id read on the phone; accounts mark read on the server, which covers every
+// notice so far — so that's only done when the popup was the newest one
+// (an admin re-sending an older notice mustn't clear a newer unread one).
+async function _markNoticeRead(id) {
+  if (!id) return;
+  try {
+    if (!S.token) {
+      const seen = parseInt(localStorage.getItem(GUEST_NOTIF_SEEN_KEY) || "0", 10);
+      if (id > seen) localStorage.setItem(GUEST_NOTIF_SEEN_KEY, String(id));
+    } else if (id >= _lastNotifMaxId) {
+      await api("/api/notifications/mark-read", { method: "POST" });
+    } else return;
+    await loadNotifications();
+  } catch { /* the bell catches up on the next refresh */ }
+}
 
 $("notif-panel-mark-read")?.addEventListener("click", async () => {
   // Guests have no account to store read state on — mark read locally.
