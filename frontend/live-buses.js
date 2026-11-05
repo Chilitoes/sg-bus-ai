@@ -629,23 +629,41 @@
     }
     if (!items.length) { el.classList.add("hidden"); el.innerHTML = ""; return; }
     items.sort((a, b) => a.eta - b.eta);
-    // One row, strictly left to right (soonest first). A plate that would
-    // overlap the previous one slides right; whatever doesn't fit becomes "+N".
+    // One row, buses travelling right towards "Now" (at the right end): the
+    // soonest sits nearest Now; later ones line up to its left. A plate that
+    // would overlap its neighbour slides left; whatever doesn't fit becomes
+    // "+N" at the far (left) end. Positions are re-applied every couple of
+    // seconds, so plates glide right as their buses get closer.
     const trackPx = Math.max(200, (el.clientWidth || 330) - 40);
     const gap = 4 / trackPx, plusW = 34 / trackPx;
-    let end = -1, shown = 0, html = "";
+    let leftEdge = 2, shown = 0;
+    const placed = [];
     for (const it of items) {
       const w = (18 + 9 * it.svc.length) / trackPx;
-      const x = Math.max(xAt(it.eta), end + gap);
-      const room = shown < items.length - 1 ? 1 - plusW - gap : 1;
-      if (x + w > room) break;
-      end = x + w; shown++;
-      html += `<button type="button" class="lb-plate${it.eta < 60 ? " arr" : ""}${it.id && it.id === LB.sel ? " sel" : ""}" style="--x:${x}"
-        data-lb-id="${it.id ?? ""}" data-lb-svc="${esc(it.svc)}" aria-label="Bus ${esc(it.svc)}, ${it.eta < 60 ? "arriving" : Math.round(it.eta / 60) + " min"}${it.gps ? ", live position" : ""}. Show on map">${esc(it.svc)}</button>`;
+      const right = Math.min(1 - xAt(it.eta), leftEdge - gap);
+      const room = shown < items.length - 1 ? plusW + gap : 0;
+      if (right - w < room) break;
+      leftEdge = right - w; shown++;
+      placed.push({ it, x: right - w });
     }
     const more = items.length - shown;
+    // Same plates as last time: just move them (CSS glides them).
+    const track = el.querySelector(".lb-track");
+    const keys = placed.map((q) => q.it.svc).join(",");
+    if (track && track.dataset.keys === keys && !!el.querySelector(".lb-all") === !!LB.expanded && (track.dataset.more || "") === String(more)) {
+      placed.forEach((q) => {
+        const b = track.querySelector(`.lb-plate[data-lb-svc="${CSS.escape(q.it.svc)}"]`);
+        if (!b) return;
+        b.style.setProperty("--x", q.x);
+        b.classList.toggle("arr", q.it.eta < 60);
+        b.dataset.lbId = q.it.id ?? "";
+      });
+      return;
+    }
+    let html = placed.map(({ it, x }) => `<button type="button" class="lb-plate${it.eta < 60 ? " arr" : ""}${it.id && it.id === LB.sel ? " sel" : ""}" style="--x:${x}"
+        data-lb-id="${it.id ?? ""}" data-lb-svc="${esc(it.svc)}" aria-label="Bus ${esc(it.svc)}, ${it.eta < 60 ? "arriving" : Math.round(it.eta / 60) + " min"}${it.gps ? ", live position" : ""}. Show on map">${esc(it.svc)}</button>`).join("");
     if (more > 0 || LB.expanded) {
-      html += `<button type="button" class="lb-more${LB.expanded ? " on" : ""}" style="--x:${1 - plusW}" data-lb-more
+      html += `<button type="button" class="lb-more${LB.expanded ? " on" : ""}" style="--x:0" data-lb-more
         aria-expanded="${!!LB.expanded}" aria-label="${LB.expanded ? "Show fewer buses" : `Show all ${items.length} buses`}">${LB.expanded ? "×" : `+${more}`}</button>`;
     }
     // Expanded: every bus due in the next 20 min, soonest first, as tappable
@@ -653,8 +671,8 @@
     const all = LB.expanded ? `<div class="lb-all">${items.map((it) => `<button type="button" class="lb-chip2${it.eta < 60 ? " arr" : ""}${it.id && it.id === LB.sel ? " sel" : ""}"
         data-lb-id="${it.id ?? ""}" data-lb-svc="${esc(it.svc)}"><b>${esc(it.svc)}</b><span>${it.eta < 60 ? "Arr" : Math.round(it.eta / 60) + " min"}</span></button>`).join("")}</div>` : "";
     el.innerHTML = `
-      <div class="lb-track"><span class="lb-now"></span>${html}</div>
-      <div class="lb-ticks"><span style="--x:0">Now</span><span style="--x:${xAt(300)}">5</span><span style="--x:${xAt(600)}">10</span><span style="--x:1">20 min</span></div>${all}`;
+      <div class="lb-track" data-keys="${esc(keys)}" data-more="${more}"><span class="lb-now"></span>${html}</div>
+      <div class="lb-ticks"><span style="--x:0">20 min</span><span style="--x:${1 - xAt(600)}">10</span><span style="--x:${1 - xAt(300)}">5</span><span style="--x:1">Now</span></div>${all}`;
     el.classList.remove("hidden");
   }
 
@@ -699,6 +717,10 @@
     if (p.dataset.lbId) focusBus(+p.dataset.lbId, true);
     else toast(`Bus ${p.dataset.lbSvc} isn't on the map yet`);
   });
+
+  setInterval(() => {
+    if (LB.mode === "stop" && LB.lastData && !document.hidden && S.view === "arrivals" && !$("live-strip")?.classList.contains("hidden")) renderStrip();
+  }, 2000);
 
   window.LiveBuses = { update, nearby, clear, focusBus, focusSvc, _state: LB, _buildBus: buildBus, _signTexture: signTexture, _motion: { plan, sModel, step, estimateS } };
 })();

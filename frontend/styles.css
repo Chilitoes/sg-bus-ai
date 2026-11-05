@@ -3127,3 +3127,14 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
   font: inherit; font-size: .84rem; font-weight: 600;
 }
 .mim-where svg { color: var(--accent); }
+
+/* Timeline flows right, towards "Now" at the right end; plates glide. */
+.lb-track { margin: 0 .3rem 0 1.6rem; }
+.lb-track::before { left: -1.6rem; right: 0; }
+.lb-now { left: auto; right: -5px; }
+.lb-plate { transition: left 1.9s linear, background .2s; }
+.lb-more { left: 0; }
+.lb-ticks { margin: .15rem .3rem 0 1.6rem; }
+.lb-ticks span:first-child { transform: none; left: -1.3rem; }
+.lb-ticks span:last-child { transform: translateX(-100%); left: calc(100% + .3rem); }
+@media (prefers-reduced-motion: reduce) { .lb-plate { transition: none; } }
