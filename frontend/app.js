@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.66";
+const APP_VERSION = "1.2.67";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1680,6 +1680,21 @@ function _dropPassed(data) {
   return data;
 }
 
+// Rain at the open stop (nearest NEA gauge, see weather.js): a short note
+// that timings may slip. Only for moderate/heavy rain, not a drizzle.
+function _syncRainNote() {
+  const el = $("rain-note");
+  if (!el) return;
+  const lat = S.stopInfo?.latitude ?? S._rawArrivals?.latitude, lng = S.stopInfo?.longitude ?? S._rawArrivals?.longitude;
+  const mm = S.stop && lat != null ? window.SGWeather?.mmAt(lat, lng) : null;
+  const on = mm != null && mm >= 0.5;
+  el.classList.toggle("hidden", !on);
+  if (on) el.textContent = mm >= 2
+    ? "🌧 Heavy rain here, so buses may run a few minutes later than shown"
+    : "🌧 Raining here, so buses may run a little later than shown";
+}
+addEventListener("sgweather", _syncRainNote);
+
 function renderArrivals(data) {
   S._rawArrivals = data;
   hide($("arrivals-error"));
@@ -1708,6 +1723,7 @@ function renderArrivals(data) {
   document.querySelectorAll(".svc").forEach((c) => {
     if (open.has(c.dataset.svc)) c.classList.add("open");
   });
+  _syncRainNote();
   $("updated-at").textContent = `Live · updated ${new Date().toLocaleTimeString("en-SG",
     { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Singapore" })}`;
   startTicker();

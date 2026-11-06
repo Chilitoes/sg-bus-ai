@@ -5,7 +5,8 @@
    the nearest station to the centre of the map you're looking at, within
    8 km. If it's recording rain, a rain overlay falls over the map — more
    and faster streaks the harder it rains — with a small "Raining here"
-   badge. ?rain=1 / ?rain=heavy previews it. Reduced-motion: badge only. */
+   note on the open stop ("buses may run later than shown"). ?rain=1 /
+   ?rain=heavy previews it. Reduced-motion: note only, no animation. */
 
 (() => {
   // v2 has every gauge (~90); the older v1 feed sometimes returns only a
@@ -37,6 +38,7 @@
         data = await loadGauges();
         if (!data) return;
         dataAt = Date.now();
+        dispatchEvent(new Event("sgweather"));
       }
       const c = m.getCenter();
       const st = data.map((g) => ({ ...g, d: km(c, g) })).sort((a, b) => a.d - b.d)[0];
@@ -62,9 +64,7 @@
     W.mm = mm; W.station = station;
     const on = mm > 0;
     ensureEls();
-    placeBadge();
-    W.badge.classList.toggle("hidden", !on);
-    if (on) W.badge.textContent = `🌧 ${mm >= 2 ? "Heavy rain" : mm >= 0.5 ? "Raining" : "Light rain"} here`;
+    // (No badge on the map — the stop sheet says how rain affects timings.)
     if (on && !reduced) start(); else stop();
   }
 
@@ -74,16 +74,7 @@
     W.canvas.className = "rain-layer";
     W.canvas.setAttribute("aria-hidden", "true");
     document.body.appendChild(W.canvas);
-    W.badge = document.createElement("div");
-    W.badge.className = "route-chip rain-badge hidden";
-    placeBadge();
-  }
 
-  // A chip under the map's search bar / mode switch, like the route and
-  // follow chips — moved into whichever map view is showing.
-  function placeBadge() {
-    const wrap = document.querySelector(".view.active .arr-search-wrap");
-    if (wrap && W.badge && W.badge.parentNode !== wrap) wrap.appendChild(W.badge);
   }
 
   function start() {
@@ -131,10 +122,18 @@
   // Check now, every 5 min, and when you move the map a long way / switch tab.
   let lastC = null;
   setInterval(() => {
-    const m = mapForView(); if (!m) { stop(); W.badge?.classList.add("hidden"); return; }
+    const m = mapForView(); if (!m) { stop(); return; }
     const c = m.getCenter();
     if (!lastC || km(c, lastC) > 3 || Date.now() - (W.at || 0) > 5 * 60e3) { lastC = c; W.at = Date.now(); check(); }
-    else if (W.mm > 0) { placeBadge(); W.badge?.classList.remove("hidden"); if (!reduced && !W.raf) start(); }
+    else if (W.mm > 0) { if (!reduced && !W.raf) start(); }
   }, 4000);
-  window.SGWeather = { check, set, _state: W };
+  // Rain (mm in the last 5 min) at the gauge nearest a point, within 8 km;
+  // null if the gauges haven't been read yet. ?rain= previews apply too.
+  function mmAt(lat, lng) {
+    if (force) return force === "heavy" ? 2.4 : 0.6;
+    if (!data) return null;
+    const st = data.map((g) => ({ ...g, d: km({ lat, lng }, g) })).sort((a, b) => a.d - b.d)[0];
+    return st && st.d <= MAX_KM ? st.mm : 0;
+  }
+  window.SGWeather = { check, set, mmAt, _state: W };
 })();
