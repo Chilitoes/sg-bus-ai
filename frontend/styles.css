@@ -3167,15 +3167,10 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
 /* Rain over the map (weather.js) and the follow-cam chip */
 .rain-layer { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 14; pointer-events: none; opacity: 0; transition: opacity .8s; }
 .rain-layer.on { opacity: 1; }
-.rain-badge {
-  position: fixed; z-index: 40; right: 14px; top: calc(env(safe-area-inset-top) + 118px);
-  padding: .3rem .65rem; border-radius: 999px; font: 600 .74rem/1.2 system-ui, sans-serif; color: var(--ink);
-  background: var(--glass-strong); border: 1px solid var(--glass-line);
-  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: 0 3px 12px rgba(0,0,0,.2);
-}
+.rain-badge { font-weight: 600; padding: .32rem .75rem; gap: .35rem; }
 .rain-badge.hidden { display: none; }
 .follow-chip .route-chip-badge { background: #1f6f3a; }
-@media (min-width: 720px) and (orientation: landscape) { .rain-badge { top: calc(env(safe-area-inset-top) + 14px); } }
+
 
 .lb-chip:not(:has(span:last-child:not(.lb-ico))) { padding-right: .2rem; }
 .leaflet-container.sg-vector, .sg-gl { background: #f3efe6; }

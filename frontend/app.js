@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.65";
+const APP_VERSION = "1.2.66";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },

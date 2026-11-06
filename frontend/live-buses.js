@@ -217,7 +217,9 @@
     const before = b.sDisp;
     if (target < b.sDisp) {
       // Ahead of what's drawn: drive towards it, a bit faster than cruise.
-      b.sDisp = Math.max(target, b.sDisp - Math.max(1.6 * b.v, 8) * dt);
+      // (proportional to the gap, so a big correction closes in ~3 s
+      // instead of the bus lagging further and further behind)
+      b.sDisp = Math.max(target, b.sDisp - Math.max(1.6 * b.v, 10, (b.sDisp - target) / 3) * dt);
     } else if (target > b.sDisp + 0.5) {
       // Behind what's drawn: never reverse. Roll up to a stop just ahead and
       // wait there; otherwise creep on at a quarter speed (like traffic) so
@@ -892,6 +894,8 @@
   // next stop (checked every 25 s), else a normal driving pace with a short
   // stop at each bus stop. It never jumps backwards. Ends with × or at the
   // last stop.
+  const RIDE_SPEED = 9;        // m/s between position fixes (~32 km/h incl. lights)
+  const RIDE_DWELL = 3;        // s at each stop (buses often skip empty stops)
   const allBuses = () => (LB.ride ? [...LB.buses, LB.ride.bus] : LB.buses);
 
   async function ridePath(svc, stop) {
@@ -952,7 +956,7 @@
         const R = LB.ride; if (!R) return;
         const [x, y] = toXY(coords.latitude, coords.longitude, LB.ref);
         const pr = rideProject(R.path, x, y);
-        if (pr.dist < 80 && pr.s > R.sDisp - 300 && pr.s < R.sDisp + 1500) { R.anchor = { s: pr.s, t: Date.now() }; R.gpsAt = Date.now(); }
+        if (pr.dist < 120 && pr.s > R.sDisp - 300 && pr.s < R.sDisp + 3000) { R.anchor = { s: pr.s, t: Date.now() }; R.gpsAt = Date.now(); }
       }, () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
     }
     LB.ride.lta = setInterval(rideCorrect, 25000);
@@ -986,11 +990,12 @@
     // Where it should be: last known point plus a normal pace, with a short
     // pause at each stop passed since then.
     const dt = (now - R.anchor.t) / 1000;
-    let target = R.anchor.s + EST_SPEED * dt;
+    let target = R.anchor.s + RIDE_SPEED * dt;
     const passed = R.path.stops.filter((x) => x.s > R.anchor.s + 5 && x.s < target).length;
-    target = Math.max(R.anchor.s, target - EST_SPEED * DWELL * passed);
+    target = Math.max(R.anchor.s, target - RIDE_SPEED * RIDE_DWELL * passed);
     const step = Math.min(0.25, (now - (R.last || now)) / 1000); R.last = now;
-    if (target > R.sDisp) R.sDisp = Math.min(target, R.sDisp + Math.max(1.6 * EST_SPEED, 8) * step);
+    // Catch up in ~2 s however far behind (GPS says where you really are).
+    if (target > R.sDisp) R.sDisp = Math.min(target, R.sDisp + Math.max(18, (target - R.sDisp) / 2) * step);
     const bus = R.bus;
     bus.pos = rideAt(R.path, R.sDisp);
     const ll = fromXY(bus.pos.x, bus.pos.y, LB.ref);

@@ -62,6 +62,7 @@
     W.mm = mm; W.station = station;
     const on = mm > 0;
     ensureEls();
+    placeBadge();
     W.badge.classList.toggle("hidden", !on);
     if (on) W.badge.textContent = `🌧 ${mm >= 2 ? "Heavy rain" : mm >= 0.5 ? "Raining" : "Light rain"} here`;
     if (on && !reduced) start(); else stop();
@@ -74,8 +75,15 @@
     W.canvas.setAttribute("aria-hidden", "true");
     document.body.appendChild(W.canvas);
     W.badge = document.createElement("div");
-    W.badge.className = "rain-badge hidden";
-    document.body.appendChild(W.badge);
+    W.badge.className = "route-chip rain-badge hidden";
+    placeBadge();
+  }
+
+  // A chip under the map's search bar / mode switch, like the route and
+  // follow chips — moved into whichever map view is showing.
+  function placeBadge() {
+    const wrap = document.querySelector(".view.active .arr-search-wrap");
+    if (wrap && W.badge && W.badge.parentNode !== wrap) wrap.appendChild(W.badge);
   }
 
   function start() {
@@ -126,7 +134,7 @@
     const m = mapForView(); if (!m) { stop(); W.badge?.classList.add("hidden"); return; }
     const c = m.getCenter();
     if (!lastC || km(c, lastC) > 3 || Date.now() - (W.at || 0) > 5 * 60e3) { lastC = c; W.at = Date.now(); check(); }
-    else if (W.mm > 0) { W.badge?.classList.remove("hidden"); if (!reduced && !W.raf) start(); }
+    else if (W.mm > 0) { placeBadge(); W.badge?.classList.remove("hidden"); if (!reduced && !W.raf) start(); }
   }, 4000);
   window.SGWeather = { check, set, _state: W };
 })();
