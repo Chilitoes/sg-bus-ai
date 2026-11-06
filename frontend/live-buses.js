@@ -300,6 +300,10 @@
     }).filter(Boolean);
     // Buses LTA still lists although they've passed the stop: let the one
     // we're drawing drive off; never start drawing a new one.
+    if (LB.ride?.bus.pos) {
+      const r = LB.ride.bus;
+      cands = cands.filter((c) => !(c.svc === r.svc && Math.hypot(c.pt.x - r.pos.x, c.pt.y - r.pos.y) < 400));
+    }
     const passedC = cands.filter((c) => c.passed);
     cands = cands.filter((c) => !c.passed);
     if (dedupe) {
@@ -360,7 +364,7 @@
     stopFollow();
     LB.buses.forEach(dropBus);
     LB.buses = []; LB.stop = null; LB.mode = null; LB.sel = null; LB.expanded = false;
-    clearInterval(LB.timer); LB.timer = null;
+    if (!LB.ride) { clearInterval(LB.timer); LB.timer = null; }
     if (!keepStrip) { const el = $("live-strip"); if (el) { el.innerHTML = ""; el.classList.add("hidden"); } }
   }
 
@@ -396,9 +400,10 @@
   }
 
   function tick() {
-    if (!_arrMap || !LB.buses.length || document.hidden || S.view !== "arrivals") return;
-    if (LB.mode === "nearby" && S.stop) return;
+    if (!_arrMap || (!LB.buses.length && !LB.ride) || document.hidden || S.view !== "arrivals") return;
     const now = Date.now();
+    rideStep(now);
+    if (LB.mode === "nearby" && S.stop) { followFrame(now); if (LB.layer && _arrMap._gl) _arrMap._gl.triggerRepaint(); return; }
     for (const b of LB.buses.filter((x) => x.leaving && now - x.leaving > LEAVE_MS)) dropBus(b);
     LB.buses = LB.buses.filter((x) => !(x.leaving && now - x.leaving > LEAVE_MS));
     LB.buses.forEach((b) => {
@@ -637,7 +642,7 @@
         // Larger than life so a 12 m bus stays readable: ×2.4 at street level,
         // growing as you zoom out (about ×6 at the usual stop view, up to ×12).
         const k = Math.min(12, Math.max(2.4, Math.pow(2, 17.6 - map.getZoom())));
-        for (const b of LB.buses) {
+        for (const b of allBuses()) {
           if (!b.pos || b.hidden) { if (b.obj) b.obj.visible = false; continue; }
           if (!b.obj || b.obj.userData.type !== b.type) { if (b.obj) T.scene.remove(b.obj); b.obj = busObject(b); }
           b.obj.visible = true;
@@ -800,9 +805,10 @@
   }
   function followFrame(now) {
     if (!LB.follow) return;
-    const b = LB.buses.find((x) => x.id === LB.follow);
+    const b = allBuses().find((x) => x.id === LB.follow);
     if (!b || b.hidden || !b.pos) { stopFollow(); return; }
-    if (b.leaving && now - b.leaving > LEAVE_MS - 400) { stopFollow(); toast(`Bus ${b.svc} has left the stop`); return; }
+    // The bus you're following has picked you up: carry on with it.
+    if (b.leaving && !b.isRide) { startRide(b); return; }
     if (now < (LB.followAnimUntil || 0)) return;
     const c = followCentre(b);
     if (!(_arrMap instanceof GLMap)) {
@@ -820,7 +826,7 @@
   function stopFollow() {
     if (!LB.follow) return;
     LB.follow = null;
-    $("follow-chip")?.classList.add("hidden");
+    if (!LB.ride) $("follow-chip")?.classList.add("hidden");
     if (_arrMap instanceof GLMap) {
       const gl = _arrMap._gl;
       gl.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });
@@ -835,12 +841,160 @@
       chip = document.createElement("div");
       chip.id = "follow-chip"; chip.className = "route-chip follow-chip";
       wrap.appendChild(chip);
-      chip.addEventListener("click", (e) => { if (e.target.closest("[data-follow-stop]")) stopFollow(); });
+      chip.addEventListener("click", (e) => {
+        if (e.target.closest("[data-follow-stop]")) { if (LB.ride) endRide(); else stopFollow(); return; }
+        if (e.target.closest("[data-ride-start]")) { const b = LB.buses.find((x) => x.id === LB.follow); if (b) startRide(b); return; }
+        if (LB.ride && !LB.follow) startFollow(LB.ride.bus);   // tap the chip to get the camera back
+      });
     }
-    chip.innerHTML = `<span class="route-chip-badge">${esc(b.svc)}</span><span class="route-chip-txt">Following this bus</span>
-      <button type="button" class="route-chip-x" data-follow-stop aria-label="Stop following">
+    const ride = LB.ride && LB.ride.bus === b;
+    chip.innerHTML = `<span class="route-chip-badge">${esc(b.svc)}</span>${ride
+        ? `<span class="route-chip-txt" data-ride-next>On this bus${LB.ride.next ? ` · Next: ${esc(LB.ride.next)}` : ""}</span>`
+        : `<span class="route-chip-txt">Following</span><button type="button" class="ride-on-btn" data-ride-start>I'm on it</button>`}
+      <button type="button" class="route-chip-x" data-follow-stop aria-label="${ride ? "Stop riding" : "Stop following"}">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>`;
     chip.classList.remove("hidden");
+  }
+
+  // ── Ride mode: you're on the bus ──
+  // The bus carries on past your stop along its route, the camera keeps
+  // following, and its label shows the next stop. Where it is comes from
+  // the phone's GPS (you're on it), else LTA's live position for it at the
+  // next stop (checked every 25 s), else a normal driving pace with a short
+  // stop at each bus stop. It never jumps backwards. Ends with × or at the
+  // last stop.
+  const allBuses = () => (LB.ride ? [...LB.buses, LB.ride.bus] : LB.buses);
+
+  async function ridePath(svc, stop) {
+    const [data, shape] = await Promise.all([_routeData(svc), shapeFor(svc)]);
+    const { d, i } = _routeDirFor(data, stop);
+    const sh = shape?.directions?.find((x) => x.direction === d.direction);
+    let lls, idx;
+    if (sh && sh.stop_index.length === d.stops.length) {
+      lls = sh.coords.map(([lat, lng]) => ({ lat, lng })); idx = sh.stop_index;
+    } else {
+      lls = []; idx = [];
+      d.stops.forEach((x) => { const ll = stopLL(x.code); idx.push(lls.length); if (ll) lls.push(ll); });
+    }
+    const pts = lls.map((ll) => toXY(ll.lat, ll.lng, LB.ref));
+    const cum = [0];
+    for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+    const stops = d.stops.map((x, k) => ({ code: x.code, name: x.name || x.code, s: cum[Math.min(idx[k], cum.length - 1)] }));
+    return { pts, cum, len: cum[cum.length - 1], stops, from: i };
+  }
+  // Point and heading (direction of travel) at s metres from the route start.
+  function rideAt(p, s) {
+    s = Math.max(0, Math.min(p.len, s));
+    let k = 1;
+    while (k < p.cum.length - 1 && p.cum[k] < s) k++;
+    const a = p.pts[k - 1], b = p.pts[k], seg = p.cum[k] - p.cum[k - 1] || 1, t = (s - p.cum[k - 1]) / seg;
+    return { x: a[0] + (b[0] - a[0]) * t, y: a[1] + (b[1] - a[1]) * t, heading: Math.atan2(b[0] - a[0], b[1] - a[1]) };
+  }
+  function rideProject(p, x, y) {
+    let best = { s: 0, dist: Infinity };
+    for (let k = 1; k < p.pts.length; k++) {
+      const a = p.pts[k - 1], b = p.pts[k], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / L2));
+      const d = Math.hypot(x - a[0] - dx * t, y - a[1] - dy * t);
+      if (d < best.dist) best = { s: p.cum[k - 1] + (p.cum[k] - p.cum[k - 1]) * t, dist: d };
+    }
+    return best;
+  }
+
+  async function startRide(b) {
+    if (LB.ride || LB.rideStarting || !b) return;
+    LB.rideStarting = true;
+    let path;
+    try { path = await ridePath(b.svc, b.stop || LB.stop); } catch { LB.rideStarting = false; toast("Couldn't load this bus's route"); return; }
+    LB.rideStarting = false;
+    if (!path || path.pts.length < 2) return;
+    const at = b.pos ? rideProject(path, b.pos.x, b.pos.y).s : path.stops[path.from]?.s || 0;
+    const bus = { id: ++_uid, svc: b.svc, type: b.type, isRide: true, obj: b.obj, pos: rideAt(path, at) };
+    b.obj = null;
+    dropBus(b);
+    LB.buses = LB.buses.filter((x) => x !== b);
+    bus.chip = SGL.marker([LB.ref.lat, LB.ref.lng], { icon: rideIcon(bus.svc, ""), zIndexOffset: 1000 }).addTo(_arrMap);
+    bus.chip.on("click", () => startFollow(bus));
+    LB.ride = { bus, path, sDisp: at, anchor: { s: at, t: Date.now() }, gpsAt: 0, next: "" };
+    if (!LB.timer) LB.timer = setInterval(tick, 1000 / FPS);
+    // Your own position is the bus's position.
+    if (navigator.geolocation) {
+      LB.ride.watch = navigator.geolocation.watchPosition(({ coords }) => {
+        const R = LB.ride; if (!R) return;
+        const [x, y] = toXY(coords.latitude, coords.longitude, LB.ref);
+        const pr = rideProject(R.path, x, y);
+        if (pr.dist < 80 && pr.s > R.sDisp - 300 && pr.s < R.sDisp + 1500) { R.anchor = { s: pr.s, t: Date.now() }; R.gpsAt = Date.now(); }
+      }, () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+    }
+    LB.ride.lta = setInterval(rideCorrect, 25000);
+    LB.follow = bus.id;
+    renderFollowChip(bus);
+    toast(`Riding bus ${b.svc} — the next stop shows above the bus`);
+  }
+
+  async function rideCorrect() {
+    const R = LB.ride;
+    if (!R || Date.now() - R.gpsAt < 30000 || document.hidden) return;
+    const nx = R.path.stops.find((x) => x.s > R.sDisp + 8);
+    if (!nx) return;
+    try {
+      const d = await api(`/api/arrivals/${nx.code}`);
+      const svc = (d.services || []).find((x) => x.service_no === R.bus.svc);
+      let best = null;
+      for (const bb of svc?.buses || []) {
+        if (bb.lat == null) continue;
+        const [x, y] = toXY(bb.lat, bb.lng, LB.ref);
+        const pr = rideProject(R.path, x, y);
+        if (pr.dist < 120 && Math.abs(pr.s - R.sDisp) < 800 && (!best || Math.abs(pr.s - R.sDisp) < Math.abs(best - R.sDisp))) best = pr.s;
+      }
+      if (best != null && LB.ride === R) R.anchor = { s: best, t: Date.now() };
+    } catch { /* keep going on the estimate */ }
+  }
+
+  function rideStep(now) {
+    const R = LB.ride;
+    if (!R) return;
+    // Where it should be: last known point plus a normal pace, with a short
+    // pause at each stop passed since then.
+    const dt = (now - R.anchor.t) / 1000;
+    let target = R.anchor.s + EST_SPEED * dt;
+    const passed = R.path.stops.filter((x) => x.s > R.anchor.s + 5 && x.s < target).length;
+    target = Math.max(R.anchor.s, target - EST_SPEED * DWELL * passed);
+    const step = Math.min(0.25, (now - (R.last || now)) / 1000); R.last = now;
+    if (target > R.sDisp) R.sDisp = Math.min(target, R.sDisp + Math.max(1.6 * EST_SPEED, 8) * step);
+    const bus = R.bus;
+    bus.pos = rideAt(R.path, R.sDisp);
+    const ll = fromXY(bus.pos.x, bus.pos.y, LB.ref);
+    bus.chip?.setLatLng([ll.lat, ll.lng]);
+    const nx = R.path.stops.find((x) => x.s > R.sDisp + 8);
+    if (!nx) { toast(`Bus ${bus.svc} has reached the end of its route`); endRide(); return; }
+    if (R.next !== nx.name) {
+      R.next = nx.name;
+      bus.chip?.setIcon(rideIcon(bus.svc, nx.name));
+      const t = document.querySelector("[data-ride-next]");
+      if (t) t.textContent = `On this bus · Next: ${nx.name}`;
+    }
+  }
+
+  function rideIcon(svc, next) {
+    return SGL.divIcon({
+      className: "lb-chip-wrap",
+      html: `<div class="lb-chip ride${!(_arrMap instanceof GLMap) || !LB.three ? " flat" : ""}"><b>${esc(svc)}</b>${next ? `<span>Next: ${esc(next)}</span>` : ""}</div>`,
+      iconSize: [0, 0], iconAnchor: [0, 0],
+    });
+  }
+
+  function endRide() {
+    const R = LB.ride;
+    if (!R) return;
+    if (R.watch != null) navigator.geolocation?.clearWatch(R.watch);
+    clearInterval(R.lta);
+    LB.ride = null;
+    if (LB.follow === R.bus.id) stopFollow();
+    $("follow-chip")?.classList.add("hidden");
+    dropBus(R.bus);
+    if (!LB.buses.length) { clearInterval(LB.timer); LB.timer = null; }
+    _arrMap?._gl?.triggerRepaint();
   }
 
   // Show where a given bus is — from the "Can I make it?" sheet. Picks the
@@ -869,5 +1023,5 @@
   }, 2000);
 
   window.SGLoadThree = loadThree;   // shared with trees.js
-  window.LiveBuses = { update, nearby, clear, focusBus, focusSvc, stopFollow, _state: LB, _buildBus: buildBus, _signTexture: signTexture, _motion: { plan, sModel, step, estimateS } };
+  window.LiveBuses = { update, nearby, clear, focusBus, focusSvc, stopFollow, startRide, endRide, _state: LB, _buildBus: buildBus, _signTexture: signTexture, _motion: { plan, sModel, step, estimateS } };
 })();

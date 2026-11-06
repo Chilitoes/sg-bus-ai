@@ -3179,3 +3179,12 @@ button.cp-ac-item { width: 100%; border: none; border-bottom: 1px solid var(--li
 
 .lb-chip:not(:has(span:last-child:not(.lb-ico))) { padding-right: .2rem; }
 .leaflet-container.sg-vector, .sg-gl { background: #f3efe6; }
+
+/* Ride mode */
+.lb-chip.ride { border-color: var(--accent); }
+.lb-chip.ride span { color: var(--ink); max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+.ride-on-btn {
+  flex-shrink: 0; border: none; border-radius: 999px; padding: .32rem .7rem; cursor: pointer;
+  background: var(--accent); color: #fff; font: 700 .74rem/1 system-ui, sans-serif;
+}
+.follow-chip .route-chip-txt { cursor: pointer; }
