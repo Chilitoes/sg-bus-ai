@@ -13,11 +13,11 @@
 (() => {
   const MIN_ZOOM = 14.6;          // MapLibre zoom (Leaflet 15.6)
   const MAX_TREES = 1600;
-  const MAX_LAMPS = 500;
-  const LAMP_SP = 38;            // m between street lights on each side of a main road
+  const MAX_LAMPS = 250;
+  const LAMP_SP = 70;            // m between street lights on each side of a main road
   // Roadside trees: half-width of the road (m) by class; both sides on
   // main roads, one side (alternating) on small streets.
-  const ROAD = { trunk: [12, 26, 2], primary: [10, 26, 2], secondary: [8, 28, 2], tertiary: [7, 30, 2], minor: [5, 42, 1] };
+  const ROAD = { trunk: [12, 40, 2], primary: [10, 40, 2], secondary: [8, 45, 2], tertiary: [7, 50, 2] };
   const LIT = new Set(["trunk", "primary", "secondary", "tertiary"]);
   const ORIGIN = { lat: 1.3521, lng: 103.8198 };
   const R = 6371000, RAD = Math.PI / 180, COS = Math.cos(ORIGIN.lat * RAD);
@@ -56,51 +56,79 @@
       }
     }
     const wet = (x, y) => water.some((w) => x >= w.a && x <= w.c && y >= w.bb && y <= w.d && inRing(x, y, w.ring));
-    // Street trees first (they're what you see from a following camera).
+    // Every road in view, as segments with a half-width, so nothing is ever
+    // placed on a carriageway (dual carriageways are two separate lines, so a
+    // tree set beside one could land on the other).
     const inView = (x, y) => x > x0 - 60 && x < x1 + 60 && y > y0 - 60 && y < y1 + 60;
-    for (const f of map.querySourceFeatures("openmaptiles", { sourceLayer: "transportation" })) {
-      const cfg = ROAD[f.properties.class];
-      if (!cfg || f.properties.brunnel === "tunnel" || f.properties.brunnel === "bridge") continue;
-      const [half, sp, sides] = cfg;
+    const HALF = { motorway: 13, trunk: 11, primary: 9, secondary: 7.5, tertiary: 6.5, minor: 4.5, service: 3.5 };
+    const roads = map.querySourceFeatures("openmaptiles", { sourceLayer: "transportation" });
+    const grid = new Map(), CELL = 40, segs = [];
+    for (const f of roads) {
+      const half = HALF[f.properties.class];
+      if (!half || f.properties.brunnel === "tunnel") continue;
       const lines = f.geometry.type === "LineString" ? [f.geometry.coordinates] : f.geometry.type === "MultiLineString" ? f.geometry.coordinates : [];
       for (const line of lines) {
         const pts = line.map(([lng, lat]) => toXY(lng, lat));
         for (let k = 1; k < pts.length; k++) {
-          const [ax, ay] = pts[k - 1], [bx, by] = pts[k];
-          const L = Math.hypot(bx - ax, by - ay);
-          if (L < 1) continue;
-          const ux = (bx - ax) / L, uy = (by - ay) / L;
-          // Street lights: both sides, staggered, poles at the kerb with the
-          // arm reaching over the road.
-          if (LIT.has(f.properties.class)) {
-            for (const side of [1, -1]) {
-              const off = side === 1 ? 0 : LAMP_SP / 2;
-              for (let t = (LAMP_SP - ((ax * ux + ay * uy - off) % LAMP_SP + LAMP_SP) % LAMP_SP); t < L; t += LAMP_SP) {
-                const cx = ax + ux * t, cy = ay + uy * t;
-                if (!inView(cx, cy)) continue;
-                const x = cx - uy * side * (half + 0.8), y = cy + ux * side * (half + 0.8);
-                const key = `l:${Math.round(x / 12)}:${Math.round(y / 12)}`;
-                if (seen.has(key) || lamps.length >= MAX_LAMPS) continue;
-                seen.add(key);
-                lamps.push({ x, y, r: Math.atan2(-ux * side, uy * side), arm: Math.min(2.6, half * 0.45) });
-              }
-            }
+          const sg = { ax: pts[k - 1][0], ay: pts[k - 1][1], bx: pts[k][0], by: pts[k][1], half, cls: f.properties.class, brunnel: f.properties.brunnel };
+          if (!inView(sg.ax, sg.ay) && !inView(sg.bx, sg.by)) continue;
+          segs.push(sg);
+          const gx0 = Math.floor(Math.min(sg.ax, sg.bx) / CELL), gx1 = Math.floor(Math.max(sg.ax, sg.bx) / CELL);
+          const gy0 = Math.floor(Math.min(sg.ay, sg.by) / CELL), gy1 = Math.floor(Math.max(sg.ay, sg.by) / CELL);
+          for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) {
+            const key = gx + ":" + gy; if (!grid.has(key)) grid.set(key, []); grid.get(key).push(sg);
           }
-          // world-anchored stations along the road so trees don't slide as tiles change
-          for (let t = (sp - ((ax * ux + ay * uy) % sp + sp) % sp); t < L; t += sp) {
-            const cx = ax + ux * t, cy = ay + uy * t;
-            if (!inView(cx, cy)) continue;
-            for (const side of sides === 2 ? [1, -1] : [hash(Math.round(cx / sp), Math.round(cy / sp)) < 0.5 ? 1 : -1]) {
-              const x = cx - uy * side * (half + 2.5), y = cy + ux * side * (half + 2.5);
-              const key = `r:${Math.round(x / 7)}:${Math.round(y / 7)}`;
-              if (seen.has(key)) continue;
-              const r1 = hash(Math.round(x), Math.round(y));
-              if (r1 < 0.35 || wet(x, y)) continue;   // gaps (driveways, bus stops)
-              seen.add(key);
-              out.push({ x, y, s: 0.8 + 0.5 * hash(Math.round(y), Math.round(x)), r: r1 * Math.PI * 2, c: hash(Math.round(x) + 5, Math.round(y) - 9) });
-              if (out.length >= MAX_TREES * 0.6) break;
-            }
-          }
+        }
+      }
+    }
+    // Is (x, y) at least `margin` m clear of every road's edge?
+    const clear = (x, y, margin) => {
+      const gx = Math.floor(x / CELL), gy = Math.floor(y / CELL);
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+        for (const sg of grid.get((gx + i) + ":" + (gy + j)) || []) {
+          const dx = sg.bx - sg.ax, dy = sg.by - sg.ay, L2 = dx * dx + dy * dy || 1;
+          const t = Math.max(0, Math.min(1, ((x - sg.ax) * dx + (y - sg.ay) * dy) / L2));
+          if (Math.hypot(x - sg.ax - dx * t, y - sg.ay - dy * t) < sg.half + margin) return false;
+        }
+      }
+      return true;
+    };
+
+    // Street lights and roadside trees, on main roads only.
+    for (const sg of segs) {
+      const cfg = ROAD[sg.cls];
+      if (!cfg || sg.brunnel === "bridge") continue;
+      const [, sp] = cfg, half = sg.half;
+      const L = Math.hypot(sg.bx - sg.ax, sg.by - sg.ay);
+      if (L < 1) continue;
+      const ux = (sg.bx - sg.ax) / L, uy = (sg.by - sg.ay) / L;
+      const along = sg.ax * ux + sg.ay * uy;
+      // Lights: one side, alternating, every LAMP_SP m (world-anchored).
+      if (LIT.has(sg.cls)) {
+        for (let t = (LAMP_SP - (along % LAMP_SP + LAMP_SP) % LAMP_SP); t < L; t += LAMP_SP) {
+          const cx = sg.ax + ux * t, cy = sg.ay + uy * t;
+          if (!inView(cx, cy) || lamps.length >= MAX_LAMPS) continue;
+          const side = (Math.round((along + t) / LAMP_SP) % 2) ? 1 : -1;
+          const x = cx - uy * side * (half + 0.8), y = cy + ux * side * (half + 0.8);
+          const key = `l:${Math.round(x / 25)}:${Math.round(y / 25)}`;
+          if (seen.has(key) || !clear(x, y, 0.4)) continue;
+          seen.add(key);
+          lamps.push({ x, y, r: Math.atan2(-ux * side, uy * side), arm: Math.min(2.6, half * 0.45) });
+        }
+      }
+      // Trees: both sides, set back further, with plenty of gaps.
+      for (let t = (sp - (along % sp + sp) % sp); t < L; t += sp) {
+        const cx = sg.ax + ux * t, cy = sg.ay + uy * t;
+        if (!inView(cx, cy)) continue;
+        for (const side of [1, -1]) {
+          const x = cx - uy * side * (half + 4.5), y = cy + ux * side * (half + 4.5);
+          const key = `r:${Math.round(x / 12)}:${Math.round(y / 12)}`;
+          if (seen.has(key)) continue;
+          const r1 = hash(Math.round(x), Math.round(y));
+          if (r1 < 0.45 || wet(x, y) || !clear(x, y, 3.5)) continue;
+          seen.add(key);
+          out.push({ x, y, s: 0.8 + 0.5 * hash(Math.round(y), Math.round(x)), r: r1 * Math.PI * 2, c: hash(Math.round(x) + 5, Math.round(y) - 9) });
+          if (out.length >= MAX_TREES * 0.5) break;
         }
       }
     }
@@ -120,7 +148,7 @@
             const r1 = hash(gx, gy), r2 = hash(gy * 7 + 3, gx * 13 + 1);
             if (r1 < (sp > 25 ? 0.4 : 0.2)) continue;      // clumps and clearings
             const x = (gx + 0.15 + 0.7 * r1) * sp, y = (gy + 0.15 + 0.7 * r2) * sp;
-            if (!inRing(x, y, rings[0]) || rings.slice(1).some((h) => inRing(x, y, h)) || wet(x, y)) continue;
+            if (!inRing(x, y, rings[0]) || rings.slice(1).some((h) => inRing(x, y, h)) || wet(x, y) || !clear(x, y, 2.5)) continue;
             seen.add(key);
             out.push({ x, y, s: 0.75 + 0.55 * hash(gx + 11, gy - 5), r: r1 * Math.PI * 2, c: r2 });
             if (out.length >= MAX_TREES) return out;
