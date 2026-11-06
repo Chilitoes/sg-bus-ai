@@ -82,7 +82,7 @@
     const cv = W.canvas, dpr = Math.min(2, devicePixelRatio || 1);
     const size = () => { cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; };
     size(); addEventListener("resize", size);
-    const n = Math.round(Math.min(1, 0.25 + W.mm / 2.5) * 260);
+    const n = Math.round(Math.min(1, 0.3 + W.mm / 3) * 80);   // kept light so it doesn't distract
     while (W.drops.length < n) W.drops.push(newDrop(true));
     W.drops.length = n;
     cv.classList.add("on");
@@ -96,8 +96,8 @@
       const x = cv.getContext("2d");
       x.clearRect(0, 0, cv.width, cv.height);
       const dark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
-      x.strokeStyle = dark ? "rgba(190,210,235,.42)" : "rgba(90,115,145,.38)";
-      x.lineWidth = 1.1 * dpr; x.lineCap = "round";
+      x.strokeStyle = dark ? "rgba(190,210,235,.22)" : "rgba(90,115,145,.2)";
+      x.lineWidth = 0.8 * dpr; x.lineCap = "round";
       x.beginPath();
       for (const d of W.drops) {
         d.y += d.v * dt; d.x += d.v * 0.18 * dt;
@@ -112,7 +112,7 @@
   function newDrop(anywhere) {
     const heavy = Math.min(1, W.mm / 2.5);
     return { x: Math.random() * 1.1 - 0.1, y: anywhere ? Math.random() : -0.05 - Math.random() * 0.1,
-             v: 0.9 + Math.random() * 0.5 + heavy * 0.6, len: 10 + Math.random() * 10 + heavy * 8 };
+             v: 0.55 + Math.random() * 0.3 + heavy * 0.3, len: 8 + Math.random() * 6 + heavy * 6 };
   }
   function stop() {
     if (W.raf) cancelAnimationFrame(W.raf);

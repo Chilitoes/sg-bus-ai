@@ -18,7 +18,7 @@ const RECENT_KEY = "sgbus_recent";
 const ALERTS_KEY = "sgbus_alerts";   // { stopCode: { service: thresholdSec } }
 // Fire the arrival alert once the next bus is within this many seconds — early
 // enough that there's still time to walk to the stop.
-const ALERT_THRESHOLD_SEC = 60;   // ping when the bus is ~1 min away
+const ALERT_THRESHOLD_SEC = 120;  // ping when the bus is ~2 min away
 const THEME_KEY  = "sgbus_theme";
 const TOKEN_KEY  = "sgbus_token";
 const USER_KEY   = "sgbus_user";
@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.64";
+const APP_VERSION = "1.2.65";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1873,7 +1873,7 @@ function _armAlert(stop, svc, buses, skipIso = null) {
     if (id) { S.alertMeta[key].pushId = id; _saveAlerts(); }
     const denied = "Notification" in window && Notification.permission === "denied";
     const tail = skipIso && mins ? ` (due in ${mins} min)` : "";
-    toast(id ? `You'll be pinged ~1 min before bus ${svc}${tail}, even with the app closed`
+    toast(id ? `You'll be pinged ~2 min before bus ${svc}${tail}, even with the app closed`
       : denied ? `Alert set for bus ${svc}${tail}. Notifications are off, so keep the app open`
       : `Alert set for bus ${svc}${tail}. Keep the app open to get it`);
   });
@@ -1901,7 +1901,7 @@ function toggleAlert(stop, svc) {
     return;
   }
   const mins = firstSecs != null ? Math.max(1, Math.round(firstSecs / 60)) : null;
-  showConfirm(`Ping you about 1 minute before bus <b>${esc(svc)}</b> arrives${mins ? ` (due in ${mins} min)` : ""}?`, "Set alert", () => {
+  showConfirm(`Ping you about 2 minutes before bus <b>${esc(svc)}</b> arrives${mins ? ` (due in ${mins} min)` : ""}?`, "Set alert", () => {
     // Ask for notification permission inside the tap (iPhone requires a gesture).
     if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
     _armAlert(stop, svc, buses);
@@ -1930,13 +1930,13 @@ function _checkAlerts() {
       const key = `${stop}|${svc}`;
       const secs = secsUntil(parseUTC(S.alertEtas[key]));
       if (secs === null) continue;
-      if (secs <= ALERT_THRESHOLD_SEC && secs > -45 && !S.firedAlerts.has(key)) {
+      if (secs <= ALERT_THRESHOLD_SEC && secs > -120 && !S.firedAlerts.has(key)) {
         S.firedAlerts.add(key);
         // The app is open and caught it: ping here and call off the push.
         _fireArrivalAlert(stop, svc, secs);
         _clearAlert(stop, svc);
         _syncAlertBtns();
-      } else if (secs <= -120) {
+      } else if (secs <= -150) {
         // Its bus came and went while the app was closed; the push handled it.
         _clearAlert(stop, svc, { cancelPush: false });
         _syncAlertBtns();

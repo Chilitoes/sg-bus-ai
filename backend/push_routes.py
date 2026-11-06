@@ -13,7 +13,7 @@ DELETE /api/push/alerts/{id}   cancel it (the id is the secret)
 
 Alert kinds
 -----------
-arrive  "Bus 858 arriving in ~1 min" at the stop you're waiting at. Buses due
+arrive  "Bus 858 arriving in ~2 min" at the stop you're waiting at. Buses due
         before `skip_until` are ignored (used for "ping me for the next one").
 
 alight  You're riding (or about to board) a bus and want a heads-up one stop
@@ -75,7 +75,7 @@ MAX_PER_DEVICE = 8
 MAX_TOTAL = 1000
 ALERT_TTL = timedelta(hours=3)
 POLL_SEC = 15
-ARRIVE_SEC = 60        # "arriving in ~1 min"
+ARRIVE_SEC = 120       # "arriving in ~2 min"
 ALIGHT_SEC = 35        # bus is about at the stop before yours
 
 
@@ -246,8 +246,9 @@ def _decide(a: PushAlert, stops: dict[str, list[dict]], now: datetime) -> tuple[
             if cutoff and b["eta"] <= cutoff:
                 continue
             secs = (b["eta"] - now).total_seconds()
-            if -45 < secs <= ARRIVE_SEC:
-                when = "now" if secs < 30 else "in ~1 min"
+            # (down to -2 min: an early bus can skip past the window between polls)
+            if -120 < secs <= ARRIVE_SEC:
+                when = "now" if secs < 45 else f"in ~{max(1, round(secs / 60))} min"
                 return True, f"Bus {svc} arriving {when}", a.title_stop or f"Stop {a.watch_stop}"
             return None
         return None
