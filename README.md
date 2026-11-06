@@ -23,17 +23,22 @@ later (+) than the API claims, based on:
 | `is_weekend` | Sat/Sun flag |
 | `load_code` | Bus crowding level (SEA/SDA/LSD) |
 | `type_code` | Single-deck / double-deck / bendy |
-| `service_hash` | Stable numeric proxy for service number |
-| `stop_hash` | Stable numeric proxy for stop code |
+| `wait_min` | Minutes until the current estimate (slip grows with distance) |
+| `svc_cat` / `stop_cat` | Service and stop as categories |
 
-**Ground-truth derivation** — the background collector tracks each bus across
-successive API polls. When it disappears (arrived), we compute:
-`delay = last_estimate − first_estimate`. These rows continuously retrain the
-model (default: hourly).
+**Ground-truth derivation** — the background collector re-finds each bus
+across polls by tolerance (estimate within 4 min, seen within ~5 min), and
+re-polls monitored stops every minute while a tracked bus is under 5 min away.
+When a bus disappears *after it was due*, its last estimate is taken as the
+actual arrival and every snapshot of it is labelled with
+`residual = actual − estimate` (`label_v = 2`). Buses that vanish while still
+far away are not counted as arrivals.
 
-**Bootstrap** — on first run (no data), the model trains on ~5 000 synthetic
-rows encoding known SG patterns (peak-hour congestion, late-night reliability,
-etc.). Real data is blended in with 3× weight as it accumulates.
+**Only when it helps** — the model trains on real labels only (no synthetic
+bootstrap) and is validated on the most recent days it did not train on. The
+adjustment is applied only in the wait bands where it beat raw LTA there by
+2%+; elsewhere, and until there are 2 000 labels, the app shows LTA as-is.
+`GET /api/model/status` reports the per-band comparison.
 
 ---
 
@@ -44,7 +49,7 @@ bus-ai-project/
 ├── backend/
 │   ├── main.py            FastAPI app; startup + static file serving
 │   ├── api_routes.py      /api/* endpoints
-│   ├── ml_model.py        GradientBoostingRegressor wrapper
+│   ├── ml_model.py        HistGradientBoostingRegressor wrapper
 │   ├── data_collector.py  Async background LTA API poller
 │   ├── database.py        SQLAlchemy models + session helpers
 │   └── config.py          Env-var configuration
@@ -101,7 +106,7 @@ Open <http://localhost:8000> in a browser.
 
 The app will:
 1. Create `bus_data.db` (SQLite) automatically.
-2. Train the ML model from synthetic data (takes ~5 s on first run; saved to `models/`).
+2. Train the ML model once enough real labels exist (until then, raw LTA is shown).
 3. Start the background collector for the stops in `MONITORED_STOPS`.
 
 ---
@@ -205,10 +210,10 @@ Install the driver: `pip install psycopg2-binary`
 
 The model improves automatically as the collector accumulates data:
 
-1. **Day 1** — boots with synthetic data; predictions reflect general SG patterns.
-2. **Week 1** — first real delay rows appear; model blends real + synthetic.
-3. **Month 1+** — hundreds of ground-truth samples per monitored stop/service;
-   MAE (mean-absolute-error) should drop below the synthetic baseline.
+1. **Day 1** — no labels yet; the app shows raw LTA estimates.
+2. **Days 2–7** — labels accumulate; the model switches itself on per wait band
+   once it beats LTA on held-out recent days.
+3. **Month 1+** — weekday, weekend and peak patterns are covered.
 
 You can force an immediate retrain via the API:
 ```bash

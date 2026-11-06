@@ -63,9 +63,22 @@ logger = logging.getLogger(__name__)
 # Singapore Standard Time (UTC+8)
 _SGT = timezone(timedelta(hours=8))
 
-# Close a tracking row WITH a label only if the closing poll came within this
-# window of the last sighting (i.e. the stop was being polled continuously).
-_TRACK_CLOSE_WINDOW_MIN = 15
+# Re-linking a bus across polls: its estimate may move this much between
+# sightings, and sightings may be at most _LINK_GAP apart. The same gap is
+# required for a disappearance to count as an arrival (continuous polling).
+_LINK_TOL = timedelta(seconds=240)
+_LINK_GAP = timedelta(seconds=max(330, COLLECTION_INTERVAL_MINUTES * 60 + 30))
+# How far before slot-1 tracking began to look for the bus's slot 2-3 sightings.
+_EARLIER_SLOTS_LOOKBACK = timedelta(minutes=30)
+# A bus counts as due (so its disappearance as an arrival) once its last
+# estimate is within this of the closing poll.
+_DUE_GRACE = timedelta(seconds=60)
+
+# Fast tracking: monitored stops with a tracked bus due within this window
+# are re-polled every FAST_POLL_SEC, so arrivals are pinned to about a minute
+# instead of the 5-minute collection interval.
+FAST_POLL_SEC = 60
+_FAST_WINDOW = timedelta(minutes=5)
 
 # Data hygiene: unlabeled snapshots older than this are pruned daily.
 _PRUNE_UNLABELED_DAYS = 60
@@ -133,39 +146,67 @@ def _upsert_tracking(
     service_no: str,
     now: datetime,
     estimated: datetime,
-) -> None:
-    """Open or update a BusTracking row for this bus."""
-    key = _round_dt(estimated)
-    row = (
+) -> datetime:
+    """Open or update a BusTracking row for this bus; return its arrival_key.
+
+    The same bus is re-found by tolerance, not by its exact estimate minute:
+    the open row whose last estimate is within _LINK_TOL of this one, seen
+    within _LINK_GAP, and not already due (a bus whose estimate passed a
+    minute ago has arrived; the new slot-1 bus is the one behind it). Exact
+    minute keys mistook every estimate move of ~30 s or more for an arrival.
+    """
+    candidates = (
         db.query(BusTracking)
-        .filter_by(bus_stop_code=stop_code, bus_service=service_no, arrival_key=key)
-        .first()
+        .filter_by(bus_stop_code=stop_code, bus_service=service_no, is_closed=False)
+        .all()
     )
-    if row is None:
-        db.add(BusTracking(
-            bus_stop_code  = stop_code,
-            bus_service    = service_no,
-            arrival_key    = key,
-            first_seen     = now,
-            first_estimate = estimated,
-            last_seen      = now,
-            last_estimate  = estimated,
-            is_closed      = False,
-        ))
-    else:
+    best = None
+    for row in candidates:
+        if row.last_seen is None or now - row.last_seen > _LINK_GAP:
+            continue
+        if row.last_estimate < now - _DUE_GRACE:
+            continue
+        diff = abs((row.last_estimate - estimated).total_seconds())
+        if diff <= _LINK_TOL.total_seconds() and (best is None or diff < best[0]):
+            best = (diff, row)
+    if best is not None:
+        row = best[1]
         row.last_seen     = now
         row.last_estimate = estimated
+        return row.arrival_key
+
+    # arrival_key is unique per (stop, service) and only identifies the row
+    # now, so step past any earlier bus that rounded to the same minute.
+    key = _round_dt(estimated)
+    while (
+        db.query(BusTracking.id)
+        .filter_by(bus_stop_code=stop_code, bus_service=service_no, arrival_key=key)
+        .first()
+    ):
+        key += timedelta(seconds=1)
+    db.add(BusTracking(
+        bus_stop_code  = stop_code,
+        bus_service    = service_no,
+        arrival_key    = key,
+        first_seen     = now,
+        first_estimate = estimated,
+        last_seen      = now,
+        last_estimate  = estimated,
+        is_closed      = False,
+    ))
+    db.flush()
+    return key
 
 
 def _close_stale_tracking(db: Session, stop_code: str, service_no: str,
                           active_keys: set[datetime], now: datetime) -> None:
     """
-    Close tracking rows whose arrival_key is NOT in the current API response.
-    A missing entry means the bus arrived (or the service ended).
+    Close tracking rows that were NOT re-found in the current API response.
 
     Quality guard: only write a delay label if the bus was sighted at least
-    twice AND the closing poll came shortly after the last sighting. A row
-    seen once (or revisited hours later) closes WITHOUT a label.
+    twice, the closing poll came soon after the last sighting, AND the bus
+    was actually due by now. A bus that vanished while still minutes away
+    was dropped from the feed or re-planned, not arrived — closed unlabeled.
     """
     open_rows = (
         db.query(BusTracking)
@@ -178,11 +219,9 @@ def _close_stale_tracking(db: Session, stop_code: str, service_no: str,
         row.is_closed = True
 
         sighted_twice = row.last_seen and row.last_seen > row.first_seen
-        fresh_close = (
-            row.last_seen
-            and (now - row.last_seen) <= timedelta(minutes=_TRACK_CLOSE_WINDOW_MIN)
-        )
-        if not (sighted_twice and fresh_close):
+        fresh_close = row.last_seen and (now - row.last_seen) <= _LINK_GAP
+        was_due = row.last_estimate <= now + _DUE_GRACE
+        if not (sighted_twice and fresh_close and was_due):
             continue  # closed, unlabeled
 
         # The last estimate before the bus vanished is our best proxy for when
@@ -192,31 +231,31 @@ def _close_stale_tracking(db: Session, stop_code: str, service_no: str,
         delay = (actual - row.first_estimate).total_seconds()
         row.delay_seconds = delay
 
-        # Label each snapshot with its OWN residual — how much further that
-        # particular estimate still had to slip:
+        # Label each snapshot of this bus with its OWN residual — how much
+        # further that particular estimate still had to slip:
         #     residual_i = actual − estimated_arrival_i
-        #
-        # Previously every snapshot of this bus was stamped with the same
-        # lifetime `delay`, so a reading taken 30 s before arrival carried the
-        # same label as one taken 12 min out. The model then learned a constant
-        # per-route offset and added it to estimates that had ALREADY absorbed
-        # that drift — double-counting exactly what LTA had just corrected.
-        # Residual labels make the target "slip remaining from here", which is
-        # the only thing the live LTA number doesn't already tell you.
-        window_start = row.arrival_key - timedelta(minutes=2)
-        window_end   = row.arrival_key + timedelta(minutes=2)
+        # Snapshots are found by time sighted plus the range its estimate
+        # moved through, since the estimate can drift minutes over a journey.
+        # The time window reaches back before first_seen to pick up the same
+        # bus's earlier sightings in slots 2-3 (only slot 1 is tracked) — the
+        # far-out readings, where LTA's error is largest.
+        lo = min(row.first_estimate, row.last_estimate) - timedelta(minutes=2)
+        hi = max(row.first_estimate, row.last_estimate) + timedelta(minutes=2)
         pending = (
             db.query(BusArrivalRecord)
             .filter(
                 BusArrivalRecord.bus_stop_code == stop_code,
                 BusArrivalRecord.bus_service   == service_no,
-                BusArrivalRecord.estimated_arrival.between(window_start, window_end),
+                BusArrivalRecord.estimated_arrival.between(lo, hi),
+                BusArrivalRecord.collection_time.between(
+                    row.first_seen - _EARLIER_SLOTS_LOOKBACK, row.last_seen),
                 BusArrivalRecord.delay_seconds.is_(None),
             )
             .all()
         )
         for rec in pending:
             rec.delay_seconds = (actual - rec.estimated_arrival).total_seconds()
+            rec.label_v = 2
         logger.debug("Closed tracking %s/%s  drift=%.0fs  labelled %d snapshot(s)",
                      stop_code, service_no, delay, len(pending))
 
@@ -228,10 +267,12 @@ def persist_arrival_payload(
     services: list[dict],
     now: datetime,
     track: bool = True,
+    snapshots: bool = True,
 ) -> int:
     """
     Persist one LTA arrival payload as BusArrivalRecord rows and (optionally)
-    update ground-truth tracking. Creates and closes its own DB session, so it
+    update ground-truth tracking. snapshots=False only updates tracking (the
+    fast arrival polls, which would otherwise multiply the table's growth). Creates and closes its own DB session, so it
     is safe to run as a FastAPI background task or from the collector loop.
 
     track=False is used for rotation-scan stops, which are sampled too
@@ -261,26 +302,27 @@ def persist_arrival_payload(
                 if estimated is None:
                     continue
 
-                db.add(BusArrivalRecord(
-                    bus_stop_code     = stop_code,
-                    bus_service       = service_no,
-                    collection_time   = now,
-                    estimated_arrival = estimated,
-                    wait_seconds      = (estimated - now).total_seconds(),
-                    hour_of_day       = sgt.hour,
-                    day_of_week       = sgt.weekday(),
-                    is_peak           = _is_peak(sgt.hour, is_wkend),
-                    is_weekend        = is_wkend,
-                    bus_load          = bus.get("Load"),
-                    bus_type          = bus.get("Type"),
-                    slot              = slot_idx,
-                ))
-                saved += 1
+                if snapshots:
+                    db.add(BusArrivalRecord(
+                        bus_stop_code     = stop_code,
+                        bus_service       = service_no,
+                        collection_time   = now,
+                        estimated_arrival = estimated,
+                        wait_seconds      = (estimated - now).total_seconds(),
+                        hour_of_day       = sgt.hour,
+                        day_of_week       = sgt.weekday(),
+                        is_peak           = _is_peak(sgt.hour, is_wkend),
+                        is_weekend        = is_wkend,
+                        bus_load          = bus.get("Load"),
+                        bus_type          = bus.get("Type"),
+                        slot              = slot_idx,
+                    ))
+                    saved += 1
 
                 # Only track the next bus (slot 1) to derive clean ground truth
                 if track and slot_idx == 1:
-                    _upsert_tracking(db, stop_code, service_no, now, estimated)
-                    active_keys_by_service[service_no].add(_round_dt(estimated))
+                    active_keys_by_service[service_no].add(
+                        _upsert_tracking(db, stop_code, service_no, now, estimated))
 
         if track:
             # Close open rows for EVERY service with tracking at this stop,
@@ -318,7 +360,46 @@ async def collect_stop(
 ) -> int:
     """Fetch arrivals for one stop and persist. Returns rows saved."""
     data = await fetch_arrivals(client, stop_code)
-    return persist_arrival_payload(stop_code, data.get("Services", []), now, track=track)
+    if "Services" not in data:
+        # Failed fetch, not an empty stop: closing every tracked bus on an API
+        # hiccup would label them all as arrived.
+        return 0
+    return persist_arrival_payload(stop_code, data["Services"], now, track=track)
+
+
+async def start_fast_tracking() -> None:
+    """Re-poll monitored stops every FAST_POLL_SEC while a tracked bus there is
+    due within _FAST_WINDOW (tracking only, no snapshots). The 5-minute cycle
+    alone can only place an arrival somewhere in a 5-minute gap."""
+    async with httpx.AsyncClient() as client:
+        while True:
+            await asyncio.sleep(FAST_POLL_SEC)
+            if not _is_service_hours():
+                continue
+            try:
+                now = datetime.now(timezone.utc).replace(tzinfo=None)
+                db = SessionLocal()
+                try:
+                    stops = [
+                        code for (code,) in db.query(BusTracking.bus_stop_code)
+                        .join(MonitoredStop, MonitoredStop.bus_stop_code == BusTracking.bus_stop_code)
+                        .filter(
+                            MonitoredStop.is_active.is_(True),
+                            BusTracking.is_closed.is_(False),
+                            BusTracking.last_seen >= now - _LINK_GAP,
+                            BusTracking.last_estimate <= now + _FAST_WINDOW,
+                        )
+                        .distinct()
+                    ]
+                finally:
+                    db.close()
+                for code in stops:
+                    data = await fetch_arrivals(client, code)
+                    if "Services" in data:
+                        persist_arrival_payload(code, data["Services"], now,
+                                                track=True, snapshots=False)
+            except Exception:
+                logger.exception("Fast tracking cycle failed")
 
 
 # ── Rotation scan ─────────────────────────────────────────────────────────────

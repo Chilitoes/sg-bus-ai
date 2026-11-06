@@ -91,6 +91,11 @@ class BusArrivalRecord(Base):
     bus_type  = Column(String(5), nullable=True)   # SD | DD | BD
     # Which slot this came from (1/2/3)
     slot = Column(Integer, nullable=True)
+    # Labelling method that wrote delay_seconds. 2 = tolerant re-linking with
+    # an arrival check (2026-11). NULL on older labels, which keyed each bus by
+    # its exact estimate minute and so mistook most estimate jumps for an
+    # arrival; the model trains on version 2 only.
+    label_v = Column(Integer, nullable=True)
 
 
 class BusTracking(Base):
@@ -455,6 +460,17 @@ def _migrate_admin_column() -> None:
             conn.execute(text("UPDATE users SET is_admin = 1 WHERE lower(username) = 'admin'"))
 
 
+def _migrate_label_version_column() -> None:
+    """Add label_v to a pre-existing bus_arrival_records table (O(1) in SQLite)."""
+    insp = inspect(engine)
+    if "bus_arrival_records" not in insp.get_table_names():
+        return
+    existing = {c["name"] for c in insp.get_columns("bus_arrival_records")}
+    if "label_v" not in existing:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE bus_arrival_records ADD COLUMN label_v INTEGER"))
+
+
 def _migrate_arrival_indexes() -> None:
     """Composite / partial indexes for the hot bus_arrival_records read paths.
 
@@ -499,6 +515,7 @@ def init_db(seed_stops: list[str] | None = None) -> None:
     _migrate_notifications_column()
     _migrate_notification_popup_column()
     _migrate_admin_column()
+    _migrate_label_version_column()
     _migrate_arrival_indexes()
     # DailyActivity is new — create_all handles it; no column migration needed.
     if seed_stops:

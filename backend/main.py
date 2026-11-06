@@ -31,7 +31,7 @@ from mrt_routes import router as mrt_router
 from push_routes import push_watcher, router as push_router
 from route_shapes import router as shape_router
 from config import DEFAULT_MONITORED_STOPS
-from data_collector import start_data_collection
+from data_collector import start_data_collection, start_fast_tracking
 from database import init_db, SessionLocal, User
 from ml_model import model
 from release_notes import seed_release_notes
@@ -86,6 +86,7 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting background data collector …")
     collector_task = asyncio.create_task(start_data_collection())
+    fast_task = asyncio.create_task(start_fast_tracking())
     warmer_task = asyncio.create_task(_admin_cache_warmer())
     push_task = asyncio.create_task(push_watcher())
 
@@ -93,7 +94,7 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
     logger.info("Shutting down …")
-    for task in (collector_task, warmer_task, push_task):
+    for task in (collector_task, fast_task, warmer_task, push_task):
         task.cancel()
         try:
             await task

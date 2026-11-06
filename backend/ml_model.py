@@ -3,7 +3,7 @@ AI delay-prediction model.
 
 Architecture
 ------------
-Algorithm : GradientBoostingRegressor (scikit-learn)
+Algorithm : HistGradientBoostingRegressor (scikit-learn), absolute-error loss
 Target    : RESIDUAL slip in seconds — how much further this specific estimate
             will move before the bus actually arrives:
 
@@ -26,43 +26,39 @@ Feature engineering
   is_weekend            – Saturday or Sunday
   load_code             – SEA=0, SDA=1, LSD=2  (seat/stand availability)
   type_code             – SD=0, DD=1, BD=2
-  service_hash          – hash(service_no) % 1000  (stable numeric proxy)
-  stop_hash             – hash(stop_code)   % 1000
   wait_min              – minutes until the CURRENT estimate. Essential: slip
                           accumulates over the journey still to come, so a bus
                           12 min out has room to drift while one 30 s out does
-                          not. Without this the model can only learn a constant
-                          per-route offset.
+                          not.
+  svc_cat / stop_cat    – service and stop as true categories (the most
+                          common MAX_CATEGORIES of each; the rest are
+                          "unknown"). Hashing them into one numeric column
+                          made the trees memorise arbitrary number ranges.
 
-Bootstrapping
--------------
-On first run there is no historical data.  We generate ~5 000 synthetic rows
-that encode realistic Singapore delay patterns:
-  • weekday peaks  → mean +150 s, std 90 s
-  • weekday off-peak → mean +40 s, std 60 s
-  • weekends        → mean +20 s, std 50 s
-  • late night 22-06 → mean +10 s, std 30 s
+Training data and the "only when it helps" gate
+-----------------------------------------------
+Real labels only (label_v = 2, see data_collector), no synthetic bootstrap:
+the old synthetic rows assumed buses always run late and pushed every
+estimate ~45 s later. Validation is a TIME split — train on older days,
+score on the most recent ones — because a random split leaks the same buses
+into both halves and flatters the model.
 
-Once real data accumulates the model is retrained on the combined dataset,
-gradually replacing the synthetic signal with ground-truth observations.
+The adjustment is applied per wait band only where it beat raw LTA on that
+held-out period by at least MIN_GAIN_PCT. Everywhere else (and until there
+are MIN_REAL_ROWS labels) predict() returns 0, i.e. the plain LTA estimate.
 """
 
-import hashlib
 import logging
 import math
 import os
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.metrics import mean_absolute_error
-from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import HistGradientBoostingRegressor
 
 logger = logging.getLogger(__name__)
 
@@ -70,14 +66,18 @@ logger = logging.getLogger(__name__)
 
 LOAD_MAP  = {"SEA": 0, "SDA": 1, "LSD": 2}
 TYPE_MAP  = {"SD": 0, "DD": 1, "BD": 2}
-FEATURES  = [
+NUMERIC_FEATURES = [
     "hour_sin", "hour_cos",
     "dow_sin",  "dow_cos",
     "is_peak", "is_weekend",
     "load_code", "type_code",
-    "service_hash", "stop_hash",
     "wait_min",
 ]
+CATEGORICAL_FEATURES = ["svc_cat", "stop_cat"]
+FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+
+# HistGradientBoosting caps categories at 255 bins; keep headroom.
+MAX_CATEGORIES = 250
 
 # Estimates beyond this are clipped — the LTA feed rarely looks further ahead
 # and the relationship flattens out there anyway.
@@ -92,12 +92,19 @@ EMPIRICAL_PRIOR_K = 8.0
 # empirical median participates in the blend.
 EMPIRICAL_MIN_N = 3
 
-
-def _stable_hash(s: str) -> int:
-    """Deterministic across processes — unlike built-in hash(), which is
-    salted per interpreter run and would scramble these features on every
-    server restart."""
-    return int(hashlib.md5(str(s).encode()).hexdigest()[:8], 16) % 1000
+# No model below this many real labels; the adjustment stays off (pure LTA).
+MIN_REAL_ROWS = 2000
+# Most recent share of the (time-ordered) labels held out for validation.
+VAL_FRACTION = 0.2
+# A wait band gets the adjustment only if it beat raw LTA there by this much
+# on the held-out period, with at least MIN_BAND_VAL rows to judge by.
+MIN_GAIN_PCT = 2.0
+MIN_BAND_VAL = 200
+# Training window and sample size (an even sample across the window).
+TRAIN_DAYS = 28
+TRAIN_SAMPLE = 250_000
+# Only labels written by the fixed collector (see data_collector).
+LABEL_VERSION = 2
 
 
 # ── Feature helpers ───────────────────────────────────────────────────────────
@@ -115,14 +122,18 @@ def _is_peak(hour: int, is_weekend: bool) -> bool:
 
 
 def _wait_band(wait_sec: float) -> int:
-    """Coarse bucket of how far out the bus is. The empirical table is keyed on
-    this so its per-route medians stay wait-aware — a single median across all
-    distances would drag the model's prediction back toward a constant."""
-    if wait_sec < 180:
+    """Coarse bucket of how far out the bus is. The empirical table and the
+    on/off gate are keyed on this: LTA is already within ~20 s when a bus is
+    pulling in but over a minute off when it is 15+ min out."""
+    if wait_sec < 120:
         return 0        # arriving imminently
-    if wait_sec < 480:
+    if wait_sec < 300:
         return 1        # a few stops away
-    return 2            # far out
+    if wait_sec < 600:
+        return 2
+    if wait_sec < 900:
+        return 3
+    return 4            # far out
 
 
 def build_features(
@@ -130,11 +141,10 @@ def build_features(
     day_of_week: int,
     bus_load: str = "SEA",
     bus_type: str = "SD",
-    service_no: str = "0",
-    stop_code: str = "0",
     wait_sec: float = 300.0,
 ) -> dict[str, float]:
-    """Return a feature dict ready for model inference."""
+    """Return the numeric features (categories are encoded by the model,
+    which owns the service/stop vocabulary)."""
     is_wkend = day_of_week >= 5
     hs, hc = _cyclic(hour, 24)
     ds, dc = _cyclic(day_of_week, 7)
@@ -148,68 +158,54 @@ def build_features(
         "is_weekend":   float(is_wkend),
         "load_code":    float(LOAD_MAP.get(bus_load, 0)),
         "type_code":    float(TYPE_MAP.get(bus_type, 0)),
-        "service_hash": float(_stable_hash(service_no)),
-        "stop_hash":    float(_stable_hash(stop_code)),
         "wait_min":     wait_min,
     }
 
 
-# ── Synthetic data ────────────────────────────────────────────────────────────
+def _vocab(values) -> dict[str, int]:
+    """Most common MAX_CATEGORIES values → category codes."""
+    return {v: i for i, (v, _n) in enumerate(Counter(values).most_common(MAX_CATEGORIES))}
 
-def _generate_synthetic_data(n: int = 5000, seed: int = 42) -> pd.DataFrame:
-    """
-    Generate synthetic training rows encoding realistic SG bus delay patterns.
-    Used to bootstrap the model before real data is available.
 
-    Models slip as something that ACCUMULATES over the journey still ahead:
-    a per-minute drift rate set by the time-of-day context, multiplied by the
-    minutes remaining. So a peak-hour bus 10 min out is expected to slip far
-    more than the same bus 1 min out — which is the shape the residual target
-    has in the real data, and what stops the model settling on a constant.
-    """
-    rng = np.random.default_rng(seed)
-    # Seconds of additional slip per minute of journey remaining.
-    rows = []
-    for _ in range(n):
-        hour        = int(rng.integers(0, 24))
-        dow         = int(rng.integers(0, 7))
-        is_wkend    = dow >= 5
-        is_pk       = _is_peak(hour, is_wkend)
-        load        = rng.choice(["SEA", "SDA", "LSD"], p=[0.5, 0.35, 0.15])
-        bus_type    = rng.choice(["SD", "DD", "BD"],    p=[0.5, 0.40, 0.10])
-        service_no  = str(rng.integers(1, 400))
-        stop_code   = str(rng.integers(10000, 99999))
-        # Live feed skews toward buses that are close; sample accordingly.
-        wait_sec    = float(rng.gamma(shape=2.0, scale=180.0))
-        wait_sec    = min(wait_sec, MAX_WAIT_MIN * 60)
-        wait_min    = wait_sec / 60.0
+def _matrix(df: pd.DataFrame, svc_vocab: dict[str, int], stop_vocab: dict[str, int]) -> np.ndarray:
+    svc = df["svc"].map(svc_vocab).astype(float).values     # unseen → NaN (missing)
+    stop = df["stop"].map(stop_vocab).astype(float).values
+    return np.column_stack([df[NUMERIC_FEATURES].values, svc, stop])
 
-        if is_pk:
-            rate, noise = 13.0, 7.0     # congestion bites hardest at peak
-        elif is_wkend:
-            rate, noise = 3.0, 4.0
-        elif 22 <= hour or hour < 6:
-            rate, noise = 1.5, 2.5      # empty roads, estimates hold
-        else:
-            rate, noise = 5.0, 5.0
 
-        # Crowded buses dwell longer at each stop.
-        rate *= {"SEA": 1.0, "SDA": 1.15, "LSD": 1.3}[str(load)]
-        # Noise grows with the distance left (more chances to go wrong).
-        delay = rng.normal(rate * wait_min, noise * math.sqrt(max(wait_min, 0.1)))
+def _empirical_table(df: pd.DataFrame) -> dict[tuple[str, str, int], tuple[float, int]]:
+    groups = df.groupby(["stop", "svc", "band"])["delay_seconds"]
+    return {key: (float(med), int(n)) for key, med, n in
+            zip(groups.median().index, groups.median().values, groups.size().values)}
 
-        feats = build_features(hour, dow, load, bus_type, service_no, stop_code, wait_sec)
-        feats["delay_seconds"] = float(delay)
-        rows.append(feats)
 
-    return pd.DataFrame(rows)
+def _blend(adj: np.ndarray, df: pd.DataFrame,
+           table: dict[tuple[str, str, int], tuple[float, int]]) -> np.ndarray:
+    out = adj.copy()
+    for i, key in enumerate(zip(df["stop"], df["svc"], df["band"])):
+        med_n = table.get(key)
+        if med_n is not None and med_n[1] >= EMPIRICAL_MIN_N:
+            median, n = med_n
+            out[i] = (n * median + EMPIRICAL_PRIOR_K * out[i]) / (n + EMPIRICAL_PRIOR_K)
+    return out
+
+
+def _new_regressor() -> HistGradientBoostingRegressor:
+    return HistGradientBoostingRegressor(
+        loss="absolute_error",      # MAE is what riders feel; robust to the odd mislabel
+        max_iter=300,
+        learning_rate=0.08,
+        max_leaf_nodes=63,
+        categorical_features=[FEATURES.index(c) for c in CATEGORICAL_FEATURES],
+        random_state=42,
+    )
 
 
 # ── Model class ───────────────────────────────────────────────────────────────
 
 class BusDelayModel:
     """
-    Wraps a scikit-learn GradientBoostingRegressor pipeline.
+    Wraps a scikit-learn HistGradientBoostingRegressor.
 
     Usage
     -----
@@ -221,24 +217,29 @@ class BusDelayModel:
         bus_load="SDA", bus_type="DD",
         service_no="65", stop_code="83139"
     )
-    # adjustment is seconds to add to the LTA API estimate
+    # adjustment is seconds to add to the LTA API estimate (0 = trust LTA)
     """
 
     def __init__(self, model_path: str | None = None) -> None:
         from config import MODEL_PATH
         self.model_path = model_path or MODEL_PATH
-        self._pipeline: Pipeline | None = None
+        self._pipeline: HistGradientBoostingRegressor | None = None
+        self._svc_vocab: dict[str, int] = {}
+        self._stop_vocab: dict[str, int] = {}
         self.last_trained: datetime | None = None
         self.training_rows: int = 0
         self.mae: float | None = None          # AI error on the validation set
         self.baseline_mae: float | None = None # raw-LTA error on the same rows
         self.improvement_pct: float | None = None
         self.residual_p90: float | None = None # for an honest "±" band
+        # Wait bands where the adjustment beat raw LTA on held-out days, and
+        # the per-band comparison behind that decision.
+        self.enabled_bands: set[int] = set()
+        self.band_report: dict[int, dict[str, float]] = {}
         # Per (stop, service, wait_band) empirical residual medians from real
         # observations. Blended with the ML output at inference time — routes
         # with real history lean on measured behaviour, unseen routes fall back
-        # to the model's generalisation. Keyed by wait band so the blend stays
-        # distance-aware instead of flattening back to a per-route constant.
+        # to the model's generalisation.
         self._empirical: dict[tuple[str, str, int], tuple[float, int]] = {}
         self.real_rows: int = 0
 
@@ -249,13 +250,19 @@ class BusDelayModel:
         joblib.dump(
             {
                 "pipeline":       self._pipeline,
+                "svc_vocab":      self._svc_vocab,
+                "stop_vocab":     self._stop_vocab,
                 "last_trained":   self.last_trained,
                 "training_rows":  self.training_rows,
+                "real_rows":      self.real_rows,
                 "mae":            self.mae,
                 "baseline_mae":   self.baseline_mae,
                 "improvement_pct": self.improvement_pct,
                 "residual_p90":   self.residual_p90,
+                "enabled_bands":  sorted(self.enabled_bands),
+                "band_report":    self.band_report,
                 "features":       FEATURES,
+                "label_version":  LABEL_VERSION,
             },
             self.model_path,
         )
@@ -266,20 +273,17 @@ class BusDelayModel:
             return False
         try:
             data = joblib.load(self.model_path)
-            # A model trained on a different feature set can't be used — the
-            # pipeline would be handed the wrong number of columns and raise on
-            # every prediction. Ignore it and retrain. This is what makes a
-            # FEATURES change (e.g. adding wait_min) safe to deploy: the stale
-            # model on disk is discarded automatically on the next start.
-            saved_features = data.get("features")
-            if list(saved_features or []) != FEATURES:
-                logger.warning(
-                    "Saved model was trained on a different feature set "
-                    "(%s vs %d current) — retraining from scratch.",
-                    len(saved_features) if saved_features else "none/legacy", len(FEATURES),
-                )
+            # A model trained on a different feature set or label version
+            # can't be used — ignore it and retrain. This is what makes a
+            # FEATURES change safe to deploy: the stale model on disk is
+            # discarded automatically on the next start.
+            if (list(data.get("features") or []) != FEATURES
+                    or data.get("label_version") != LABEL_VERSION):
+                logger.warning("Saved model uses an older feature set or labels — retraining.")
                 return False
             self._pipeline    = data["pipeline"]
+            self._svc_vocab   = data.get("svc_vocab", {})
+            self._stop_vocab  = data.get("stop_vocab", {})
             self.last_trained = data["last_trained"]
         except Exception as exc:
             # A truncated/incompatible file (disk-full during save, sklearn
@@ -289,116 +293,117 @@ class BusDelayModel:
                          self.model_path, exc)
             return False
         self.training_rows   = data.get("training_rows", 0)
+        self.real_rows       = data.get("real_rows", 0)
         self.mae             = data.get("mae")
         self.baseline_mae    = data.get("baseline_mae")
         self.improvement_pct = data.get("improvement_pct")
         self.residual_p90    = data.get("residual_p90")
-        logger.info("Model loaded  rows=%d  MAE=%.1fs", self.training_rows, self.mae or 0)
+        self.enabled_bands   = set(data.get("enabled_bands") or [])
+        self.band_report     = data.get("band_report") or {}
+        logger.info("Model loaded  rows=%d  MAE=%.1fs  adjusting bands=%s",
+                    self.training_rows, self.mae or 0, sorted(self.enabled_bands))
         return True
 
     # ── Training ──────────────────────────────────────────────────────────────
 
     def train(self, df: pd.DataFrame | None = None) -> None:
         """
-        Train on *df* if provided (real DB data), otherwise use synthetic data.
+        Train on *df*: real labelled rows with NUMERIC_FEATURES plus "svc",
+        "stop", "collection_time" and "delay_seconds".
 
-        Sample weighting:
-        - real rows decay with age (half-life 14 days) so the model tracks
-          current behaviour, with a 3× base weight over synthetic rows
-        - synthetic bootstrap rows fade out as real data accumulates
+        1. Time split: the oldest 80% trains, the newest 20% validates.
+        2. Per wait band, compare model+empirical blend against raw LTA (zero
+           adjustment) on the validation rows; enable only the bands that win.
+        3. Refit on everything for serving.
         """
-        synthetic = _generate_synthetic_data()
+        self.last_trained = datetime.utcnow()
+        if df is None or len(df) < MIN_REAL_ROWS:
+            n = 0 if df is None else len(df)
+            self._pipeline = None
+            self.enabled_bands = set()
+            self.band_report = {}
+            self.real_rows = self.training_rows = n
+            self.mae = self.baseline_mae = self.improvement_pct = None
+            logger.info("Only %d real labels (need %d) — no adjustment, showing raw LTA",
+                        n, MIN_REAL_ROWS)
+            self.save()
+            return
 
-        if df is not None and len(df) >= 50:
-            cols = [c for c in FEATURES + ["delay_seconds", "age_days"] if c in df.columns]
-            df_real = df[cols].dropna(subset=FEATURES + ["delay_seconds"])
-            age = df_real["age_days"].values if "age_days" in df_real.columns else np.zeros(len(df_real))
-            real_w = 3.0 * np.power(0.5, age / 14.0)
-            real_w = np.clip(real_w, 0.25, 3.0)
-            synth_w = max(0.1, 1.0 - len(df_real) / 5000.0)
+        df = df.dropna(subset=NUMERIC_FEATURES + ["delay_seconds"])
+        # Sort on the int64 view: pandas' datetime sort_values crashes under
+        # this venv's numpy 1.26 on Python 3.14.
+        t_ns = pd.to_datetime(df["collection_time"]).values.astype("datetime64[ns]").view("i8")
+        df = df.iloc[np.argsort(t_ns, kind="stable")]
+        df = df.assign(band=[_wait_band(w * 60.0) for w in df["wait_min"]])
+        cut = int(len(df) * (1 - VAL_FRACTION))
+        tr, va = df.iloc[:cut], df.iloc[cut:]
 
-            combined = pd.concat(
-                [synthetic[FEATURES + ["delay_seconds"]], df_real[FEATURES + ["delay_seconds"]]],
-                ignore_index=True,
-            )
-            weights = np.concatenate([np.full(len(synthetic), synth_w), real_w])
-            self.real_rows = len(df_real)
-            logger.info("Training on %d synthetic (w=%.2f) + %d real rows",
-                        len(synthetic), synth_w, len(df_real))
-        else:
-            combined = synthetic
-            weights = np.ones(len(synthetic))
-            self.real_rows = 0
-            logger.info("Training on %d synthetic rows (no real data yet)", len(synthetic))
+        svc_vocab, stop_vocab = _vocab(tr["svc"]), _vocab(tr["stop"])
+        reg = _new_regressor().fit(_matrix(tr, svc_vocab, stop_vocab), tr["delay_seconds"].values)
+        pred = _blend(reg.predict(_matrix(va, svc_vocab, stop_vocab)), va, _empirical_table(tr))
+        pred = np.clip(np.maximum(pred, -va["wait_min"].values * 60.0),
+                       -MAX_ADJUSTMENT_SEC, MAX_ADJUSTMENT_SEC)
+        y = va["delay_seconds"].values
 
-        X = combined[FEATURES].values
-        y = combined["delay_seconds"].values
-
-        X_train, X_val, y_train, y_val, w_train, _w_val = train_test_split(
-            X, y, weights, test_size=0.15, random_state=42)
-
-        # Fit into a local, then publish. predict() runs concurrently from
-        # other threads; assigning the shared attribute before fit() finishes
-        # would expose an unfitted pipeline (NotFittedError) mid-retrain.
-        pipeline = Pipeline([
-            ("scaler", StandardScaler()),
-            ("gbr", GradientBoostingRegressor(
-                n_estimators=200,
-                max_depth=4,
-                learning_rate=0.05,
-                subsample=0.8,
-                random_state=42,
-            )),
-        ])
-        pipeline.fit(X_train, y_train, gbr__sample_weight=w_train)
-        self._pipeline = pipeline
-
-        y_pred = self._pipeline.predict(X_val)
-        self.mae = float(mean_absolute_error(y_val, y_pred))
-
-        # ── Head-to-head: raw LTA vs AI-adjusted ─────────────────────────
+        # ── Head-to-head: raw LTA vs AI-adjusted, per wait band ─────────────
         # The target is the residual (actual − LTA estimate), so "trust LTA
-        # exactly as-is" IS the zero-adjustment prediction. Its error on the
-        # same held-out rows is therefore the honest baseline, and the gap
-        # between the two is the only fair claim we can make about whether
-        # the adjustment helps at all. If improvement isn't clearly positive,
-        # the point adjustment is not worth showing — surface the uncertainty
-        # band instead.
-        self.baseline_mae = float(mean_absolute_error(y_val, np.zeros_like(y_val)))
-        self.improvement_pct = (
-            float((self.baseline_mae - self.mae) / self.baseline_mae * 100.0)
-            if self.baseline_mae > 0 else 0.0
-        )
-        # Spread of the residual — this is what an honest "±" band on the
-        # displayed ETA should be built from.
-        self.residual_p90 = float(np.percentile(np.abs(y_val), 90))
+        # exactly as-is" IS the zero-adjustment prediction.
+        enabled, report = set(), {}
+        bands = va["band"].values
+        for b in range(5):
+            m = bands == b
+            if not m.any():
+                continue
+            lta = float(np.abs(y[m]).mean())
+            ai = float(np.abs(y[m] - pred[m]).mean())
+            gain = (lta - ai) / lta * 100.0 if lta > 0 else 0.0
+            report[b] = {"rows": int(m.sum()), "lta_mae": round(lta, 1),
+                         "ai_mae": round(ai, 1), "gain_pct": round(gain, 1)}
+            if m.sum() >= MIN_BAND_VAL and gain >= MIN_GAIN_PCT:
+                enabled.add(b)
 
-        self.last_trained  = datetime.utcnow()
-        self.training_rows = len(combined)
+        # What riders actually get: the adjustment where enabled, LTA elsewhere.
+        served = np.where(np.isin(bands, list(enabled)), pred, 0.0)
+        self.baseline_mae = float(np.abs(y).mean())
+        self.mae = float(np.abs(y - served).mean())
+        self.improvement_pct = (
+            (self.baseline_mae - self.mae) / self.baseline_mae * 100.0 if self.baseline_mae > 0 else 0.0
+        )
+        # Spread of what's left — what an honest "±" band should be built from.
+        self.residual_p90 = float(np.percentile(np.abs(y - served), 90))
+
+        # Refit on all rows for serving. Fit into locals, then publish:
+        # predict() runs concurrently from other threads.
+        svc_vocab, stop_vocab = _vocab(df["svc"]), _vocab(df["stop"])
+        reg = _new_regressor().fit(_matrix(df, svc_vocab, stop_vocab), df["delay_seconds"].values)
+        self._svc_vocab, self._stop_vocab = svc_vocab, stop_vocab
+        self._pipeline = reg
+        self.enabled_bands, self.band_report = enabled, report
+        self.real_rows = self.training_rows = len(df)
 
         logger.info(
-            "Training complete  rows=%d  AI MAE=%.1fs  raw-LTA MAE=%.1fs  improvement=%+.1f%%",
+            "Training complete  rows=%d  served MAE=%.1fs  raw-LTA MAE=%.1fs  improvement=%+.1f%%  "
+            "adjusting bands=%s  per band=%s",
             self.training_rows, self.mae, self.baseline_mae, self.improvement_pct,
+            sorted(enabled), report,
         )
         self.save()
 
     def load_or_train(self, df: pd.DataFrame | None = None) -> None:
-        """Load a saved model if available; otherwise train from scratch."""
+        """Load a saved model if available; otherwise train from the DB."""
         if not self.load():
-            logger.info("No saved model found — training from scratch")
-            self.train(df)
+            logger.info("No usable saved model — training from the database")
+            if df is not None:
+                self.train(df)
+            else:
+                self.retrain_from_db()
+                return
         self.refresh_empirical()
 
     def refresh_empirical(self) -> None:
         """Rebuild the per (stop, service, wait_band) median-residual table from
         the last 30 days of real observations. Cheap; called after every
-        retrain.
-
-        Banded by distance on purpose: a single median per route would mix
-        readings taken 30 s out with ones taken 15 min out, and blending that
-        average back over the model's prediction would undo the wait_min
-        feature and flatten the output into a per-route constant again.
-        """
+        retrain."""
         from database import SessionLocal, BusArrivalRecord
 
         db = SessionLocal()
@@ -413,6 +418,7 @@ class BusDelayModel:
                 )
                 .filter(
                     BusArrivalRecord.delay_seconds.isnot(None),
+                    BusArrivalRecord.label_v == LABEL_VERSION,
                     BusArrivalRecord.collection_time >= cutoff,
                 )
                 .all()
@@ -433,45 +439,43 @@ class BusDelayModel:
             db.close()
 
     def retrain_from_db(self) -> None:
-        """Pull ground-truth rows from the DB and retrain."""
-        from database import SessionLocal, BusArrivalRecord
+        """Pull ground-truth rows from the DB and retrain.
+
+        Takes an even sample of the last TRAIN_DAYS rather than the newest N
+        rows: at ~90k labels a day, "newest 60k" would be under a day of data
+        and miss weekday/weekend and peak patterns entirely."""
+        from sqlalchemy import func
+        from database import SessionLocal, BusArrivalRecord as R
 
         db = SessionLocal()
         try:
+            labelled = (
+                R.delay_seconds.isnot(None),
+                R.label_v == LABEL_VERSION,
+                R.collection_time >= datetime.utcnow() - timedelta(days=TRAIN_DAYS),
+            )
+            total = db.query(func.count(R.id)).filter(*labelled).scalar() or 0
+            step = max(1, math.ceil(total / TRAIN_SAMPLE))
             rows = (
-                db.query(BusArrivalRecord)
-                .filter(BusArrivalRecord.delay_seconds.isnot(None))
-                .order_by(BusArrivalRecord.collection_time.desc())
-                .limit(30_000)
+                db.query(R.hour_of_day, R.day_of_week, R.bus_load, R.bus_type, R.wait_seconds,
+                         R.bus_service, R.bus_stop_code, R.collection_time, R.delay_seconds)
+                .filter(*labelled, R.id % step == 0)
                 .all()
             )
-            if not rows:
-                self.train()
-                self.refresh_empirical()
-                return
-
-            now = datetime.utcnow()
             records = [
                 {
-                    **build_features(
-                        r.hour_of_day,
-                        r.day_of_week,
-                        r.bus_load or "SEA",
-                        r.bus_type or "SD",
-                        r.bus_service,
-                        r.bus_stop_code,
-                        r.wait_seconds,
-                    ),
-                    "delay_seconds": r.delay_seconds,
-                    "age_days": max(0.0, (now - r.collection_time).total_seconds() / 86400.0)
-                                if r.collection_time else 0.0,
+                    **build_features(hour, dow, load or "SEA", btype or "SD", wait),
+                    "svc": str(svc),
+                    "stop": str(stop),
+                    "collection_time": t,
+                    "delay_seconds": delay,
                 }
-                for r in rows
+                for hour, dow, load, btype, wait, svc, stop, t, delay in rows
             ]
-            self.train(pd.DataFrame(records))
-            self.refresh_empirical()
         finally:
             db.close()
+        self.train(pd.DataFrame(records) if records else None)
+        self.refresh_empirical()
 
     # ── Inference ─────────────────────────────────────────────────────────────
 
@@ -490,24 +494,23 @@ class BusDelayModel:
         estimate is expected to move before the bus arrives. Add it to the LTA
         estimate to get the AI-corrected prediction.
 
-        `wait_sec` (seconds until the current LTA estimate) matters a lot: slip
-        accrues over the journey still ahead, so the same route predicts a big
-        adjustment 12 min out and ~0 when the bus is pulling in.
-
         Two-layer prediction:
-        1. GradientBoosting model (generalises across all routes/stops)
+        1. Gradient boosting model (generalises across all routes/stops)
         2. Empirical median for this (stop, service, wait band), weighted by
            how many real observations back it up
-        Returns 0 if the model is not ready.
+        Returns 0 (trust LTA) if there is no model or the adjustment did not
+        beat LTA for this wait band on held-out days.
         """
-        if self._pipeline is None:
-            return 0.0
-        feats = build_features(hour, day_of_week, bus_load, bus_type,
-                               service_no, stop_code, wait_sec)
-        X = np.array([[feats[f] for f in FEATURES]])
-        adj = float(self._pipeline.predict(X)[0])
-
+        pipeline = self._pipeline
         band = _wait_band(float(wait_sec or 0.0))
+        if pipeline is None or band not in self.enabled_bands:
+            return 0.0
+        feats = build_features(hour, day_of_week, bus_load, bus_type, wait_sec)
+        X = np.array([[feats[f] for f in NUMERIC_FEATURES]
+                      + [self._svc_vocab.get(str(service_no), np.nan),
+                         self._stop_vocab.get(str(stop_code), np.nan)]], dtype=float)
+        adj = float(pipeline.predict(X)[0])
+
         med_n = self._empirical.get((str(stop_code), str(service_no), band))
         if med_n is not None and med_n[1] >= EMPIRICAL_MIN_N:
             median, n = med_n
@@ -533,16 +536,16 @@ class BusDelayModel:
             "real_rows":     self.real_rows,
             "empirical_pairs": len(self._empirical),
             "mae_seconds":   round(self.mae, 1) if self.mae is not None else None,
-            # Head-to-head on the same held-out rows. baseline = trusting the
-            # raw LTA estimate as-is (zero adjustment); ai = after adjustment.
-            # improvement_pct > 0 means the adjustment genuinely helps; if it
-            # hovers around 0, stop showing the adjusted number and lead with
-            # the uncertainty band instead.
+            # Head-to-head on the same held-out (most recent) rows.
+            # baseline = trusting the raw LTA estimate as-is; ai = what is
+            # actually served (adjusted only in enabled bands).
             "baseline_mae_seconds": round(self.baseline_mae, 1) if self.baseline_mae is not None else None,
             "improvement_pct": round(self.improvement_pct, 1) if self.improvement_pct is not None else None,
             "residual_p90_seconds": round(self.residual_p90, 1) if self.residual_p90 is not None else None,
+            "adjusting_wait_bands": sorted(self.enabled_bands),
+            "band_report":   {str(k): v for k, v in self.band_report.items()},
             "target":        "residual slip vs current LTA estimate",
-            "algorithm":     "Gradient boosting + per-route empirical blend",
+            "algorithm":     "Histogram gradient boosting + per-route empirical blend, time-split gated",
             "features":      FEATURES,
         }
 
