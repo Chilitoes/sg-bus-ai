@@ -8,7 +8,10 @@
    badge. ?rain=1 / ?rain=heavy previews it. Reduced-motion: badge only. */
 
 (() => {
-  const URL_ = "https://api.data.gov.sg/v1/environment/rainfall";
+  // v2 has every gauge (~90); the older v1 feed sometimes returns only a
+  // handful, so it's just the fallback.
+  const URL_V2 = "https://api-open.data.gov.sg/v2/real-time/api/rainfall";
+  const URL_V1 = "https://api.data.gov.sg/v1/environment/rainfall";
   const MAX_KM = 8;
   const W = { mm: 0, at: 0, station: null, timer: null, raf: 0, drops: [], canvas: null, badge: null };
   const force = new URLSearchParams(location.search).get("rain");
@@ -31,16 +34,28 @@
     if (force) { set(force === "heavy" ? 2.4 : 0.6, "preview"); return; }
     try {
       if (!data || Date.now() - dataAt > 4.5 * 60e3) {
-        const r = await fetch(URL_, { cache: "no-store" });
-        if (!r.ok) return;
-        data = await r.json(); dataAt = Date.now();
+        data = await loadGauges();
+        if (!data) return;
+        dataAt = Date.now();
       }
       const c = m.getCenter();
-      const st = (data.metadata?.stations || []).map((s) => ({ id: s.id, name: s.name, d: km(c, { lat: s.location.latitude, lng: s.location.longitude }) }))
-        .sort((a, b) => a.d - b.d)[0];
-      const reading = st && st.d <= MAX_KM ? data.items?.[0]?.readings?.find((x) => x.station_id === st.id) : null;
-      set(reading ? Number(reading.value) || 0 : 0, st?.name);
+      const st = data.map((g) => ({ ...g, d: km(c, g) })).sort((a, b) => a.d - b.d)[0];
+      set(st && st.d <= MAX_KM ? st.mm : 0, st?.name);
     } catch { /* keep the last state */ }
+  }
+
+  // → [{ name, lat, lng, mm }] from whichever feed answers with more gauges.
+  async function loadGauges() {
+    const get = (u) => fetch(u, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const v2 = await get(URL_V2);
+    if (v2?.data?.stations?.length > 10) {
+      const by = new Map((v2.data.readings?.[0]?.data || []).map((x) => [x.stationId, Number(x.value) || 0]));
+      return v2.data.stations.map((s) => ({ name: s.name, lat: s.location.latitude, lng: s.location.longitude, mm: by.get(s.id) ?? 0 }));
+    }
+    const v1 = await get(URL_V1);
+    if (!v1) return null;
+    const by = new Map((v1.items?.[0]?.readings || []).map((x) => [x.station_id, Number(x.value) || 0]));
+    return (v1.metadata?.stations || []).map((s) => ({ name: s.name, lat: s.location.latitude, lng: s.location.longitude, mm: by.get(s.id) ?? 0 }));
   }
 
   function set(mm, station) {

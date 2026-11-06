@@ -29,7 +29,7 @@ const DISPLAY_KEY = "sgbus_display_name";
 //   PATCH  → bug fixes & small tweaks (bumped on most pushes)
 // Bump this on every push and keep the <span id="stg-version-val"> in
 // index.html in sync.
-const APP_VERSION = "1.2.63";
+const APP_VERSION = "1.2.64";
 
 const POPULAR = [
   { code: "83139", description: "Bedok Int" },
@@ -1882,13 +1882,13 @@ function _armAlert(stop, svc, buses, skipIso = null) {
 function toggleAlert(stop, svc) {
   if (!stop || !svc) return;
   if (_alertActive(stop, svc)) {
-    _clearAlert(stop, svc);
-    toast(`Alert off for bus ${svc}`);
-    _syncAlertBtns();
+    showConfirm(`Turn off the alert for bus <b>${esc(svc)}</b>?`, "Turn off", () => {
+      _clearAlert(stop, svc);
+      toast(`Alert off for bus ${svc}`);
+      _syncAlertBtns();
+    }, { cancelLabel: "Keep it" });
     return;
   }
-  // Ask for notification permission inside the tap (iPhone requires a gesture).
-  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
   const buses = (S.lastArrivals?.stop === stop ? S.lastArrivals.data.services?.find((x) => x.service_no === svc)?.buses : null) || [];
   const first = buses[0], firstSecs = first ? secsUntil(parseUTC(first.api_arrival)) : null;
   // Already inside the 1-minute mark: a ping now would be pointless. Say so,
@@ -1900,7 +1900,12 @@ function toggleAlert(stop, svc) {
       "Ping next bus", () => _armAlert(stop, svc, buses, first.api_arrival), { cancelLabel: "No thanks" });
     return;
   }
-  _armAlert(stop, svc, buses);
+  const mins = firstSecs != null ? Math.max(1, Math.round(firstSecs / 60)) : null;
+  showConfirm(`Ping you about 1 minute before bus <b>${esc(svc)}</b> arrives${mins ? ` (due in ${mins} min)` : ""}?`, "Set alert", () => {
+    // Ask for notification permission inside the tap (iPhone requires a gesture).
+    if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+    _armAlert(stop, svc, buses);
+  });
 }
 
 // Reflect alert state on the rendered buttons without a full re-render.
