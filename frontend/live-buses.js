@@ -464,7 +464,7 @@
   const C = {
     green: 0x5aae2e, greenDark: 0x3f8a22, white: 0xeef1ee, roof: 0xd9dedb, glass: 0x1b2730,
     door: 0x22313a, black: 0x141516, tyre: 0x1d1d1f, head: 0xfff6cf, tail: 0xd2262c, bellows: 0x3a3d42,
-    pillar: 0x3b444b, hub: 0x9aa1a6,
+    pillar: 0x3b444b, hub: 0x9aa1a6, ddRoof: 0x3f8a22, pod: 0xb9c2c8, rib: 0x2a2c30,
   };
 
   // One merged, vertex-coloured geometry per bus type. Units: metres, x =
@@ -489,19 +489,22 @@
       box(L, W, 0.45, x0, 0, 0.3 + 0.225, C.greenDark);                 // skirt
       box(L, W, dd ? 0.75 : 0.9, x0, 0, dd ? 1.125 : 1.2, C.green);      // lower body
       if (dd) {
+        // Double-decker: much taller, two clear window decks, green roof
+        // (so it stands out from above too), wraparound upper-deck front.
         pillars(L, x0, 1.975, 0.95, doors);
-        pillars(L, x0, 3.35, 1.0, []);
+        pillars(L, x0, 3.55, 1.25, []);
         box(L, W + 0.02, 0.95, x0, 0, 1.975, C.glass);                   // lower deck windows
-        box(L, W, 0.4, x0, 0, 2.65, C.green);                            // between decks
-        box(L, W + 0.02, 1.0, x0, 0, 3.35, C.glass);                     // upper deck windows
-        box(L, W, 0.3, x0, 0, 4.0, C.white);                             // roof band
-        box(L - 0.3, W - 0.2, 0.14, x0, 0, 4.22, C.roof);                // roof
+        box(L, W, 0.6, x0, 0, 2.75, C.green);                            // between decks
+        box(L, W + 0.02, 1.25, x0, 0, 3.675, C.glass);                   // upper deck windows
+        box(L, W, 0.3, x0, 0, 4.45, C.green);                            // roof band
+        box(L - 0.3, W - 0.2, 0.16, x0, 0, 4.68, C.ddRoof);              // roof
+        if (front) box(0.06, W - 0.1, 1.2, x0 + hx + 0.03, 0, 3.675, C.glass);   // panoramic upper front
       } else {
         pillars(L, x0, 2.175, 1.05, doors);
         box(L, W + 0.02, 1.05, x0, 0, 2.175, C.glass);                   // window band
         box(L, W, 0.32, x0, 0, 2.86, C.white);                           // roof band
         box(L - 0.3, W - 0.2, 0.14, x0, 0, 3.09, C.roof);                // roof
-        if (front) box(3.2, 1.8, 0.28, x0 + hx - 4.2, 0, 3.3, C.roof);   // aircon pod
+        if (front) box(3.2, 1.8, 0.34, x0 + hx - 4.2, 0, 3.33, C.pod);   // aircon pod
       }
       if (front) {
         const top = dd ? 2.45 : 2.66;
@@ -523,14 +526,19 @@
     };
     let len;
     if (type === "BD") {
-      // Articulated: 12 m front section + bellows + 6 m trailer.
-      section(11.6, 3.1, { front: true, rear: false, doors: [5.0, 0.6] });
-      box(0.9, 2.3, 2.5, -3.2, 0, 1.6, C.bellows);
-      section(5.8, -6.55, { front: false, rear: true, doors: [0.4] });
-      wheel(3.1 + 5.8 - 2.5, 1.12); wheel(3.1 + 5.8 - 2.5, -1.12);
-      wheel(3.1 - 5.8 + 2.6, 1.12); wheel(3.1 - 5.8 + 2.6, -1.12);
-      wheel(-6.55 - 1.4, 1.12); wheel(-6.55 - 1.4, -1.12);
-      len = 18.3;
+      // Bendy, front half: 11.6 m section + a black ribbed accordion joint.
+      // (The trailer is a separate model — "BDt" — so it can bend.)
+      section(11.6, 0, { front: true, rear: false, doors: [5.0 - 3.1, 0.6 - 3.1] });
+      for (let k = 0; k < 5; k++) box(0.14, 2.42, 2.9, -5.95 - k * 0.18, 0, 1.75, k % 2 ? C.rib : C.bellows);
+      box(0.4, 2.2, 0.2, -6.3, 0, 3.25, C.rib);
+      wheel(5.8 - 2.5, 1.12); wheel(5.8 - 2.5, -1.12);
+      wheel(-5.8 + 2.6, 1.12); wheel(-5.8 + 2.6, -1.12);
+      len = 12.5;
+    } else if (type === "BDt") {
+      section(5.8, 0, { front: false, rear: true, doors: [0.4] });
+      box(0.3, 2.42, 2.9, 2.95, 0, 1.75, C.bellows);
+      wheel(-1.4, 1.12); wheel(-1.4, -1.12);
+      len = 5.8;
     } else {
       const L = type === "DD" ? 11.3 : 12.0;
       section(L, 0, { dd: type === "DD", doors: [L / 2 - 1.5, -0.4] });
@@ -553,7 +561,7 @@
     geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
     geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-    return { geo, len, signZ: type === "DD" ? 2.6 : 2.81, front: type === "BD" ? 3.1 + 5.8 : (type === "DD" ? 11.3 : 12) / 2 };
+    return { geo, len, signZ: type === "DD" ? 2.75 : 2.81, front: type === "BD" ? 5.8 : (type === "DD" ? 11.3 : 12) / 2 };
   }
 
   // Amber LED destination sign showing the service number.
@@ -578,7 +586,7 @@
       scene.add(new THREE.AmbientLight(0xffffff, 0.62));
       const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.position.set(-0.6, -0.8, 1.4); scene.add(sun);
       const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
-      const models = { SD: buildBus(THREE, "SD"), DD: buildBus(THREE, "DD"), BD: buildBus(THREE, "BD") };
+      const models = { SD: buildBus(THREE, "SD"), DD: buildBus(THREE, "DD"), BD: buildBus(THREE, "BD"), BDt: buildBus(THREE, "BDt") };
       LB.three = { THREE, scene, camera: new THREE.Camera(), mat, models, renderer: null };
     }
     if (!map.getLayer("sg-live-buses")) {
@@ -608,9 +616,16 @@
     const g = new THREE.Group();
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(m.len + 2.2, 4.4),
       new THREE.MeshBasicMaterial({ map: shadowTexture(THREE), transparent: true, depthWrite: false }));
-    shadow.position.set(b.type === "BD" ? -0.3 : 0, 0, 0.04);
+    shadow.position.set(0, 0, 0.04);
     g.add(shadow);
     g.add(new THREE.Mesh(m.geo, mat));
+    if (b.type === "BD") {
+      const t = new THREE.Group();
+      const ts = new THREE.Mesh(new THREE.PlaneGeometry(5.8 + 2, 4.4), shadow.material); ts.position.z = 0.04;
+      t.add(ts); t.add(new THREE.Mesh(models.BDt.geo, mat));
+      g.add(t);
+      g.userData.trailer = t;
+    }
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 0.3), new THREE.MeshBasicMaterial({ map: signTexture(THREE, b.svc) }));
     sign.geometry.rotateZ(Math.PI / 2); sign.geometry.rotateY(Math.PI / 2);
     sign.position.set(m.front + 0.06, 0, m.signZ);
@@ -649,7 +664,21 @@
           b.obj.position.set(b.pos.x, b.pos.y, 0);
           b.obj.rotation.z = Math.PI / 2 - b.pos.heading;
           const fade = b.leaving ? Math.max(0.05, 1 - (Date.now() - b.leaving) / LEAVE_MS) : 1;
-          b.obj.scale.setScalar((LB.sel === b.id ? k * 1.25 : k) * fade);
+          const sc = (LB.sel === b.id ? k * 1.25 : k) * fade;
+          b.obj.scale.setScalar(sc);
+          // Bendy: put the trailer on the road behind, so it bends on corners.
+          const tr = b.obj.userData.trailer;
+          if (tr) {
+            const back = 9.6 * sc;   // centre-to-centre, scaled like the bus
+            const p2 = b.isRide && LB.ride ? rideAt(LB.ride.path, LB.ride.sDisp - back)
+              : b.path ? pointAt(b.path, (b.sDisp ?? 0) + (b.qOff || 0) + back) : null;
+            if (p2) {
+              const rot = b.obj.rotation.z, dx = p2.x - b.pos.x, dy = p2.y - b.pos.y;
+              const c = Math.cos(-rot), s2 = Math.sin(-rot);
+              tr.position.set((dx * c - dy * s2) / sc, (dx * s2 + dy * c) / sc, 0);
+              tr.rotation.z = (Math.PI / 2 - p2.heading) - rot;
+            }
+          }
         }
         T.renderer.resetState();
         // Buses are drawn over the buildings (depth cleared first) so a bus
